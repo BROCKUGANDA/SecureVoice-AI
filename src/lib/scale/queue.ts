@@ -448,10 +448,7 @@ export async function failDialJob(args: {
       const deferred = await db.$queryRaw<{ retries: number }[]>`
         UPDATE "dial_job"
            SET state = 'PENDING', "available_at" = ${availableAt}, claimed_by = NULL,
-               lease_expires_at = NULL,
-               last_error = CASE WHEN "last_error" = 'dial_in_flight'
-                                 THEN 'dial_in_flight: ' ELSE '' END || ${error},
-               updated_at = now()
+               lease_expires_at = NULL, last_error = ${error}, updated_at = now()
          WHERE id = ${args.id} AND state = 'CLAIMED'
         RETURNING retries
       `;
@@ -463,10 +460,7 @@ export async function failDialJob(args: {
     }
     const rows = await db.$queryRaw<{ retries: number }[]>`
       UPDATE "dial_job"
-         SET retries = retries + 1,
-             last_error = CASE WHEN "last_error" = 'dial_in_flight'
-                               THEN 'dial_in_flight: ' ELSE '' END || ${error},
-             updated_at = now()
+         SET retries = retries + 1, last_error = ${error}, updated_at = now()
        WHERE id = ${args.id} AND state = 'CLAIMED'
       RETURNING retries
     `;
@@ -697,6 +691,55 @@ export async function markDialStarted(jobId: string, workerId: string): Promise<
     return rows.length === 1;
   } catch (err) {
     return rethrow(err, "markDialStarted");
+  }
+}
+
+/**
+ * Clear the in-flight marker — the carrier REFUSED, so nothing was placed.
+ *
+ * ── Why this exists, and why the marker is not simply "preserved" ───────────
+ *
+ * The marker says "a carrier call may already have been placed", and it is
+ * written immediately before the provider call. It exists for the case the
+ * application cannot report on: the worker DIED between the marker and the
+ * outcome. Nothing ran, so nothing was written, and the bare marker is what
+ * the next claim finds — which is exactly the signal to refuse to redial.
+ *
+ * Preserving the marker on every RECORDED failure, though, broke the attempt
+ * ladder. A provider that ANSWERED with a 4xx had placed nothing at all, and
+ * retrying that is what the ladder is for — but the preserved marker made the
+ * next attempt look like an unknown outcome, so the job dead-lettered after
+ * ONE real call instead of climbing to `MAX_DIAL_ATTEMPTS`, and the customer
+ * got a "we couldn't reach you" text instead of a second attempt at a voice
+ * call.
+ *
+ * So the two are separated by WHO KNOWS:
+ *
+ *   · The provider REFUSED (a 4xx) — the worker saw the answer, so it clears
+ *     the marker here and the ladder applies as it always did.
+ *   · The provider did NOT answer (a 5xx, a timeout) — the call may be
+ *     ringing, so the worker does NOT clear the marker, does NOT retry, and
+ *     the job dead-letters to the SMS fallback.
+ *   · The worker died — nothing ran, the bare marker survives, and the next
+ *     claim refuses to redial.
+ *
+ * The CAS is the same ownership check as `markDialStarted`: a worker that
+ * lost the row must not clear the marker, and a false return means "we do not
+ * own this any more" — which is the safe direction, because the marker stays
+ * and the next claim refuses to redial.
+ */
+export async function clearDialInFlight(jobId: string, workerId: string): Promise<boolean> {
+  try {
+    const rows = await db.$queryRaw<{ id: string }[]>`
+      UPDATE "dial_job"
+         SET "last_error" = NULL, "updated_at" = now()
+       WHERE id = ${jobId} AND state = 'CLAIMED' AND "claimed_by" = ${workerId}
+         AND "last_error" = ${DIAL_IN_FLIGHT}
+      RETURNING id
+    `;
+    return rows.length === 1;
+  } catch (err) {
+    return rethrow(err, "clearDialInFlight");
   }
 }
 

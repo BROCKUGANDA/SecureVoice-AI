@@ -25,6 +25,7 @@ import { randomUUID } from "node:crypto";
 import {
   drainDialQueue,
   markDialStarted,
+  clearDialInFlight,
   renewClaim,
   DIAL_IN_FLIGHT,
   type DialJob,
@@ -210,6 +211,48 @@ export function shouldSkipRedial(
 }
 
 /**
+ * Did the provider ANSWER, or did it simply fail?
+ *
+ * ── Why the distinction decides whether the customer is called again ─────────
+ *
+ * A carrier call that crosses the provider boundary can end in three ways, and
+ * only two of them are failures:
+ *
+ *   1. The provider REFUSED it (a 4xx). It answered, and what it said was
+ *      "no". Nothing was placed, the customer's phone did not ring, and the
+ *      attempt ladder is exactly the mechanism for trying again. A 429 or a
+ *      503 from the provider's own edge is the same answer.
+ *   2. The provider FAILED without answering (a 5xx, a timeout, a socket
+ *      reset). The request may have been accepted and the response lost, so
+ *      the call MAY already be ringing on the customer's phone. Re-dialling
+ *      would ring a customer twice, which on a fraud intervention is the
+ *      failure that teaches people to ignore the number.
+ *   3. The provider accepted it and the call is in progress. Not a failure.
+ *
+ * The provider's own status code tells us which of 1 and 2 happened, because
+ * both planes put it in the message: `placeOutboundCall` throws
+ * `ElevenLabs outbound-call <status>: …` and the worker throws
+ * `twilio dial refused (status <status>): …` for the Twilio plane.
+ *
+ * A 4xx is an ANSWER. Everything else — a 5xx, a network error, a message
+ * with no status in it at all — is the absence of one, and the absence of an
+ * answer is what must not be retried.
+ */
+export function providerAnswered(message: string): boolean {
+  // The three spellings the two planes use:
+  //   `twilio dial refused (status 400): …`
+  //   `ElevenLabs outbound-call 404: …`
+  //   `Twilio 500`
+  // The gap between the word and the digits is bounded so a number further
+  // along the message — a body echoing a case ref, say — cannot be mistaken
+  // for the status.
+  const m = /(?:status|outbound-call|refused|twilio)\D{0,12}(\d{3})/i.exec(message);
+  if (!m) return false;
+  const status = Number(m[1]);
+  return status >= 400 && status < 500;
+}
+
+/**
  * Place one call.
  *
  * The recovery checks come first. If the case already carries a conversation id,
@@ -220,6 +263,17 @@ export function shouldSkipRedial(
  */
 async function handle(job: DialJob): Promise<DialOutcome> {
   const payload = parsePayload(job);
+  /**
+   * Has this job been handed to the carrier yet?
+   *
+   * Set when the in-flight marker is written — that is, immediately before the
+   * provider call. It is what makes the difference between a failure the
+   * ladder may retry and a failure whose outcome is unknowable, so it is
+   * tracked rather than inferred from the error message: the provider's
+   * message says what the PROVIDER thought, and only the marker says what WE
+   * did.
+   */
+  let providerCallStarted = false;
 
   // A reclaimed job carrying this marker is the one case the lease cannot
   // resolve: a previous worker reached the provider boundary and stopped. The
@@ -500,6 +554,9 @@ async function handle(job: DialJob): Promise<DialOutcome> {
       if (!marked) {
         return { ok: false, error: "claim lost immediately before dial", retryable: true };
       }
+      // The marker is durable, so from here on a failure is a failure of the
+      // CARRIER CALL and not of our own preparation.
+      providerCallStarted = true;
     }
 
     // Both planes must report the truth about the carrier. `placeOutboundCall`
@@ -728,10 +785,56 @@ async function handle(job: DialJob): Promise<DialOutcome> {
       meta: { jobId: job.id, attemptNo: job.attempt_no, retries: job.retries },
       orgId: job.org_id ?? undefined,
     }).catch(() => {});
+
+    // ── Was the call PLACED? ─────────────────────────────────────────────────
+    //
+    // `crossedBoundary` is true when the failure happened after the marker was
+    // written — that is, after the job was handed to the provider. Only then
+    // is the carrier's answer, or its silence, the question.
+    //
+    // Before the boundary (a bad payload, a closed breaker, a case that
+    // vanished) nothing was handed over, so the ordinary ladder applies and
+    // there is no marker to clear.
+    const crossedBoundary = providerCallStarted;
+    // The provider ANSWERED and refused: nothing was placed, and the ladder
+    // may try again. A 4xx is an answer.
+    const answered = crossedBoundary && providerAnswered(message);
+    // The provider did not answer: a 5xx, a timeout, a socket reset. The call
+    // MAY already be ringing on the customer's phone, so this attempt is the
+    // last one.
+    const unknownOutcome = crossedBoundary && !answered;
+
     // Retryable: a busy signal or a transient provider error is worth another
     // attempt; a rejected number is not, and retrying it wastes quota.
     const permanent = /not a valid|invalid|not.*reachable|permission/i.test(message);
-    return { ok: false, error: message.slice(0, 300), retryable: !permanent };
+
+    // The provider REFUSED, so nothing was placed: clear the marker and let
+    // the ladder do its job. This is the one case where the marker is
+    // actively wrong — it would make the next attempt look like an unknown
+    // outcome and stop a call that never happened.
+    if (answered && job.claimed_by) {
+      const cleared = await clearDialInFlight(job.id, job.claimed_by);
+      if (!cleared) {
+        // We no longer own the row, or the marker was not ours to clear. The
+        // marker stays, and the next claim refuses to redial — the safe
+        // direction, because we no longer know what happened to that call.
+        return {
+          ok: false,
+          error: `claim lost while clearing the in-flight marker; not retrying: ${message.slice(0, 200)}`,
+          retryable: false,
+        };
+      }
+    }
+
+    return {
+      ok: false,
+      error: message.slice(0, 300),
+      // A call whose outcome is UNKNOWN is never retried: the ladder's whole
+      // job is to try again, and "again" is exactly what would ring the
+      // customer twice. It dead-letters to the SMS fallback instead, which
+      // still reaches the customer and still tells the bank.
+      retryable: !permanent && !unknownOutcome,
+    };
   }
 }
 

@@ -795,7 +795,14 @@ model DialJob {
   /// The pilot's daily-cap counter filters on the organisation and a day
   /// window, and has no `state` predicate -- so none of the indexes above is
   /// usable for it and the count was a sequential scan on the dial hot path.
+  ///
+  /// TWO indexes, because the counter's window is a UNION: "admitted today"
+  /// (created_at) OR "settled today" (completed_at). One index can only serve
+  /// one arm of that disjunction; with a single index the completed_at arm
+  /// degrades to a filter over every row the organisation has ever queued.
+  /// Postgres will use both as a BitmapOr, and the count stays an index scan.
   @@index([orgId, createdAt], map: "dial_job_org_id_created_at_idx")
+  @@index([orgId, completedAt], map: "dial_job_org_id_completed_at_idx")
   @@map("dial_job")
 }
 

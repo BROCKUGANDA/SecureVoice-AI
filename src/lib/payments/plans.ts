@@ -108,17 +108,38 @@ const PRICE_KEY_TO_PLAN: Readonly<Record<string, string>> = Object.freeze(
 /**
  * The MONTHLY reading of each amount, for a key that carries no interval.
  *
- * The historical fallback. `usd_2500000` with no interval is ambiguous in the
- * current card — it is Enterprise's monthly amount AND Starter's annual
- * amount — and this table answers it as Enterprise, because "the amount" has
- * historically meant the monthly price. A key that means an annual price
- * SHOULD carry its interval, and every key this repository writes does.
+ * The historical fallback, and it is deliberately INCOMPLETE.
+ *
+ * `usd_2500000` with no interval is ambiguous in the current card: it is
+ * Enterprise's monthly amount AND Starter's annual amount ($2,500 x 10). A key
+ * that names no interval cannot say which it means, so this table does not
+ * answer for it at all — the lookup returns null and the caller falls back to
+ * the deployment's default allowance.
+ *
+ * The alternative was to pick one of the two, and every choice of one is
+ * wrong for the other: answering "enterprise" would rate a Starter annual
+ * subscriber as Enterprise, with Enterprise's 10,000-intervention allowance and
+ * Enterprise's overage rate. A refusal is recoverable and a wrong plan is a
+ * mis-bill on every invoice, so the ambiguous amount is simply absent.
+ *
+ * Every key this repository writes carries its interval — `usd_250000_month`
+ * and `usd_2500000_yearly` — and the interval is what disambiguates them.
  */
 const MONTHLY_AMOUNT_TO_PLAN: Readonly<Record<string, string>> = Object.freeze(
   (() => {
     const out: Record<string, string> = {};
+    const claimedBy = new Map<string, string>();
     for (const plan of PLANS) {
-      if (plan.monthlyUsd !== null) out[`usd_${plan.monthlyUsd * 100}`] = plan.id;
+      if (plan.monthlyUsd === null) continue;
+      const amount = `usd_${plan.monthlyUsd * 100}`;
+      if (claimedBy.has(amount)) {
+        // Two plans, one amount. The interval-bearing table above resolves
+        // them; this one refuses to.
+        delete out[amount];
+        continue;
+      }
+      claimedBy.set(amount, plan.id);
+      out[amount] = plan.id;
     }
     return out;
   })(),

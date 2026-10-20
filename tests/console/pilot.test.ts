@@ -199,7 +199,53 @@ describe("GET /api/console/pilot — status", () => {
       expect(body.pilot!.mode).toBe("off"); // unset PILOT_MODE is "off"
       expect(body.pilot!.killSwitch.engaged).toBe(false);
       expect(body.pilot!.killSwitch.databaseAvailable).toBe(true);
+      // The kill switch is PLATFORM-wide, so a tenant-scoped operator must be
+      // told they cannot flip it — the console shows the button only when the
+      // caller may, and a control that answers 403 teaches people the console
+      // is lying.
+      expect(body.pilot!.canFlipKillSwitch).toBe(false);
     } finally {
+      session.orgId = null;
+    }
+  });
+
+  slowTest("an org-less session MAY flip the platform kill switch", async () => {
+    session.orgId = null;
+    try {
+      const res = await getPilot();
+      expect(res.status).toBe(200);
+      const body = await readJson(res);
+      expect(body.pilot!.canFlipKillSwitch).toBe(true);
+    } finally {
+      session.orgId = null;
+    }
+  });
+
+  slowTest("the status lists the cases waiting for a human decision", async () => {
+    // Phase 1's defining rule is "a human approves every dial", so the queue of
+    // cases waiting for that approval IS the pilot's work item. A case is
+    // waiting when it has a PENDING dial job and no approval row for the
+    // attempt that job is on.
+    session.orgId = ORG;
+    const caseRef = `PILOT-WAIT-${Date.now().toString(36).toUpperCase()}`;
+    await db.$executeRawUnsafe(
+      `INSERT INTO "dial_job" (id, case_id, case_ref, org_id, attempt_no, retries, state, priority, payload, available_at, created_at, updated_at)
+       VALUES (gen_random_uuid()::text, $1, $2, $3, 1, 0, 'PENDING', 0, '{}', now(), now(), now())`,
+      caseRef,
+      caseRef,
+      ORG,
+    );
+    try {
+      const res = await getPilot();
+      const body = await readJson(res);
+      const waiting = body.pilot!.waiting ?? [];
+      expect(
+        waiting.some((w: { caseRef: string }) => w.caseRef === caseRef),
+        `the waiting case is not listed: ${JSON.stringify(waiting)}`,
+      ).toBe(true);
+      expect(body.pilot!.waitingCount).toBeGreaterThan(0);
+    } finally {
+      await db.$executeRawUnsafe(`DELETE FROM "dial_job" WHERE "case_ref" = $1`, caseRef);
       session.orgId = null;
     }
   });

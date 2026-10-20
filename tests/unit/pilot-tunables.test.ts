@@ -190,6 +190,107 @@ describe("the tunables are not constants in the source", () => {
     });
   }
 
+  /**
+   * The other half of the same risk, and the half that actually bit.
+   *
+   * A FORBIDDEN literal catches a value that was put BACK into the source. It
+   * does not catch a FILE that was reverted wholesale — the file goes back to
+   * a version that hardcodes the value under a different spelling, or to a
+   * version that predates the setting entirely, and the literal check either
+   * misses it or fires on the wrong thing.
+   *
+   * That is not hypothetical. The promotion ladder merges branches by taking
+   * one side's CONTENT, and a merge that takes the other side's older copy of
+   * a file silently reverts whatever that file had. It happened: two files of
+   * the pilot surface went back to their pre-config versions on `dev`, and the
+   * only thing that noticed was this suite.
+   *
+   * So the gate is POSITIVE as well: the file that OWNS a setting must still
+   * READ it. A revert removes the reference, the reference is what is
+   * asserted, and the branch goes red instead of quietly shipping the old
+   * behaviour.
+   */
+  const REQUIRED: Array<{ file: string; reference: string; why: string }> = [
+    {
+      file: "src/lib/pilot/mode.ts",
+      reference: "env.pilotSwitchCacheMs",
+      why: "the kill switch's cache window",
+    },
+    {
+      file: "src/lib/pilot/mode.ts",
+      reference: "env.pilotBlockRetryMinMs",
+      why: "the blocked-dial retry floor",
+    },
+    {
+      file: "src/lib/pilot/mode.ts",
+      reference: "env.pilotBlockRetryMaxMs",
+      why: "the blocked-dial retry ceiling",
+    },
+    {
+      file: "src/lib/pilot/mode.ts",
+      reference: "env.pilotShadowRetryMs",
+      why: "the shadow-mode wait",
+    },
+    {
+      file: "src/lib/pilot/mode.ts",
+      reference: "env.pilotCharterRetryMs",
+      why: "the charter-refusal wait",
+    },
+    {
+      file: "src/app/api/console/pilot/route.ts",
+      reference: "env.pilotWaitingListLimit",
+      why: "the waiting list's bound",
+    },
+    {
+      file: "src/views/PilotPanel.tsx",
+      reference: "PILOT_POLL_INTERVAL_MS",
+      why: "the panel's refresh",
+    },
+    {
+      file: "src/worker/dial.ts",
+      reference: "env.dialWorkerCallLeaseMs",
+      why: "the dial worker's call lease",
+    },
+    {
+      file: "src/worker/dial.ts",
+      reference: "env.breakerFailureThreshold",
+      why: "the breaker's threshold",
+    },
+    {
+      file: "src/worker/dial.ts",
+      reference: "env.breakerHalfOpenProbes",
+      why: "the breaker's probe count",
+    },
+  ];
+
+  for (const r of REQUIRED) {
+    test(`${r.file} still READS ${r.reference} — ${r.why}`, () => {
+      const src = read(r.file);
+      expect(
+        src.includes(r.reference),
+        `${r.file} no longer reads ${r.reference}: the file was reverted to a version that does not have the setting`,
+      ).toBe(true);
+    });
+  }
+
+  test("the config module declares every setting the pilot reads", () => {
+    const src = read("src/lib/config.ts");
+    for (const name of [
+      "PILOT_SWITCH_CACHE_MS",
+      "PILOT_BLOCK_RETRY_MIN_MS",
+      "PILOT_BLOCK_RETRY_MAX_MS",
+      "PILOT_SHADOW_RETRY_MS",
+      "PILOT_CHARTER_RETRY_MS",
+      "PILOT_WAITING_LIST_LIMIT",
+      "PILOT_CAP_RESET_FLOOR_SEC",
+      "DIAL_WORKER_CALL_LEASE_MS",
+      "BREAKER_FAILURE_THRESHOLD",
+      "BREAKER_HALF_OPEN_PROBES",
+    ]) {
+      expect(src.includes(`"${name}"`), `src/lib/config.ts no longer declares ${name}`).toBe(true);
+    }
+  });
+
   test("the deploy script declares its tunables by NAME", () => {
     // The deploy script runs ON the production box, so a constant in it is a
     // decision that needs a code change on the box. The names are the contract

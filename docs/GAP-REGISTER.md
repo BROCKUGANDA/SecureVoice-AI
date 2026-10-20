@@ -3875,3 +3875,113 @@ workers' own pool-budget log) while the compose `db` container is a vestigial lo
 nothing. An empty table from the wrong database is the most convincing kind of wrong answer this
 register keeps meeting. It agrees with the hypothesis, it arrives instantly, and a `0` from a system
 that could not have produced a non-zero is not a measurement.
+
+### 62. The LiteLLM rung is removed, not merely switched off
+
+§41 measured the proxy rung and found it could not fail independently of Groq; §51 recorded the owner's
+decision that no second provider would be funded and the item was closed. Closing a decision in prose
+does not close it in the tree, though: compose still defined the service, `src/lib/config.ts` still
+exposed six getters, the worker still received four `LITELLM_*` variables, and the integration checker
+still probed a host that has never run. A profile-gated service one flag away from starting is not
+retired; it is parked.
+
+The production facts that made removal safe were re-confirmed before editing: the box's `.env` contains
+no `LITELLM_*` variable, and `docker compose ps -a` lists no litellm container at all — not running,
+not stopped, never created. So no live turn could have been answered by this rung.
+
+What changed, and why each piece had to go with the others:
+
+- `src/lib/llm.ts` — the `Provider` union and `ProviderConfig` dropped `lite_llm` and its six fields;
+  `providerLadder` and `providerAttempts` now build only Groq and Gemini; `adapterProviderFor` no longer
+  maps a proxy name; the BYOK fallback endpoint is Gemini's. A getter with no ladder branch is dead, and
+  a ladder branch with no getter does not compile, so the two were removed together.
+- `src/lib/config.ts` — all six LiteLLM getters deleted.
+- `src/lib/operator/model-layer.ts` — the console cascade is now `groq -> gemini`, matching
+  `provider()`; leaving `lite_llm` in the display would have reported a rung that cannot answer.
+- `docker-compose.yml` — the service block, its `llm-proxy` profile and the worker's four env lines
+  removed. `checkServiceInventory` passed before and after because the `INFRA` allowlist entry was
+  removed in the same change; that gate fails when `INFRA` names a service compose no longer defines,
+  which is the guard that keeps a removal from leaving a phantom.
+- `.env.example` — the section is a retirement note, not an instruction. It says what a re-add needs:
+  a funded upstream distinct from Groq's and a model registered on it.
+- `scripts/integrations-check.mjs` and `scripts/drift-gates.mjs` — the vendor probe and the inventory
+  classification removed.
+- Tests — the precedence suite now pins `GROQ > GEMINI` and null; the failover suite drives
+  `groq -> gemini` and still asserts the BYOK override has no tail; the operator e2e expects the
+  two-name cascade. The no-OpenAI-host assertions remain, because that requirement did not retire.
+
+**Verified, not assumed.** `bunx tsc --noEmit -p tsconfig.json` clean; the two LLM suites 19/19 and the
+operator e2e 1/1; `bun scripts/drift-gates.mjs repo` reports no drift (13 services = 7 rolled + 5 infra
+
+- 1 one-shot + 1 profile-gated); no `litellm` or `lite_llm` identifier remains under `src/`.
+
+**What a future rung must clear.** It has to fail independently of rung 1 — a different vendor, key,
+rate limit and model — or it is a slower way to reach the same outage. The box has no GPU, so the
+upstream is a funded provider, not a local model. And the credential must be stored by an operator:
+`secrun` can read a secret but cannot create one, which is why §41's blocker was never solvable from
+code alone.
+
+### 63. The voice audition is now one click per candidate; production still speaks as six people
+
+The 36 clips from 2026-10-19 are real and distinct: every file hashes differently. The byte-size
+collisions that looked suspicious are CBR padding, not duplicate audio — the distinction now has an
+instrument rather than an argument, because `scripts/voice-audition.mjs` hashes each returned buffer and
+fails if the same bytes come back for two different requests.
+
+Three stale facts were corrected in the tool, all measured against the vendor on 2026-10-20:
+
+- The account holds **25** voices, not 23.
+- The labels carry gender, age, accent and native language, but nothing states which of this product's
+  six delivery languages a voice can speak. The top-level `language` field is inconsistent (some `en`,
+  some the native language), so it is not a capability claim.
+- The `--list` output now prints the labels it actually has instead of asserting that every voice is
+  labelled `language: en`.
+
+Six concatenated playlists were built from the same clips (stream copy, no second synthesis), named
+`<candidate>-all-six.mp3` in `.voice-audition/`, duration 18.1-19.4 s, each verified to decode without
+error. `.voice-audition/LISTEN.md` now points at them and records the order of the six languages.
+
+The production slots were re-read from the box and resolved against the vendor API the same day: they
+are still six different people — Sarah (en), George (ar), Alice (hi), Brian (ur), Roger (fr) and Matilda
+(sw). Choosing which one voice replaces all six is the owner's listening decision and is not derivable
+from code. Applying a choice is an `.env` edit plus recreation of **both** consumers: the app container
+and `voice-stream-worker`. The worker owns in-flight calls, so that recreation drops a live call unless
+it is done in a quiet window; the app alone changes the demo and console only.
+
+### 64. The DIFC blockers are measured where they can be measured; four remain appointments
+
+The DIFC item was five owner questions. Measurement can answer more of them than "owner decision"
+suggests, and the answers constrain the decision rather than replacing it.
+
+**1. Is anything still sending via Forge/rmta.net?** The records are live: `send.securevoiceai.me` is a
+CNAME to `send.forge.rmta.net`, with MX `feedback.forge.rmta.net` and an SPF record naming Forge's IPs
+(measured 2026-10-20). Nothing in this deployment can be using them: the only sender configuration is
+Resend, and no code in the repository reads a Forge credential. So this System is not sending through
+Forge. What remains is a confirmation only the owner can give — whether a different application still
+uses the delegation — before the stale records are removed.
+
+**2. DPO and ASO.** The candidate pool is now constrained by the committed text: Art 16(2)(b) makes a
+DPO mandatory for systematic and regular High Risk Processing; Art 16(5) permits a third party; Art
+16(7) requires UAE residency unless the DPO is employed within the group internationally; Art
+17(4)/18(1)(c) permit other roles only without a conflict of interest; Reg 10.3.3(d) requires the ASO
+to hold DPO-equivalent competencies and status. Recording these in the inventory does not appoint
+anyone, but it rules out the cheapest wrong answer, an offshore contractor.
+
+**3. High-Risk characterisation.** The three postures in `docs/AI-INVENTORY.md` §6 are unchanged and
+still need counsel's signature. No amount of code closes a legal characterisation.
+
+**4. Caller ID.** Measured against Twilio: one incoming number `+12674904795` (US, voice + SMS, in use)
+and one verified outgoing caller ID `+256765162414` (Uganda), which is what `TWILIO_FROM_NUMBER` uses. A
+verified caller ID is not an owned DID, and the account holds no UAE number. The AE local-number
+endpoint returned HTTP 200 with `count: 0`; the AE mobile and toll-free endpoints returned 404. The
+blocker is supply, not budget: this needs a carrier or UAE aggregator relationship, not a checkout.
+
+**5. Reg 3 notification.** Reg 3.1.1's under-50-staff exemption reaches Article 15 and Regulation 2
+only, not the Article 14(7) notification, and it is disapplied where the processing is High Risk. The
+filing is therefore due within 30 days of commencing, annually thereafter, and within 30 days of a
+material change (Reg 3.2.1(d)-(h) for contents). No filing is in evidence; status `OPEN`.
+
+Where this is recorded: `docs/AI-INVENTORY.md` §6 (DPO/ASO constraints and the Reg 3 reading), §7
+(caller-ID measurement) and §9 (new action 10 for the notification); `docs/ROPA.md` §3.1 (the Forge
+delegation). The remaining work is four owner actions — appoint, instruct counsel, contract a carrier,
+file — and this register cannot perform any of them.

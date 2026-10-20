@@ -3,8 +3,8 @@
  *
  * Two properties:
  *
- *   1. The cascade ORDER matches provider()'s real precedence (groq → lite_llm
- *      → gemini), and the active provider is a cascade NAME or null — so the
+ *   1. The cascade ORDER matches provider()'s real precedence (groq →
+ *      gemini), and the active provider is a cascade NAME or null — so the
  *      panel can show "LLM-agnostic, with failover" faithfully.
  *
  *   2. NO CREDENTIAL LEAKS. provider() resolves the active fallback with its
@@ -33,7 +33,7 @@ test("operator model-layer exposes the cascade and leaks no secret values", asyn
   expect(body.agent_plane.llm.length).toBeGreaterThan(0);
 
   // The cascade order is exactly provider()'s precedence.
-  expect(body.fallback_cascade.order).toEqual(["groq", "lite_llm", "gemini"]);
+  expect(body.fallback_cascade.order).toEqual(["groq", "gemini"]);
   // Active is a name in the cascade, or null — never a key or URL.
   expect(
     body.fallback_cascade.active === null ||

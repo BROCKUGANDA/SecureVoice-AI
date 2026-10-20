@@ -7,7 +7,7 @@ import "server-only";
  *   · the outbound ElevenLabs AGENT plane, whose LLM is set on the vendor
  *     dashboard under the bank's OWN key (BYOK);
  *   · the continuity/fallback plane, which drafts replies through a
- *     latency-ordered PROVIDER CASCADE (groq → lite_llm → gemini) — the first
+ *     latency-ordered PROVIDER CASCADE (groq → gemini) — the first
  *     configured provider answers and the rest are failover (src/lib/llm.ts).
  *
  * We surface the cascade ORDER (mirroring selectProvider) and which provider is
@@ -32,7 +32,7 @@ export type ModelLayer = {
 };
 
 /** The cascade order in selectProvider() — kept in one place so the two cannot drift. */
-const CASCADE_ORDER = ["groq", "lite_llm", "gemini"] as const;
+const CASCADE_ORDER = ["groq", "gemini"] as const;
 
 export function readModelLayer(): ModelLayer {
   let active: string | null = null;

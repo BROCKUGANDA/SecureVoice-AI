@@ -1823,19 +1823,19 @@ function voiceIdentityState(envText) {
 }
 
 /**
- * CHECK — report whether the deployment speaks with one voice or several.
+ * CHECK — report which voices the deployment's six slots actually hold.
  *
- * The product brief is that a bank's fraud-intervention call sounds like one agent in
- * six languages, and the mechanism is one `ELEVENLABS_VOICE_<LANG>` id repeated in all
- * six slots — `deliveryVoice()` reads them per language, so nothing in the code has to
- * change. What has to change is a value nobody displays: `voice:check` proves each
- * language is spoken IN that language, and says nothing about whether the six voices
- * are six people. This line exists so the state is visible at the moment someone
- * deploys, rather than discovered by a cardholder who heard three.
+ * The owner's ruling of 2026-10-20 is six DISTINCT voices, one per delivery language
+ * (`docs/GAP-REGISTER.md` §65): a caller should hear a voice that belongs to their
+ * language, not an English voice reading Arabic. `deliveryVoice()` reads one
+ * `ELEVENLABS_VOICE_<LANG>` id per language, so that ruling is six values, not one
+ * repeated six times. `voice:check` proves each language is spoken IN that language
+ * and says nothing about which voice carries it; this line exists so the slot state is
+ * visible at the moment someone deploys, rather than discovered by a cardholder.
  *
- * It REPORTS and does not fail. There is no ruling on file that one identity is
- * required — which voice represents a bank is a brand decision the register records as
- * owner-side — and a gate that reds on an unmade decision is a gate that gets deleted.
+ * It REPORTS and does not fail. A voice change is a brand decision the register
+ * records as owner-side; a gate that reds on a decision already made in prose would
+ * only teach people to ignore it.
  */
 function checkVoiceIdentity() {
   const envPath = join(BOX, ".env");
@@ -1857,12 +1857,15 @@ function checkVoiceIdentity() {
         `a missing slot is refused at synthesis with "no voice configured", it does not borrow another language's voice`,
     );
   else if (s.distinct === 1)
-    info("voice identity: one voice across all six slots — one agent, as the brief asks");
+    info(
+      "voice identity: one voice across all six slots — the 2026-10-20 ruling is one distinct " +
+        "voice per language (§65), so this is the deviation to explain, not the target",
+    );
   else
     info(
-      `voice identity: ${s.distinct} DIFFERENT voices across the six slots — the same bank answers in ` +
-        `${s.distinct} people. \`bun scripts/voice-audition.mjs --list\` plays the candidates; one id in all ` +
-        `six ELEVENLABS_VOICE_<LANG> slots is the whole change.`,
+      `voice identity: ${s.distinct} distinct voices across the six slots — matches the 2026-10-20 ` +
+        `ruling (one per language). \`bun scripts/voice-audition.mjs --list\` names the candidates; ` +
+        `choose each slot's voice by listening.`,
     );
 }
 

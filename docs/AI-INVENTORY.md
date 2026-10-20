@@ -236,6 +236,10 @@ text in `docs/legal-source/` on 2026-10-20:
 - **Reg 10.3.3(d)** requires the ASO to hold **DPO-equivalent competencies and status (Arts 17-18)**.
   One person may hold both roles only if the conflict rule above is met; the safer shape is a DPO plus
   an ASO whose independence is documented.
+- **Art 19** adds a standing duty once the DPO exists: an **Annual Assessment** of the Controller's
+  processing must be submitted to the Commissioner at least once per year, stating whether High Risk
+  Processing is intended in the following period. The filing clock starts with the appointment, which
+  is another reason it cannot be deferred.
 
 **Regulation 3 does not remove the notification duty.** Reg 3.1.1's exemption for organisations with
 fewer than 50 staff reaches **Article 15 and Regulation 2 only**, not the Article 14(7) notification —
@@ -311,6 +315,7 @@ for 10.2.2(b)(iv), and it should be cited from this inventory rather than left b
 | 8   | Re-validate or remove the S-5 rung id and the stray OpenAI embedding default                                                                                              | code                    | inventory accuracy (Reg 2.1's duty)                  |
 | 9   | Add a CI check for the no-trackers claim, and a drift gate so this inventory cannot silently fall behind the schema                                                       | code                    | Reg 2.1 accuracy; 10.2.2(f)                          |
 | 10  | File the Art 14(7) Commissioner notification within 30 days of commencing, then annually and on material change; the Reg 3.1.1 under-50-staff exemption does not reach it | owner, counsel          | Art 14(7)-(8); Reg 3.1.1, 3.2.1                      |
+| 11  | Once the DPO is appointed, submit the Art 19 Annual Assessment each year, including whether High Risk Processing is intended in the next period                           | DPO, owner              | Art 19                                               |
 
 ---
 

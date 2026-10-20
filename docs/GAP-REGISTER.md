@@ -3659,3 +3659,11 @@ listed, and the second time this week a local gate lied about a commit.
 request must leave no degradation line in the app log. Until that measurement exists the fix is
 proven against a fake that quotes the vendor, which is a strong argument and not the same thing
 as the observation.
+
+**The control was measured, which makes the after-claim checkable.** The roll to `edb3e55`
+(v0.2.40) booted a build that does NOT contain this fix, so the first `/api/tts` after it came up
+is the negative control: `uptimeSec: 126`, one request, `http=200` 65,244 bytes — and exactly one
+line in the app log, `shared meter unreachable, degrading to in-process limits: Stream isn't
+writeable and enableOfflineQueue options is false`. Deterministic per boot on a healthy Redis, not
+a one-off on a bad night. The fix's claim is therefore falsifiable in the same terms: on the first
+boot of a build that carries `established()`, that count must be zero for the same probe.

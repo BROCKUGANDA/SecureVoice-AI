@@ -3668,15 +3668,31 @@ writeable and enableOfflineQueue options is false`. Deterministic per boot on a 
 a one-off on a bad night. The fix's claim is therefore falsifiable in the same terms: on the first
 boot of a build that carries `established()`, that count must be zero for the same probe.
 
-**Result, measured on the next roll.** `846c65e` deployed at 01:52 and its app container carried
-the fix (`established` present in the built tree), and `docker compose logs --since 25m app` showed
-**0** `POST /api/tts` requests before mine — so the probe was genuinely the first metered request of
-that process. It returned `200`, 103,278 bytes, `X-Voice-Source: elevenlabs`, and the app log gained
-**0** `shared meter unreachable` lines where the control gained exactly 1. The positive half is the
-durable counter, not the absence of an error: `redis-cli GET elevenlabs:monthly_chars:2026-10`
-returned `2061` with a TTL of 1,115,042 s to month end, so the request was charged to Redis rather
-than to the process's own map. The defect is closed by observation, and the first `decrBy` release
-path now runs against a meter that was already reachable.
+**Result, measured on the next roll — and re-measured, because the first reading was wrong.**
+`846c65e` deployed at 01:52 and its app container carried the fix (`established` present in the
+built tree, read out of the deployed checkout rather than out of git). The first claim I wrote down
+was that `docker compose logs --since 25m app` showed zero `/api/tts` requests before mine, making my
+probe the first metered request of that process. That evidence proves nothing: the app never logs
+request paths, so a count of zero from that grep is a property of the grep, not of the traffic — the
+same class of error as §58's own subject, and it is why the claim is corrected rather than kept.
+
+The instrument that does work measures the whole lifetime instead of trying to count requests. With
+`uptimeSec: 1596`, a `--since 90m app` log window provably begins at the Next.js boot banner, so it
+contains every metered request the process has ever served:
+
+```
+degradation lines over the WHOLE uptime: 0
+any "degraded: in-process budget" line:  0
+```
+
+Within that window one request is certain — the probe, `200`, 103,278 bytes,
+`X-Voice-Source: elevenlabs` — so the first metered request of a process carrying `established()`
+did not degrade, and neither did anything else that process served. The control (v0.2.40, same
+single request, same grep) produced exactly 1. The positive half is the durable counter rather than
+the absence of an error: `redis-cli GET elevenlabs:monthly_chars:2026-10` returned `2061` with a TTL
+of 1,115,042 s to month end, so the charge landed in Redis and not in the process's own map. The
+defect is closed by observation, and the `decrBy` release path now runs against a meter that was
+already reachable.
 
 ### 59. The cache the reclaimer could not reach was six hours old, and the reclaim report said "16 deleted"
 

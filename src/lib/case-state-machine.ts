@@ -107,7 +107,21 @@ const TRANSITIONS: Record<string, readonly string[]> = {
   // re-dialling that customer is the accessibility failure the SMS-only path
   // exists to avoid.
   UNREACHABLE: ["NOTIFIED", "RETRY_SCHEDULED"],
-  RETRY_SCHEDULED: ["DIALING", "EXHAUSTED"],
+  // REJECTED is the operator's explicit "no". A pilot's approval surface
+  // allows a human to DECLINE a dial, and the decline has to be able to end
+  // the case from wherever the case is when the human looks at it.
+  //
+  // It did not, and the consequence was a decline that reported success and
+  // changed nothing: `RETRY_SCHEDULED` had no edge to REJECTED, so declining
+  // a case that had come back unanswered (which is exactly the state a retry
+  // is scheduled from) dead-lettered the dial job and then failed the state
+  // transition — silently, in a catch that logged — leaving the case open,
+  // the SLA sweep flagging it, and the bank holding an open case that nobody
+  // was ever going to work.
+  //
+  // `SCREENED` already had this edge; `RETRY_SCHEDULED` is the same
+  // situation one step later, and it is now treated the same way.
+  RETRY_SCHEDULED: ["DIALING", "EXHAUSTED", "REJECTED"],
   REJECTED: [],
   FAILED: [],
   EXHAUSTED: [],

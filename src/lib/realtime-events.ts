@@ -185,7 +185,7 @@ export const REALTIME_EVENTS: readonly RealtimeEventSpec[] = [
     shape: "envelope",
     producer: {
       file: "src/lib/credits.ts",
-      line: 357,
+      line: 397,
       literal: `type: "credit.deducted"`,
     },
     consumer: "src/lib/realtime-client.ts:547 → src/components/billing/CreditWidget.tsx:230",
@@ -205,7 +205,7 @@ export const REALTIME_EVENTS: readonly RealtimeEventSpec[] = [
     shape: "flat",
     producer: {
       file: "src/lib/case-state-machine.ts",
-      line: 260,
+      line: 274,
       literal: `type: "case_state"`,
     },
     consumer:
@@ -229,7 +229,7 @@ export const REALTIME_EVENTS: readonly RealtimeEventSpec[] = [
     shape: "flat",
     producer: {
       file: "src/app/api/v1/interventions/route.ts",
-      line: 1049,
+      line: 1201,
       literal: `type: "case.queued"`,
     },
     consumer:

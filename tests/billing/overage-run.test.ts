@@ -52,16 +52,26 @@ function setEnv(name: string, value: string | undefined) {
 }
 
 process.env.PADDLE_PRICES = JSON.stringify({
-  usd_9900_monthly: PRICES.starter,
-  usd_49900_monthly: PRICES.growth,
-  usd_200000_monthly: PRICES.enterprise,
+  usd_250000_monthly: PRICES.starter,
+  usd_2500000_yearly: PRICES.starter,
+  usd_900000_monthly: PRICES.growth,
+  usd_9000000_yearly: PRICES.growth,
+  usd_2500000_monthly: PRICES.enterprise,
+  usd_25000000_yearly: PRICES.enterprise,
 });
+// THE INTERVAL IS PART OF THE KEY, and it has to be. Starter's annual price is
+// $2,500 x 10 = $25,000 and Enterprise's monthly price is $25,000 — the same
+// amount, so `usd_2500000` alone names two different prices. Resolving a plan
+// from the amount alone made a Starter ANNUAL subscriber resolve to
+// Enterprise, and it would have been rated with Enterprise's 10,000-intervention
+// allowance. `usd_2500000_yearly` is Starter; `usd_2500000_monthly` is
+// Enterprise.
 // No env allowance: every tenant here must be rated against ITS plan, and a
 // fallback would hide a plan that failed to resolve.
 delete process.env.INCLUDED_UNITS_PER_PERIOD;
 // No rate override EITHER — and this one is load-bearing rather than tidy.
 // `OVERAGE_RATE_MINOR_PER_UNIT` set in a developer's `.env` makes every plan rate
-// at that one figure, which would turn "Growth bills 12¢, Starter bills 15¢" into
+// at that one figure, which would turn "Growth bills 35¢, Starter bills 45¢" into
 // a test of the override that still passes while proving nothing about the tiers.
 // `plan-facts.test.ts` covers the override on purpose; here it must be absent.
 delete process.env.OVERAGE_RATE_MINOR_PER_UNIT;
@@ -190,7 +200,7 @@ describe("the closed window is derived from the mirror, not from now", () => {
 });
 
 describe("the rate is the plan's own, through the rater", () => {
-  test("Growth bills 12¢ per unit and Starter 15¢ for identical usage", async () => {
+  test("Growth bills 35¢ per unit and Starter 45¢ for identical usage", async () => {
     const growth = await seedTenant({ plan: "growth", currentPeriodEnd: END });
     const starter = await seedTenant({ plan: "starter", currentPeriodEnd: END });
     const mid = new Date((CLOSED_FROM.getTime() + CLOSED_TO.getTime()) / 2);
@@ -203,20 +213,27 @@ describe("the rate is the plan's own, through the rater", () => {
 
     expect(g.billableUnits).toBe(100);
     expect(s.billableUnits).toBe(100);
-    expect(g.rateMinorPerUnit).toBe(12);
-    expect(s.rateMinorPerUnit).toBe(15);
-    // 100 units at 12¢ = 1200 minor units; at 15¢ = 1500. The page quotes both
-    // figures; this is the run that has to honour them.
-    expect(g.amountMinor).toBe(1200);
-    expect(s.amountMinor).toBe(1500);
+    expect(g.rateMinorPerUnit).toBe(350);
+    expect(s.rateMinorPerUnit).toBe(450);
+    // 100 units at 35¢ = 3,500¢ = 35,000 minor units; at 45¢ = 45,000. The
+    // page quotes both figures; this is the run that has to honour them.
+    expect(g.amountMinor).toBe(35_000);
+    expect(s.amountMinor).toBe(45_000);
   });
 
-  test("Enterprise is skipped, not rated at somebody else's price", async () => {
+  test("Enterprise is rated at its own posted rate, not somebody else's", async () => {
+    // It used to publish `overageCents: null` — "negotiated" — so the rater
+    // REFUSED to invoice it and the run reported "skipped". A missing invoice
+    // is recoverable; a rate nobody can price against is a ceiling with no
+    // commercial meaning. Enterprise now posts $2.25, with the telephony leg
+    // passed through at cost + 10% on the invoice beside it.
     const orgId = await seedTenant({ plan: "enterprise", currentPeriodEnd: END });
     await addUsage(orgId, 10_100, new Date((CLOSED_FROM.getTime() + CLOSED_TO.getTime()) / 2));
     const one = (await runOverageBilling({ orgId })).results[0]!;
-    expect(one.outcome).toBe("skipped");
-    expect(one.reason).toBe("rate_not_negotiated");
+    expect(one.outcome).not.toBe("skipped");
+    expect(one.rateMinorPerUnit).toBe(225);
+    expect(one.billableUnits).toBe(100);
+    expect(one.amountMinor).toBe(22_500);
   });
 });
 

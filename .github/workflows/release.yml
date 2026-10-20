@@ -181,7 +181,7 @@ jobs:
           SEED_DEMO=false
           ELEVENLABS_DRY_RUN=true
           APP_ENV=staging
-          NEXT_PUBLIC_PADDLE_PRICES='{"usd_9900_month":"pri_ciStarterMonth","usd_9900_year":"pri_ciStarterYear","usd_49900_month":"pri_ciGrowthMonth","usd_49900_year":"pri_ciGrowthYear","usd_200000_month":"pri_ciEnterpriseMonth","usd_200000_year":"pri_ciEnterpriseYear"}'
+          NEXT_PUBLIC_PADDLE_PRICES='{"usd_250000_month":"pri_ciStarterMonth","usd_2500000_year":"pri_ciStarterYear","usd_900000_month":"pri_ciGrowthMonth","usd_9000000_year":"pri_ciGrowthYear","usd_2500000_month":"pri_ciEnterpriseMonth","usd_25000000_year":"pri_ciEnterpriseYear"}'
           DATABASE_URL=postgresql://securevoice:ci-only-not-a-secret@db:5432/securevoice?schema=public
           ENV
           echo "wrote a throwaway .env for the release smoke"

@@ -35,7 +35,7 @@ export const dynamic = "force-dynamic";
  *   4. The operator's own ENROLLED customer             → 409 when there is
  *      none, when it has opted out, or when it carries no consent record
  *
- * The WEBHOOK_SECRET never reaches a browser: this handler signs the exact
+ * The signing secret never reaches a browser: this handler signs the exact
  * bytes a bank's fraud engine would send and POSTs them to
  * /api/v1/interventions — the canonical hardened ingest. So a judge's click
  * traverses every gate a real bank's signal does: signature → Idempotency-Key
@@ -43,6 +43,26 @@ export const dynamic = "force-dynamic";
  * assertDialAllowed (geo, plan tier, cooldown, concurrency, velocity) →
  * createCase → transitionCase(SCREENED) → enqueueDialJob. The call is placed
  * by the dial worker; this handler never places one.
+ *
+ * WHY A DIFFERENT SECRET WHEN IT NAMES AN ORGANISATION, and not
+ * `WEBHOOK_SECRET`. `WEBHOOK_SECRET` is shared with every producer — a bank's
+ * fraud engine signs inbound signals with it — so a request carrying it proves
+ * only that the caller knows a shared secret. The ingest therefore refuses to
+ * let that path NAME a tenant: `org_id` in the body would otherwise let any
+ * integrator create a case in, and dial on, another bank's organisation.
+ *
+ * The console is the platform, firing a real signal into the operator's own
+ * organisation, so it needs a credential that CAN name one.
+ * `CONSOLE_INGEST_SECRET` is that credential: deployment-internal, never given
+ * to a producer, never sent to a browser. It is still a CREDENTIAL, not a body
+ * field — the body says WHICH organisation, the signature says the platform
+ * may.
+ *
+ * AND WHEN NO ORGANISATION IS NAMED — an org-less session, which is the demo
+ * workspace — the shared secret is enough and is what is used. The new
+ * credential exists to SELECT a tenant, and that is the only thing it is for.
+ * Requiring it for a request that names no tenant would break the button on
+ * every deployment that has not been reconfigured, for no security gain.
  *
  * It used to forward to /api/interventions, an older second ingest with NO
  * policy gate, NO abuse gate, NO Case row and NO durable queue, which placed
@@ -222,14 +242,6 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const secret = env.webhookSecret;
-  if (!secret) {
-    return refundAnd(
-      "dependency_unavailable",
-      "WEBHOOK_SECRET not configured — ingest is unarmed (see /api/status).",
-    );
-  }
-
   const d = parsed.data;
 
   // ── Resolve the destination, TENANT-SCOPED ──
@@ -247,6 +259,34 @@ export async function POST(req: NextRequest) {
     : await db.customer.findFirst({
         where: { customerRef, OR: [{ orgId: null }, { orgId: "default" }] },
       });
+
+  // ── The credential, and it depends on whether an ORG is being named ───────
+  //
+  // `WEBHOOK_SECRET` is shared with every producer, so the ingest refuses to
+  // let a request signed with it CHOOSE a tenant: the body could otherwise put
+  // a case in — and dial on — another bank's organisation. The console IS
+  // firing into a tenant, so it needs a credential that may: the
+  // deployment-internal `CONSOLE_INGEST_SECRET`, which never leaves the
+  // server.
+  //
+  // AN ORG-LESS SESSION NAMES NO ORG, so it needs no such credential: the
+  // shared secret is enough, and it is enough today, on a box that has never
+  // heard of `CONSOLE_INGEST_SECRET`. Requiring the new secret for that case
+  // would break the demo workspace — the judge-facing button — on every
+  // deployment that has not been reconfigured, for no security gain: there is
+  // no organisation to select.
+  //
+  // So the secret is chosen by the question being asked, not by a blanket
+  // "the console always uses the new one".
+  const secret = orgId ? env.consoleIngestSecret : env.webhookSecret;
+  if (!secret) {
+    return refundAnd(
+      "dependency_unavailable",
+      orgId
+        ? "CONSOLE_INGEST_SECRET not configured — the console cannot fire into a tenant (see /api/status)."
+        : "WEBHOOK_SECRET not configured — ingest is unarmed (see /api/status).",
+    );
+  }
 
   // No enrolled customer: there is no phone to call and no consent record to
   // cite. A typed refusal is the honest answer. Fabricating a number here

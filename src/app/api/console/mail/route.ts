@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireOperator } from "@/lib/credits";
+import { requirePlatformOperator } from "@/lib/credits";
 import { db } from "@/lib/db";
 import { logError } from "@/lib/validation/safe-log";
 
@@ -45,7 +45,10 @@ export const dynamic = "force-dynamic";
 const LIMIT = 25;
 
 export async function GET() {
-  const guard = await requireOperator();
+  // Platform mailboxes are shared by every tenant (`support@`, `legal@`,
+  // `founder@`) and the rows carry no tenant. A tenant admin asking for them
+  // must not receive the platform's correspondence.
+  const guard = await requirePlatformOperator();
   if (!guard.ok) {
     return NextResponse.json({ error: guard.error }, { status: guard.status });
   }

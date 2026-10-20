@@ -22,7 +22,14 @@
 import { hostname } from "node:os";
 import { randomUUID } from "node:crypto";
 
-import { drainDialQueue, type DialJob, type DialOutcome } from "@/lib/scale/queue";
+import {
+  drainDialQueue,
+  markDialStarted,
+  renewClaim,
+  DIAL_IN_FLIGHT,
+  type DialJob,
+  type DialOutcome,
+} from "@/lib/scale/queue";
 import { createBreaker, type Breaker } from "@/lib/failures/breaker";
 import { placeOutboundCall } from "@/lib/elevenlabs/outbound-call";
 import { placeInterventionCall } from "@/lib/twilio";
@@ -47,6 +54,7 @@ import { advanceEscalations } from "@/lib/notifications";
 import { resolveCasePhone } from "@/lib/compliance/pii-vault";
 import { logError, logInfo, logWarn } from "@/lib/validation/safe-log";
 import { flag } from "@/lib/flags";
+import { dialKillSwitchEngaged, pilotDialDecision } from "@/lib/pilot/mode";
 import { resolveDeliveryLang } from "@/lib/languages";
 import { installProcessCrashHandlers } from "@/lib/process-crash-handlers";
 
@@ -55,6 +63,20 @@ const WORKER_ID =
 const POLL_MS = Number(process.env.DIAL_WORKER_POLL_MS ?? 1_000);
 const BATCH = Number(process.env.DIAL_WORKER_BATCH ?? 5);
 const LEASE_MS = Number(process.env.DIAL_WORKER_LEASE_MS ?? 60_000);
+/**
+ * The lease a job carries WHILE its call is being placed.
+ *
+ * The claim lease is sized for claiming, not for talking: a batch of five is
+ * claimed at once and handled serially, so the last job's 60s claim can expire
+ * before the worker reaches it. Reclaiming it while the first worker is still
+ * about to dial is exactly how one case becomes two calls. `renewClaim` is run
+ * immediately before each handler and extends the row for this window; a lost
+ * claim fails the renewal and the job is skipped rather than dialled twice.
+ *
+ * Fifteen minutes is longer than any call this platform places and short enough
+ * that a worker killed mid-call does not strand the case for a shift.
+ */
+const CALL_LEASE_MS = Number(process.env.DIAL_WORKER_CALL_LEASE_MS ?? 15 * 60_000);
 const ONCE = process.argv.includes("--once");
 
 /**
@@ -156,16 +178,69 @@ export function mediaStreamHost(env: NodeJS.ProcessEnv = process.env): string {
 }
 
 /**
+ * The states in which a case has a completed prior attempt and MAY be dialled
+ * again by a later job. `RETRY_SCHEDULED` is the SMS-reply path; the other
+ * three are the provider's own end-of-call outcomes.
+ */
+const REDIAL_STATES = new Set(["NO_ANSWER", "BUSY", "VOICEMAIL", "RETRY_SCHEDULED"]);
+
+/**
+ * Decide whether an existing conversation id means "this attempt already
+ * reached the provider" or "a previous attempt finished and this job is the
+ * retry".
+ *
+ * The original check refused every job whose case carried a conversation id.
+ * That is right for a reclaimed attempt-1 job (the provider accepted a call we
+ * must not place twice) and wrong for attempt 2+: the first call ended in
+ * NO_ANSWER/VOICEMAIL, the retry was deliberately queued, and the terminal
+ * `conversationId` is evidence of the PRIOR attempt, not of this one. The state
+ * machine already records which case it is, so the decision is made from that
+ * state rather than from an id that never clears.
+ *
+ * Exported because this is the join between two independently tested modules
+ * (the queue's attempt identity and the case state machine) and a wrong answer
+ * here is a second fraud call, not a failed test.
+ */
+export function shouldSkipRedial(
+  existing: { conversationId: string | null; state: string } | null,
+  attemptNo: number,
+): boolean {
+  if (!existing?.conversationId) return false;
+  return !(attemptNo > 1 && REDIAL_STATES.has(existing.state));
+}
+
+/**
  * Place one call.
  *
- * The recovery check comes first and is the part that matters: if the case
- * already carries a conversation id, a previous worker placed this call and died
- * before recording it. Dialling again would call a customer who is already on
- * the phone with us — the one failure the queue's unique index cannot prevent
- * on its own, because the provider accepted the call outside our transaction.
+ * The recovery checks come first. If the case already carries a conversation id,
+ * a previous worker placed this call and died before recording it; dialling
+ * again would call a customer who is already on the phone with us. If the JOB
+ * carries the in-flight marker, the previous worker reached the provider but its
+ * outcome is unknowable; neither case may be guessed at with a second call.
  */
 async function handle(job: DialJob): Promise<DialOutcome> {
   const payload = parsePayload(job);
+
+  // A reclaimed job carrying this marker is the one case the lease cannot
+  // resolve: a previous worker reached the provider boundary and stopped. The
+  // provider may have accepted a call, so redialling can ring the customer
+  // twice; the honest outcome is "unknown", which the queue dead-letters into
+  // the SMS fallback and a human-visible record.
+  //
+  // The marker can carry a suffix. `failDialJob` PRESERVES it when the
+  // provider call itself failed after the boundary was crossed, so the row
+  // reads `dial_in_flight: <the provider's error>` rather than losing the
+  // marker entirely. That distinction is the difference between "the worker
+  // died mid-call" and "the provider call failed after we had already handed
+  // it over" — and in BOTH cases the carrier may have accepted the call, so
+  // in both cases the answer is the same: do not ring the customer again.
+  if (job.last_error?.startsWith(DIAL_IN_FLIGHT)) {
+    return {
+      ok: false,
+      error: "previous dial outcome unknown — the provider call started and the worker stopped",
+      retryable: false,
+    };
+  }
 
   const existing = await db.case.findFirst({
     where: { caseRef: job.case_ref },
@@ -180,9 +255,70 @@ async function handle(job: DialJob): Promise<DialOutcome> {
       callCategory: true,
     },
   });
-  if (existing?.conversationId) {
-    // Already placed by a worker that died before writing it down.
+  if (shouldSkipRedial(existing, job.attempt_no)) {
+    // Already placed by a worker that died before writing it down, or a prior
+    // attempt whose conversation id is still the case's last known call.
     return { ok: true };
+  }
+
+  // ── The pilot charter and the kill switch ──────────────────────────────────
+  //
+  // Checked HERE, at the authoritative dial moment, and not only at ingest: a
+  // job accepted at 09:59 with a lead delay can lawfully be dialled at 10:01,
+  // by which time the daily cap may have been reached, a human may have
+  // declined the dial, or the kill switch may have been flipped. A ceiling
+  // enforced only at intake is a ceiling the queue walks straight past.
+  //
+  // It sits after the case read and before every check that spends money
+  // (a carrier call), touches a customer (an SMS), or burns an attempt on the
+  // retry ladder. Those are the three things an operator is trying to avoid
+  // when they reach for the switch during an incident.
+  //
+  // A BLOCK is not a FAILURE. It parks the job — back to PENDING, no attempt
+  // consumed, no SMS — so a pilot block can never dead-letter a case into the
+  // blind-ping fallback and text a customer the operator deliberately
+  // decided not to call.
+  const pilot = await pilotDialDecision({
+    orgId: job.org_id,
+    caseRef: job.case_ref,
+    // The CASE id, not the case reference: the cap counter works in cases and
+    // excludes the case being decided, because that case is already inside
+    // today's window.
+    caseId: job.case_id,
+    signalKind: existing?.signalKind ?? null,
+    // A human approval is bound to ONE attempt. A retry is another call to a
+    // customer, so it needs its own approval.
+    attemptNo: job.attempt_no,
+  });
+  if (!pilot.allowed) {
+    // The marker makes the audit row fire ONCE per blocked episode rather than
+    // on every re-claim: a parked job is re-claimed every minute for as long
+    // as the block lasts, and a chain with sixty identical rows per hour is a
+    // chain nobody reads. The reason is IN the marker, so a change of reason
+    // (cap reached → approved → cap reached again) still gets its own row.
+    const marker = `pilot_blocked:${pilot.reason}`;
+    if (job.last_error !== marker) {
+      void auditAppend({
+        callRef: job.case_ref,
+        action: "handoff",
+        intent: "dial_pilot_blocked",
+        callerId: WORKER_ID,
+        redactedText: pilot.detail.slice(0, 160),
+        meta: {
+          jobId: job.id,
+          reason: pilot.reason,
+          mode: pilot.mode,
+          retryAfterMs: pilot.retryAfterMs,
+        },
+        orgId: job.org_id ?? undefined,
+      }).catch(() => {});
+    }
+    return {
+      ok: false,
+      error: marker,
+      retryable: true,
+      retryAfterMs: pilot.retryAfterMs,
+    };
   }
 
   // The destination comes from the Case row, never from the job payload.
@@ -349,6 +485,21 @@ async function handle(job: DialJob): Promise<DialOutcome> {
         retryable: true,
         retryAfterMs,
       };
+    }
+
+    // The last possible moment before the irreversible provider call. If this
+    // CAS fails, another worker owns the row; do not dial. If the process dies
+    // after it, the marker survives and the reclaim refuses to redial.
+    //
+    // A fixture with no claimant (direct handler tests, and a malformed row)
+    // cannot be CASed; the production path always reaches this function through
+    // `renewClaim`, which refuses a row this worker does not own, so the skip is
+    // confined to callers that never had a durable claim to lose.
+    if (job.claimed_by) {
+      const marked = await markDialStarted(job.id, job.claimed_by);
+      if (!marked) {
+        return { ok: false, error: "claim lost immediately before dial", retryable: true };
+      }
     }
 
     // Both planes must report the truth about the carrier. `placeOutboundCall`
@@ -660,10 +811,56 @@ async function maybeSweep(): Promise<void> {
   }
 }
 
+/**
+ * Whether the "dialling is stopped" notice has already been printed for the
+ * current episode.
+ *
+ * The loop ticks once a second; an unflagged log line every second for the
+ * duration of an incident is a log nobody can read, and a log nobody can read
+ * is how a switch that is working goes unnoticed.
+ */
+let killSwitchNoticeShown = false;
+
 async function tick(): Promise<number> {
+  // The kill switch, at the LOOP level and not only inside the handler.
+  //
+  // While it is engaged the worker claims nothing at all: no lease is taken,
+  // no job is settled, no attempt is consumed. The jobs stay PENDING and are
+  // picked up when the switch is released. That is materially different from
+  // claiming every job and parking it again — which is what the handler-level
+  // check alone would do, once a minute per job, forever, with an audit row
+  // each time.
+  //
+  // The sweeps still run. They resolve cases, escalate lapsed holds and
+  // publish bank events; none of them places a call or texts a customer, and
+  // stopping them during an incident would leave the bank uninformed for
+  // exactly as long as the incident lasts.
+  if (await dialKillSwitchEngaged()) {
+    if (!killSwitchNoticeShown) {
+      killSwitchNoticeShown = true;
+      logWarn("[dial-worker] the dial kill switch is engaged — no jobs are being claimed", {
+        workerId: WORKER_ID,
+        effect: "queued jobs stay PENDING and are dialled when the switch is released",
+      });
+    }
+    await maybeSweep();
+    return 0;
+  }
+  if (killSwitchNoticeShown) {
+    killSwitchNoticeShown = false;
+    logInfo("[dial-worker] the dial kill switch is released — dialling resumed", {
+      workerId: WORKER_ID,
+    });
+  }
+
   const result = await drainDialQueue({
     workerId: WORKER_ID,
     handler: handle,
+    // The last point before the irreversible action. `renewClaim` both proves
+    // this worker still owns the row and extends the lease over the call; a
+    // false answer skips the job. Without this a batch-claimed job whose 60s
+    // claim lapsed, or a job reclaimed by a second worker, was dialled anyway.
+    beforeHandler: (job) => renewClaim(job.id, WORKER_ID, CALL_LEASE_MS),
     onDead,
     limit: BATCH,
     leaseMs: LEASE_MS,

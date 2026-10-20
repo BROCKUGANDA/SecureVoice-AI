@@ -24,6 +24,7 @@ const createdCases: Array<{
   language?: string;
 }> = [];
 const transitions: Array<{ caseRef: string; to: string }> = [];
+const createdRefs = new Set<string>();
 
 /**
  * How many times the route read the do-not-call registry.
@@ -84,6 +85,10 @@ mock.module("@/lib/case-state-machine", () => ({
     callCategory?: string;
     language?: string;
   }) => {
+    if (createdRefs.has(data.caseRef)) {
+      throw Object.assign(new Error("duplicate case ref"), { code: "P2002" });
+    }
+    createdRefs.add(data.caseRef);
     createdCases.push(data);
     return { id: `case_${data.caseRef}`, caseRef: data.caseRef, state: "RECEIVED" };
   },
@@ -106,11 +111,16 @@ mock.module("@/lib/scale/queue", () => ({
 
 const { POST } = await import("@/app/api/v1/campaigns/route");
 
-const post = (body: unknown, auth = "Bearer svb_good") =>
+let keySeq = 0;
+const post = (body: unknown, auth = "Bearer svb_good", idempotencyKey?: string) =>
   POST(
     new Request("https://app.test/api/v1/campaigns", {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: auth },
+      headers: {
+        "content-type": "application/json",
+        authorization: auth,
+        "idempotency-key": idempotencyKey ?? `campaign-key-${++keySeq}`,
+      },
       body: JSON.stringify(body),
     }),
   );
@@ -119,6 +129,7 @@ beforeEach(() => {
   enqueued.length = 0;
   createdCases.length = 0;
   transitions.length = 0;
+  createdRefs.clear();
 });
 
 describe("POST /api/v1/campaigns", () => {
@@ -256,5 +267,30 @@ describe("POST /api/v1/campaigns", () => {
     });
     expect(res.status).toBe(200);
     expect(dncReads).toBe(0);
+  });
+
+  test("requires an Idempotency-Key before any side effect", async () => {
+    const res = await post({ recipients: [{ phone: "+971500000901" }] }, "Bearer svb_good", "");
+    expect(res.status).toBe(400);
+    expect(createdCases).toHaveLength(0);
+    expect(enqueued).toHaveLength(0);
+  });
+
+  test("a retry with the same key creates no second case and places no second call", async () => {
+    const body = { recipients: [{ phone: "+971500000901" }] };
+    const first = await post(body, "Bearer svb_good", "campaign-retry-key-1");
+    expect(first.status).toBe(200);
+    expect(createdCases).toHaveLength(1);
+    expect(enqueued).toHaveLength(1);
+
+    const second = await post(body, "Bearer svb_good", "campaign-retry-key-1");
+    expect(second.status).toBe(200);
+    const summary = (await second.json()) as { accepted: number };
+    expect(summary.accepted).toBe(1);
+    // The deterministic case ref makes the second create a P2002, which the
+    // route reports as the same accepted recipient. It must NOT enqueue.
+    expect(createdCases).toHaveLength(1);
+    expect(enqueued).toHaveLength(1);
+    expect(createdCases[0]!.caseRef).toMatch(/^SV-CAMP-[0-9A-F]{12}$/);
   });
 });

@@ -18,7 +18,14 @@ import { caseByConversation, type CaseState } from "@/lib/case-state-machine";
 import { append as auditAppend } from "@/lib/audit-chain";
 
 export type ToolGuardResult =
-  | { ok: true; caseRef: string; state: CaseState; conversationId: string }
+  | {
+      ok: true;
+      caseRef: string;
+      state: CaseState;
+      conversationId: string;
+      /** The tenant the case belongs to; null for the default namespace. */
+      orgId: string | null;
+    }
   | { ok: false; status: 401 | 403 | 409; error: string; code: string };
 
 /**
@@ -93,6 +100,7 @@ export async function guardToolCall(
           allowedStates,
           reason: "state_precondition_failed",
         },
+        orgId: caseRow.orgId ?? undefined,
       },
       { fast: true },
     ).catch(() => {});
@@ -106,5 +114,11 @@ export async function guardToolCall(
   }
 
   recordToolSpan();
-  return { ok: true, caseRef: caseRow.caseRef, state: caseRow.state as CaseState, conversationId };
+  return {
+    ok: true,
+    caseRef: caseRow.caseRef,
+    state: caseRow.state as CaseState,
+    conversationId,
+    orgId: caseRow.orgId ?? null,
+  };
 }

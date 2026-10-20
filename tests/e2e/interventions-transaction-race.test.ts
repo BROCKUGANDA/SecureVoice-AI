@@ -29,7 +29,10 @@ import { test, expect } from "bun:test";
 import { createHmac } from "node:crypto";
 import { NextRequest } from "next/server";
 
-process.env.WEBHOOK_SECRET = process.env.WEBHOOK_SECRET ?? "test-secret";
+// `||`, not `??`: a developer `.env` commonly carries an EMPTY placeholder,
+// and the ingest treats an empty secret as unconfigured, which would turn
+// this whole file red for an environment reason rather than a code one.
+process.env.WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "test-secret";
 const SECRET = process.env.WEBHOOK_SECRET;
 process.env.TWILIO_DRY_RUN = "true";
 

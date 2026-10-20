@@ -62,6 +62,7 @@ import {
   ABUSE_REFUSAL_CODES,
   BILLING_REFUSAL_CODES,
   COMPLIANCE_REFUSAL_CODES,
+  PILOT_REFUSAL_CODES,
   POLICY_REFUSAL_CODES,
   billingRefusal,
   policyRefusal,
@@ -73,6 +74,16 @@ const read = (rel: string) =>
 
 const GATE = read("src/lib/policy-gate.ts");
 const COMPLIANCE = read("src/lib/compliance/gate.ts");
+/**
+ * The pilot charter gate (`src/lib/pilot/gate.ts`).
+ *
+ * It is a FOURTH emitter for the same reason the other three are emitters:
+ * its refusals reach a bank as 409s with a cause, and a cause that is not in
+ * the declared vocabulary makes `policyRefusal` throw a `RangeError` on a
+ * routine pilot signal — which is a 500 telling the bank to retry a decision
+ * that will be refused identically.
+ */
+const PILOT = read("src/lib/pilot/gate.ts");
 
 /**
  * The gates that refuse with a `code: "<literal>"` the classifier then looks up in
@@ -84,6 +95,7 @@ const COMPLIANCE = read("src/lib/compliance/gate.ts");
 const REFUSAL_EMITTERS: readonly (readonly [string, string])[] = [
   ["policy-gate", GATE],
   ["compliance-gate", COMPLIANCE],
+  ["pilot-gate", PILOT],
 ];
 
 /** Literals a gate returns as `code: "…"`, in source order, deduped. */
@@ -133,10 +145,15 @@ function abuseGateCodes(): string[] {
   ];
 }
 
-/** Every refusal the three gates can actually emit. */
+/** Every refusal the four gates can actually emit. */
 function emittedCodes(): string[] {
   return [
-    ...new Set([...proceduralCodes(GATE), ...proceduralCodes(COMPLIANCE), ...abuseGateCodes()]),
+    ...new Set([
+      ...proceduralCodes(GATE),
+      ...proceduralCodes(COMPLIANCE),
+      ...proceduralCodes(PILOT),
+      ...abuseGateCodes(),
+    ]),
   ];
 }
 
@@ -181,16 +198,26 @@ describe("gate refusal codes", () => {
     expect(unionMembers(GUARDS, "AbuseReason")).toHaveLength(4);
     expect(abuseGateCodes()).toHaveLength(17);
     expect(ABUSE_REFUSAL_CODES).toHaveLength(16);
+    // The pilot gate's own vocabulary, read out of the file rather than
+    // assumed: an empty read would make every pilot assertion below vacuous.
+    expect(proceduralCodes(PILOT)).toEqual([
+      "pilot_signal_kind_out_of_scope",
+      "pilot_cap_misconfigured",
+      "pilot_daily_cap_reached",
+    ]);
   });
 
-  test("the three gates emit twenty-eight codes and this suite sees all of them", () => {
-    // 9 + 4 + 17 members, less the two values two gates share:
+  test("the four gates emit thirty-one codes and this suite sees all of them", () => {
+    // 9 + 4 + 17 + 3 members, less the two values two gates share:
     // `outside_calling_hours` (policy + compliance) and `country_not_allowed`
     // (policy + abuse geo).
-    expect(emittedCodes()).toHaveLength(28);
+    expect(emittedCodes()).toHaveLength(31);
     expect(emittedCodes()).toContain("destination_cooldown");
     expect(emittedCodes()).toContain("prayer_time");
     expect(emittedCodes()).toContain("consent_invalid");
+    expect(emittedCodes()).toContain("pilot_daily_cap_reached");
+    expect(emittedCodes()).toContain("pilot_signal_kind_out_of_scope");
+    expect(emittedCodes()).toContain("pilot_cap_misconfigured");
     // The two codes deleted with the unreachable steps must not come back.
     expect(emittedCodes()).not.toContain("cooldown");
     expect(emittedCodes()).not.toContain("concurrency_cap");
@@ -217,6 +244,9 @@ describe("gate refusal codes", () => {
       "org_auto_paused",
       "org_concurrency_cap",
       "outside_calling_hours",
+      "pilot_cap_misconfigured",
+      "pilot_daily_cap_reached",
+      "pilot_signal_kind_out_of_scope",
       "prayer_time",
       "redaction_mismatch",
       "spend_ceiling",
@@ -264,6 +294,13 @@ describe("gate refusal codes", () => {
     expect([...(COMPLIANCE_REFUSAL_CODES as readonly string[])].sort()).toEqual(
       [...new Set(proceduralCodes(COMPLIANCE).filter((c) => c !== "outside_calling_hours"))].sort(),
     );
+    // The pilot gate's two causes are declared in their OWN list, so a code
+    // moved between the pilot list and the union is caught here rather than
+    // only showing up as a set difference.
+    expect([...(PILOT_REFUSAL_CODES as readonly string[])].sort()).toEqual(
+      [...proceduralCodes(PILOT)].sort(),
+    );
+    expect(PILOT_REFUSAL_CODES).not.toContain("outside_calling_hours");
     // `country_not_allowed` is emitted by the policy gate AND the abuse gate's geo
     // control, and `outside_calling_hours` by the policy gate AND the compliance
     // gate. Both are declared once, in the policy-gate half of the accepted set.

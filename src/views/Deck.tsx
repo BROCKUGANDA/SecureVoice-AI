@@ -323,7 +323,7 @@ function RenderSlide({
           </p>
         )}
         <div className="mt-9 flex flex-wrap gap-2.5">
-          <Chip>{t("Team SecureVoice · 5 people", "فريق SecureVoice · ٥ أعضاء", lang)}</Chip>
+          <Chip>{t("Team SecureVoice · 1 founder", "فريق SecureVoice · مؤسس واحد", lang)}</Chip>
           <Chip>{FOUNDER_EMAIL}</Chip>
           <Chip>{t("ElevenLabs platform", "منصة ElevenLabs", lang)}</Chip>
         </div>
@@ -844,8 +844,8 @@ tts = {
               icon: FileCheck2,
               g: "Audit completeness",
               gAr: "اكتمال سجل التدقيق",
-              m: "recording + transcript + metadata, immutable",
-              mAr: "تسجيل + نص مفرّغ + بيانات وصفية، غير قابل للتغيير",
+              m: "transcript + metadata, immutable; audio archived only where the recording plane is configured",
+              mAr: "النص المفرّغ والبيانات الوصفية، غير قابلة للتغيير؛ ولا يُؤرشف الصوت إلا حيث تُهيَّأ آلية التسجيل",
             },
             {
               icon: Clock,
@@ -973,6 +973,12 @@ tts = {
               ar: "حذف تلقائي",
             },
             {
+              en: "Shariah-aware speech",
+              d: "Opt-in terminology: Takaful, contribution, profit rate — no certification claimed",
+              dAr: "مصطلحات اختيارية: تكافل، اشتراك، نسبة ربح — دون ادعاء شهادة شرعية",
+              ar: "مصطلحات شرعية",
+            },
+            {
               en: "RBAC + audit",
               d: "Role-based dashboard access, every action audited",
               dAr: "وصول للوحة التحكم حسب الأدوار، وكل إجراء مسجّل",
@@ -993,8 +999,8 @@ tts = {
         </div>
         <p className="mt-5 text-[12.5px] text-ink-2">
           {t(
-            "Compliance involved from the design phase — not as reviewers at the end. CBUAE-aligned by construction.",
-            "الامتثال مشارك من مرحلة التصميم — لا مراجِعاً في النهاية. متوافق مع أنظمة المصرف المركزي بطبيعة البناء.",
+            "CBUAE-aligned controls by construction. Shariah terminology is opt-in configuration; the institution's Shariah supervisory board remains the authority.",
+            "ضوابط متوافقة مع المصرف المركزي بطبيعة البناء. ومصطلحات الشريعة إعداد اختياري، وتبقى هيئة الرقابة الشرعية في المؤسسة هي المرجع.",
             lang,
           )}
         </p>

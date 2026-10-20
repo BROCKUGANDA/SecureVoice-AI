@@ -6,6 +6,7 @@ import { hashPassword, assertUsablePassword } from "@/lib/auth/password";
 import { issueSession, revokeIdentitySessions } from "@/lib/auth/session";
 import { SESSION_COOKIE_ATTRS, SESSION_COOKIE_NAME } from "@/lib/auth/constants";
 import { AUTH_AUDIT_INTENTS, auditAuthEvent } from "@/lib/auth/audit";
+import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -113,6 +114,18 @@ export async function POST(req: Request) {
   // resolution path used to issue — which is also why the sweep must run BEFORE
   // `issueSession` below, or the freshly minted session is revoked on the spot.
   await revokeIdentitySessions(identity.accountId);
+
+  // The first-party epoch bump does not reach Better Auth's own `session`
+  // table. A reset is a compromise response, so every Better Auth session for
+  // the backing user is deleted too; the fresh session is issued below, after
+  // the sweep. `identity.accountId` is the Account row, so resolve its user.
+  const backing = await db.account.findUnique({
+    where: { id: identity.accountId },
+    select: { userId: true },
+  });
+  if (backing) {
+    await db.session.deleteMany({ where: { userId: backing.userId } });
+  }
 
   // Issued from `updated.identity`, not the `identity` read before the write. That
   // object carries the PRE-bump `roleEpoch`, so a session minted from it fails the

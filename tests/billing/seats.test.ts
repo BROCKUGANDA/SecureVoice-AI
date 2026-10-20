@@ -40,10 +40,20 @@ const PRICES: Record<string, string> = {
 
 const SAVED_PRICES = process.env.PADDLE_PRICES;
 process.env.PADDLE_PRICES = JSON.stringify({
-  usd_9900_monthly: PRICES.starter,
-  usd_49900_monthly: PRICES.growth,
-  usd_200000_monthly: PRICES.enterprise,
+  usd_250000_monthly: PRICES.starter,
+  usd_2500000_yearly: PRICES.starter,
+  usd_900000_monthly: PRICES.growth,
+  usd_9000000_yearly: PRICES.growth,
+  usd_2500000_monthly: PRICES.enterprise,
+  usd_25000000_yearly: PRICES.enterprise,
 });
+// THE INTERVAL IS PART OF THE KEY, and it has to be. Starter's annual price is
+// $2,500 x 10 = $25,000 and Enterprise's monthly price is $25,000 — the same
+// amount, so `usd_2500000` alone names two different prices. Resolving a plan
+// from the amount alone made a Starter ANNUAL subscriber resolve to
+// Enterprise, and it would have been rated with Enterprise's 10,000-intervention
+// allowance. `usd_2500000_yearly` is Starter; `usd_2500000_monthly` is
+// Enterprise.
 
 /** Rows this file created, so cleanup deletes exactly them and nothing else. */
 const createdSubscriptions: string[] = [];

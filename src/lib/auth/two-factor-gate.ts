@@ -77,23 +77,43 @@ export type TwoFactorDenial = {
 export async function moneyTwoFactorBlocker(identity: Identity): Promise<TwoFactorDenial | null> {
   if (isDemoAccount(identity.email)) return null;
 
-  const user = await db.user.findUnique({
+  // `Identity.accountId` is the internal Account row id, NOT the Better Auth
+  // user id. The first version used it directly as `User.id`, so every real
+  // payer resolved `user = null` and was told to enrol a factor they already
+  // had. Resolve the account first; keep a UUID-shaped fallback for the
+  // legacy/first-party identities whose account id IS the user id.
+  const account = await db.account.findUnique({
     where: { id: identity.accountId },
+    select: { userId: true },
+  });
+  const userId = account?.userId ?? (isUuid(identity.accountId) ? identity.accountId : null);
+  if (!userId) {
+    return denial();
+  }
+
+  const user = await db.user.findUnique({
+    where: { id: userId },
     select: { twoFactorEnabled: true },
   });
   if (user?.twoFactorEnabled === true) {
     const enrolled = await db.twoFactor.count({
-      where: { userId: identity.accountId, secret: { not: "" }, verified: { not: false } },
+      where: { userId, secret: { not: "" }, verified: { not: false } },
     });
     if (enrolled > 0) return null;
     // The flag says enrolled, the factor says otherwise. Reported because this
     // state means the user cannot complete their own next challenge — it is an
     // integrity problem in the auth data, not a user error.
-    logWarn("[two-factor] user flag set with no usable factor row", {
-      accountId: identity.accountId,
-    });
+    logWarn("[two-factor] user flag set with no usable factor row", { userId });
   }
 
+  return denial();
+}
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function denial(): TwoFactorDenial {
   return {
     status: 428,
     error: TWO_FACTOR_REQUIRED,

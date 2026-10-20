@@ -89,11 +89,14 @@ Three facts that defuse nearly every objection:
    audit trail. Invariant I-2: `stage_card_freeze` returns
    `409 precondition_failed` unless the state machine has already recorded an
    explicit fraud confirmation. Proven in `tests/redteam/redteam.test.ts`.
-3. **Phase 0 cannot hurt them.** Shadow mode. No calls placed, no access to
-   their systems, pseudonymised alert data only.
+3. **Phase 0 carries no live-call risk.** Shadow mode. No calls placed, no
+   access to their systems, pseudonymised alert data only. Pseudonymised data
+   is still personal data, so Phase 0 runs under the DPA and the data-protection
+   gates in `docs/PILOT-READINESS.md`.
 
-Point 3 is the whole strategy. An institution says yes to Phase 0 because
-Phase 0 carries no risk for them.
+Point 3 is the whole strategy. An institution can say yes to Phase 0 without
+accepting customer-contact risk, while the remaining data-protection approvals
+are closed.
 
 ---
 
@@ -108,26 +111,93 @@ Two endpoints, no core-banking change.
 
 Tier 0 (observe) is the pilot entry point. Never lead with Tier 2.
 
-**Their changes:** two endpoints and a webhook secret. That is the whole ask.
+**Their changes:** two endpoints and a webhook secret. That is the whole ask. The
+system-by-system map is `docs/INTEGRATION-MATRIX.md`; the canonical contract is
+`docs/INTEGRATION-CONTRACT.md`.
 
 ---
 
 ## 4. 90-day pilot design
 
-### Phase 0 — Shadow (weeks 1–2) · _their risk: zero_
+### Phase 0 — Shadow (weeks 1–2) · _no live-call risk; DPA still applies_
 
 They send pseudonymised historical or mirrored live alerts. We produce the
 intervention decision and the script we **would** have used. No calls placed.
 
 **Deliverable:** a readout showing which of their historical fraud cases would
 have been contained, with transcripts. This readout is what sells Phase 1, and
-it can start immediately at no cost — which is why it is also the best closing
-tool we have.
+it can start as soon as the Phase 0 gate in `docs/PILOT-READINESS.md` is closed —
+which is why it is also the best closing tool we have.
 
 ### Phase 1 — Limited live (weeks 3–6)
 
 One alert type. Opt-in cohort. Hard cap of N calls/day. **A human approves every
 dial.** Kill switch held by the institution. Daily report.
+
+#### How Phase 1 is actually run
+
+The three sentences above are now a mode, not an intention. `PILOT_MODE` puts
+the deployment into it, and the ceilings are configuration rather than
+discipline:
+
+```bash
+# Phase 0 — shadow. Cases are recorded and every gate runs; NO customer is
+# contacted: no call, no SMS, no queue entry.
+PILOT_MODE=shadow
+
+# Phase 1 — live. One alert type, a daily ceiling, a concurrency ceiling, and
+# a human approval recorded for every dial attempt.
+PILOT_MODE=live
+PILOT_SIGNAL_KIND=card_transaction
+PILOT_DAILY_CALL_CAP=25
+PILOT_CONCURRENCY_CAP=2
+PILOT_HUMAN_APPROVAL=true
+```
+
+Read the live state from `GET /api/console/pilot` (any signed-in operator) or
+`/api/status` (platform operator). The full reference is
+`docs/RUNBOOK.md` §3 and `src/lib/pilot/mode.ts`.
+
+**The kill switch the institution holds** is a platform operator with a console,
+not a deployment:
+
+```bash
+curl -X POST https://securevoiceai.me/api/console/pilot/kill-switch \
+  -H 'Content-Type: application/json' -b "$SESSION_COOKIE" \
+  -d '{"engaged":true,"reason":"institution asked us to stop"}'
+```
+
+No deploy, no restart, no shell on the box: the platform stops dialling within
+seconds, and every engage and release is written to the audit chain with the
+operator's id. `DIAL_KILL_SWITCH` in the environment is the outer brake for a
+host that is itself unwell.
+
+**The approval a human gives** is one row in the append-only audit chain, bound
+to ONE attempt of one case:
+
+```bash
+curl -X POST https://securevoiceai.me/api/console/pilot/approvals \
+  -H 'Content-Type: application/json' -b "$SESSION_COOKIE" \
+  -d '{"caseRef":"SV-F-ABC123","decision":"approve","note":"fraud desk cleared 14:05"}'
+```
+
+`decision: "decline"` stops the pending dial instead. A second call to a
+customer is a second call to a customer, so a retried case needs its own
+approval.
+
+**What the mode guarantees, stated so a bank can check it:**
+
+- No more than `PILOT_DAILY_CALL_CAP` interventions are acted on per day per
+  organisation, counted on the database's calendar day.
+- No more than `PILOT_CONCURRENCY_CAP` calls are in flight at once, counted
+  across every worker replica.
+- No signal of any alert type other than `PILOT_SIGNAL_KIND` is dialled — and
+  an UNTYPED signal is refused too, because a charter that fails open is not a
+  charter.
+- Every dial carries a recorded human approval for that attempt.
+- A block is a WAIT, never a failure: the dial job parks without consuming an
+  attempt, so a pilot block can never text a customer the operator decided
+  not to call.
 
 ### Phase 2 — Expanded (weeks 7–12)
 
@@ -149,11 +219,17 @@ Weekly containment report. Defined SLA.
 anecdote; with one it produces a number the board will act on. This goes in the
 metrics sheet before Phase 1 because a control group cannot be retrofitted.
 
-**Data protection posture.** We register as a data processor in the pilot
-jurisdiction before Phase 1 begins. Retention is per data class with a tested
-purge job; erasure is crypto-shredding, which destroys a per-case key so the
-audit chain still verifies from genesis. Full detail in `docs/TRUST-MODEL.md`
-and the data-protection summary in `docs/SUBMISSION.md`.
+`Time to contact` is a pilot **target**, not a measured result. The committed
+evidence has no PSTN answer or first-word sample; do not present it as one.
+
+**Data protection posture.** These are Phase 1 gates, not claims: the DIFC
+Article 14(7) notification, the DPO/ASO decision, executed Article 24
+sub-processor terms, and any required transfer assessment. Until they close,
+Phase 0 is limited to the agreed pseudonymised dataset and Phase 1 does not
+start. Retention is per data class with a tested purge job; erasure is
+crypto-shredding, which destroys a per-case key so the audit chain still
+verifies from genesis. Full detail in `docs/PILOT-READINESS.md`,
+`docs/TRUST-MODEL.md` and the data-protection summary in `docs/SUBMISSION.md`.
 
 ---
 

@@ -79,32 +79,32 @@ a passing test suite and a system that does not do the thing.
 
 ## Package status
 
-| WP  | Package                    | Status                 | Headline                                                                                                                  |
-| --- | -------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Agent config as code       | PARTIAL                | `desiredState()` omits `data_collection`, so drift in 3 fields is invisible to the read-back                              |
-| 2   | Signal to dial             | **FIXED**              | Case was never persisted; no call was ever placed                                                                         |
-| 3   | Server tools               | PARTIAL                | One global tool secret; the gate that claims otherwise cannot fail                                                        |
-| 4   | Post-call ingest           | PARTIAL                | Quarantine rows are written and never read                                                                                |
-| 5   | Outbound bank notification | PARTIAL                | Python verifier exists; dead-letter replay endpoint unverified                                                            |
-| 6   | Multilingual               | PARTIAL                | Bank supplies language (correct); no `Intl`/number-to-words anywhere; disclosure never sent per-call                      |
-| 7   | Latency instrumentation    | **MISSING**            | No tracing substrate; `slo.json` is transcribed constants                                                                 |
-| 8   | Evidence machine           | **FIXED**              | `bun run evidence` now exists and fails honestly                                                                          |
-| 9   | Red-team pack              | PARTIAL                | Server layer proven offline; conversation layer blocked on quota                                                          |
-| 10  | Operator console           | **FIXED**              | Console fire button now routes to `/api/v1/interventions` (hardened handler)                                              |
-| 11  | Auth                       | **FIXED**              | Freeze-commit route exists at `POST /api/console/freeze/commit` with step-up re-auth                                      |
-| 12  | Multi-tenancy              | PARTIAL                | The guard exists; route-helpers.ts created for easy adoption, scopedDb has 1+ callers                                     |
-| 13  | Billing / Paystack         | PARTIAL                | BYOK is one global key from `AUTH_SECRET`; kill switch env-only                                                           |
-| 14  | Abuse / toll fraud         | PARTIAL                | All 8 controls real; no per-org policy setter outside tests; no `ABUSE_*` in `.env.example`                               |
-| 15  | Data protection            | PARTIAL                | Crypto-shredding holds no real data; no retention scheduler                                                               |
-| 16  | Deploy / runbook           | **FIXED**              | `docs/RUNBOOK.md` created with kill switches, health checks, rollback procedure                                           |
-| 17  | Customer integration       | PARTIAL                | No OpenAPI, no AsyncAPI, no conformance checker                                                                           |
-| 18  | Internal seams             | PARTIAL                | `PaymentProvider` real; 7 of 9 named ports absent; no offline mode                                                        |
-| 19  | Concurrency and scale      | PARTIAL                | `CAPACITY.md` contradicts its own artifact (**FALSIFIED**)                                                                |
-| 20  | Realtime / notifications   | **PARTIAL → IMPROVED** | `notify()` wired into case state transitions, `notifyRealtime()` emits on every transition, Redis added to docker-compose |
-| 21  | Failure semantics          | **PARTIAL → IMPROVED** | `route-helpers.ts` created with `fail()`, `ok()`, `requireOrg()`, `handlePrismaError()` — ready for route adoption        |
-| 22  | Input validation           | PARTIAL                | `safeLog` unused; production logs raw interpolation                                                                       |
-| 23  | Responsive / a11y          | PARTIAL                | Walkthrough runs with `--autoplay-policy=no-user-gesture-required`, which hides the Safari failure it should catch        |
-| 24  | Public surface             | **PARTIAL → IMPROVED** | `site.webmanifest` created, `middleware-robots.ts` created with X-Robots-Tag, robots.txt blocks AI crawlers               |
+| WP  | Package                    | Status                 | Headline                                                                                                                                               |
+| --- | -------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | Agent config as code       | PARTIAL                | `desiredState()` omits `data_collection`, so drift in 3 fields is invisible to the read-back                                                           |
+| 2   | Signal to dial             | **FIXED**              | Case was never persisted; no call was ever placed                                                                                                      |
+| 3   | Server tools               | PARTIAL                | One global tool secret; the gate that claims otherwise cannot fail                                                                                     |
+| 4   | Post-call ingest           | PARTIAL                | Quarantine rows are written and never read                                                                                                             |
+| 5   | Outbound bank notification | PARTIAL                | Python verifier exists; dead-letter replay endpoint unverified                                                                                         |
+| 6   | Multilingual               | PARTIAL                | Bank supplies language (correct); no `Intl`/number-to-words anywhere; disclosure never sent per-call                                                   |
+| 7   | Latency instrumentation    | **MISSING**            | No tracing substrate; `slo.json` is transcribed constants                                                                                              |
+| 8   | Evidence machine           | **FIXED**              | `bun run evidence` now exists and fails honestly                                                                                                       |
+| 9   | Red-team pack              | PARTIAL                | Server layer proven offline; conversation layer blocked on quota                                                                                       |
+| 10  | Operator console           | **FIXED**              | Console fire button now routes to `/api/v1/interventions` (hardened handler)                                                                           |
+| 11  | Auth                       | **FIXED**              | Freeze-commit route exists at `POST /api/console/freeze/commit` with step-up re-auth                                                                   |
+| 12  | Multi-tenancy              | PARTIAL                | The guard exists; route-helpers.ts created for easy adoption, scopedDb has 1+ callers                                                                  |
+| 13  | Billing / Paystack         | PARTIAL                | BYOK is one global key from `AUTH_SECRET`; the BILLING kill switch is env-only (the DIAL kill switch has a database half and a console lever — see §7) |
+| 14  | Abuse / toll fraud         | PARTIAL                | All 8 controls real; no per-org policy setter outside tests; no `ABUSE_*` in `.env.example`                                                            |
+| 15  | Data protection            | PARTIAL                | Crypto-shredding holds no real data; no retention scheduler                                                                                            |
+| 16  | Deploy / runbook           | **FIXED**              | `docs/RUNBOOK.md` created with kill switches, health checks, rollback procedure                                                                        |
+| 17  | Customer integration       | PARTIAL                | No OpenAPI, no AsyncAPI, no conformance checker                                                                                                        |
+| 18  | Internal seams             | PARTIAL                | `PaymentProvider` real; 7 of 9 named ports absent; no offline mode                                                                                     |
+| 19  | Concurrency and scale      | PARTIAL                | `CAPACITY.md` contradicts its own artifact (**FALSIFIED**)                                                                                             |
+| 20  | Realtime / notifications   | **PARTIAL → IMPROVED** | `notify()` wired into case state transitions, `notifyRealtime()` emits on every transition, Redis added to docker-compose                              |
+| 21  | Failure semantics          | **PARTIAL → IMPROVED** | `route-helpers.ts` created with `fail()`, `ok()`, `requireOrg()`, `handlePrismaError()` — ready for route adoption                                     |
+| 22  | Input validation           | PARTIAL                | `safeLog` unused; production logs raw interpolation                                                                                                    |
+| 23  | Responsive / a11y          | PARTIAL                | Walkthrough runs with `--autoplay-policy=no-user-gesture-required`, which hides the Safari failure it should catch                                     |
+| 24  | Public surface             | **PARTIAL → IMPROVED** | `site.webmanifest` created, `middleware-robots.ts` created with X-Robots-Tag, robots.txt blocks AI crawlers                                            |
 
 ---
 
@@ -296,6 +296,36 @@ endpoints, per-dependency failure response procedures, rollback procedure,
 pre-demo checklist, and incident response flow. Kill switches documented for
 live dialling, billing, webhooks, LLM phrasing, and BYOK — all flippable
 without a deploy via feature flags.
+
+**Re-opened and fixed again, 2026-10-20.** The entry above was written
+against a runbook that had documented switches which did not exist, and the
+live-dialling one had to be `docker compose stop dial-worker` — a deploy
+wearing a hat, in the document a person opens during an incident. It is now
+real, and the gap is closed:
+
+- `DIAL_KILL_SWITCH` — read from `process.env` on every dial decision, never
+  cached, so flipping it takes effect on the next call. It accepts the same
+  spellings as `BILLING_KILL_SWITCH`.
+- A **database half** — a row in the new `PlatformSwitch` table, flipped from
+  the operator console at `POST /api/console/pilot/kill-switch`. No deploy, no
+  restart, no shell on the box: the person holding the pager flips it and the
+  platform stops dialling within seconds. Platform-operator only, and every
+  engage and release is written to the audit chain with the operator's id.
+- An unreadable switch is treated as **ENGAGED** (fail closed), and the status
+  surface distinguishes "we could not tell" (`databaseAvailable: false`) from
+  "an operator stopped the pilot".
+
+The runbook now states plainly what the switch does NOT stop: the blind-ping
+SMS fallback keeps running, because it exists to warn a customer whose card is
+being questioned. What is guaranteed is that no **carrier call** is placed.
+
+**Also fixed in the same pass:** `src/lib/pilot/mode.ts` gives a pilot a real
+bounded mode (`off` / `shadow` / `live`) with a per-organisation daily
+intervention cap, a cross-replica concurrency cap, a one-alert-type charter, a
+per-dial human approval recorded in the append-only audit chain, and the rule
+that a pilot block **parks** a dial job rather than failing it — so a pilot
+block can never dead-letter a case into the SMS fallback and text a customer
+the operator decided not to call.
 
 **Effort:** S. **Status:** FIXED.
 
@@ -4027,3 +4057,55 @@ recreated. The worker owns in-flight calls — `SHUTDOWN_DRAIN_MS` is 65 s and c
 each language is spoken in that language, but no native ear chose them: an American English voice
 carrying Urdu is exactly the class of thing only listening can answer. The audition command remains the
 instrument, now aimed per language.
+
+### 66. The published overage is below the cost of one intervention, and the blue/green stack would have had its own database
+
+Two findings from the same audit, both of which were one line of code away from a
+commercial or an operational incident.
+
+**The pricing floor.** `src/lib/commercial.ts` published $0.15 (Starter) and $0.12
+(Growth) per intervention beyond the included volume. The cost model in
+`docs/UNIT-ECONOMICS.md` §5.1 puts the fully loaded cost of a 2.3-minute
+intervention at ≈$0.96 on UAE mobile via Twilio and ≈$1.17 on Kenya mobile, so
+both published overages were **below cost** — telephony alone is $0.69 and $0.90
+of that. The floor rule (fully loaded cost ÷ (1 − 0.70)) puts the minimum
+sellable intervention at $3.20 (UAE) and $3.90 (Kenya) on those routes.
+
+**Fixed, and the drift removed rather than pinned.** The prices are now $12,000
+Pilot (90 days, one-off, invoiced) / $2,500 Starter / $9,000 Growth / Enterprise
+from $25,000, with overage at $5.00 / $4.50 / $3.50 / $2.25 — every one of them
+above the floor on the costliest route. The Paddle catalog is now **DERIVED**
+from `src/lib/commercial.ts` (`scripts/seed-paddle-catalog.ts` reads `PLANS`
+instead of carrying a third hand-written copy of the numbers), so "what the page
+says" and "what the gateway charges" can no longer disagree without a build
+failure. The Pilot is `salesAssisted` — a plan sold by negotiation has no
+Paddle product and no price id anybody bills against.
+
+**What is left is an operation, not a defect:** `bun run paddle:seed` then
+`bun run paddle:repair-overrides` against the sandbox catalog. Until that runs,
+the gateway still holds the old prices and `tests/billing/catalog-parity.test.ts`
+is the thing that says so. The commercial terms — the onboarding fee, the pilot
+credit, the annual escalator, the carrier-rate adjustment clause, the minimum
+terms and the discount-approval matrix — are decisions for the commercial owner;
+the code carries the prices they apply to, and it does not decide them.
+
+**The second database.** `docker-compose.bluegreen.yml` was a second compose
+project: its own `name:`, its own `db`, its own `db-setup`, its own `realtime`
+and its own volumes. A compose project owns its named volumes, so the colour
+slots would have been talking to a **second, empty Postgres** while production's
+data sat in the first project's volume. The failure mode is not a crash — it is a
+colour that starts happily against an empty database and serves 200s to a
+canary, which is exactly the state a canary cannot detect. The file now adds
+**only** the two colour slots; everything else comes from the base file, in the
+same project. `tests/unit/bluegreen-invariants.test.ts` asserts it about the
+compose files rather than about the script that drives them.
+
+**Also fixed here.** The colour slots used to declare
+`container_name: securevoice-app-blue`, so `docker inspect app-blue` looked for a
+container that does not exist and every health wait and in-container probe
+reported a container that had never started. Containers are now resolved through
+the compose project/service labels, which survive a rename, a replica count and
+a container-name policy change.
+
+**Effort:** M (pricing, done) / M (blue/green, done). **Status:** FIXED — the
+catalog re-seed is an operation on the sandbox account, not a code change.

@@ -2,6 +2,7 @@ import "server-only";
 
 import crypto from "node:crypto";
 import { db } from "@/lib/db";
+import { append as auditAppend } from "@/lib/audit-chain";
 
 export type RegulatoryEvidencePackage = {
   case_id: string;
@@ -36,9 +37,21 @@ export function signHMAC(body: string, secret: string): string {
   return crypto.createHmac("sha256", secret).update(body).digest("hex");
 }
 
-export async function generateCaseFile(caseIdOrRef: string) {
+/**
+ * Build the regulator evidence package.
+ *
+ * `orgId` is the CALLER's tenant. A tenant operator may only export a case
+ * belonging to that tenant; a platform operator (null) may export any case.
+ * The lookup is scoped here rather than at the route so a second caller cannot
+ * forget it — this function was previously a global `findFirst` by id/ref, and
+ * any tenant admin could read another tenant's transcript by guessing a case
+ * ref.
+ */
+export async function generateCaseFile(caseIdOrRef: string, orgId: string | null = null) {
   const row = await db.case.findFirst({
-    where: { OR: [{ id: caseIdOrRef }, { caseRef: caseIdOrRef }] },
+    where: {
+      AND: [{ OR: [{ id: caseIdOrRef }, { caseRef: caseIdOrRef }] }, ...(orgId ? [{ orgId }] : [])],
+    },
     select: {
       id: true,
       caseRef: true,
@@ -118,19 +131,21 @@ export async function generateCaseFile(caseIdOrRef: string) {
     }
   }
 
-  // Append an audit row.
+  // Append to the tamper-evident chain. The previous write used
+  // `chainHash: randomUUID()` with no `prevHash`, which is a row that LOOKS
+  // like an audit entry and is not one: it cannot verify and it breaks the walk
+  // for the case. `append` computes the real link and carries the tenant.
   try {
-    await db.auditLog.create({
-      data: {
-        callRef: row.caseRef,
-        orgId: row.orgId ?? undefined,
-        action: "evidence_exported_to_regulator",
-        meta: JSON.stringify({ case_id: evidenceCaseId }),
-        chainHash: crypto.randomUUID(),
-      },
+    await auditAppend({
+      callRef: row.caseRef,
+      action: "handoff",
+      intent: "evidence_exported_to_regulator",
+      orgId: row.orgId ?? undefined,
+      meta: { case_id: evidenceCaseId },
     });
   } catch {
-    // non-blocking
+    // non-blocking, matching the export contract: the package is returned even
+    // if the audit store is down
   }
 
   return evidencePackage;

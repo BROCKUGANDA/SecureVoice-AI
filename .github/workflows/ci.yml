@@ -456,34 +456,25 @@ jobs:
           echo "They are unproven there, not proven safe. Verify against"
           echo "co-located Postgres before relying on them."
 
-      # Coverage. REPORT-ONLY, deliberately not `continue-on-error: false`.
+      # Coverage. BLOCKING ON `main`, report-only everywhere else.
       #
       # scripts/coverage.mjs runs each test file in its own process (the same
       # reason scripts/run-tests.mjs does — see that file's header), asks each
       # for an lcov profile, merges them, and checks the result against the
-      # thresholds in that script: 80% overall, 70% unit, 20% integration,
-      # 10% e2e. Integration already clears its bar; unit and e2e do not, so
-      # making this step blocking today would turn every PR red for a number
-      # nobody has moved yet.
+      # thresholds in that script: 65% overall (and a committed floor that can
+      # only raise it), 70% unit, 20% integration, 10% e2e.
       #
-      # `continue-on-error: true` keeps the measurement honest (the artifact is
-      # produced either way) while leaving the gate itself to be flipped on once
-      # the remaining tiers are actually met — at which point deleting this one
-      # line is the whole change.
-      # BLOCKING ON THE WAY INTO `main`, report-only everywhere else.
-      #
-      # `main` is what judges read and what production deploys, so 85% overall
-      # is enforced there and the step is allowed to fail the job. On `dev` and
-      # `staging` the same measurement is produced and uploaded but does not
-      # block, because a ratchet that bites the branch you are trying to move
-      # stops being moved.
-      #
-      # `|| true` is NOT used on the blocking path: that would swallow the
-      # threshold failure, which is the entire point of enforcing it.
+      # The condition is `refs/heads/main` OR a PR whose base is `main`. The
+      # previous condition checked only the PR base, so the push-to-main run —
+      # the run the deploy workflow keys on — was report-only: a direct push or
+      # a promotion that landed without the PR gate could deploy with an
+      # unenforced coverage number. `|| true` remains on dev/staging on purpose;
+      # a ratchet that bites the branch you are trying to move stops being moved.
       - name: Coverage report (blocking on main)
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref || '' }}
-          COVERAGE_MIN_OVERALL: ${{ github.event.pull_request.base.ref == 'main' && '65' || '' }}
+          ON_MAIN: ${{ github.ref == 'refs/heads/main' || github.event.pull_request.base.ref == 'main' }}
+          COVERAGE_MIN_OVERALL: ${{ (github.ref == 'refs/heads/main' || github.event.pull_request.base.ref == 'main') && '65' || '' }}
         run: |
           # The view tier IS a gate now. It used to read
           # `bun run test:jest --coverage > /dev/null 2>&1 || true`, and the reason
@@ -497,7 +488,7 @@ jobs:
           # Output stays visible for the same reason: a thrown-away log is how that
           # went unnoticed for months.
           bun run test:jest --coverage
-          if [ "$BASE_REF" = "main" ]; then
+          if [ "$ON_MAIN" = "true" ] || [ "$BASE_REF" = "main" ]; then
             bun run test:coverage
           else
             bun run test:coverage || true
@@ -665,7 +656,7 @@ jobs:
           # .env writes for the same reason; the parser only requires
           # `/^pri_[A-Za-z0-9]+$/` and every tier in AMOUNT_TO_PLAN needs BOTH
           # intervals, or the map is rejected as incomplete.
-          NEXT_PUBLIC_PADDLE_PRICES: '{"usd_9900_month":"pri_ciStarterMonth","usd_9900_year":"pri_ciStarterYear","usd_49900_month":"pri_ciGrowthMonth","usd_49900_year":"pri_ciGrowthYear","usd_200000_month":"pri_ciEnterpriseMonth","usd_200000_year":"pri_ciEnterpriseYear"}'
+          NEXT_PUBLIC_PADDLE_PRICES: '{"usd_250000_month":"pri_ciStarterMonth","usd_2500000_year":"pri_ciStarterYear","usd_900000_month":"pri_ciGrowthMonth","usd_9000000_year":"pri_ciGrowthYear","usd_2500000_month":"pri_ciEnterpriseMonth","usd_25000000_year":"pri_ciEnterpriseYear"}'
         run: bun run build
 
       # `next build` fetches from Google Fonts at build time. That is fine here and
@@ -852,7 +843,7 @@ jobs:
           # requires `/^pri_[A-Za-z0-9]+$/`, so there are no underscores after the
           # prefix, and every tier in AMOUNT_TO_PLAN needs BOTH intervals or the
           # map is rejected as incomplete.
-          NEXT_PUBLIC_PADDLE_PRICES='{"usd_9900_month":"pri_ciStarterMonth","usd_9900_year":"pri_ciStarterYear","usd_49900_month":"pri_ciGrowthMonth","usd_49900_year":"pri_ciGrowthYear","usd_200000_month":"pri_ciEnterpriseMonth","usd_200000_year":"pri_ciEnterpriseYear"}'
+          NEXT_PUBLIC_PADDLE_PRICES='{"usd_250000_month":"pri_ciStarterMonth","usd_2500000_year":"pri_ciStarterYear","usd_900000_month":"pri_ciGrowthMonth","usd_9000000_year":"pri_ciGrowthYear","usd_2500000_month":"pri_ciEnterpriseMonth","usd_25000000_year":"pri_ciEnterpriseYear"}'
           # DATABASE_URL is REQUIRED here, not optional. `docker-compose.yml`
           # passes `BUILD_DATABASE_URL: ${DATABASE_URL}` as a build arg, and
           # compose resolves an unset variable to an EMPTY string — which

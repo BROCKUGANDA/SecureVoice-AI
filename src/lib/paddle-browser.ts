@@ -17,6 +17,7 @@
  */
 
 import { initializePaddle, type Paddle } from "@paddle/paddle-js";
+import { PLANS } from "@/lib/commercial";
 
 export type PaddleEnvironment = "sandbox" | "production";
 
@@ -99,25 +100,43 @@ export function paddleToken(): { env: PaddleEnvironment; token: string } {
  */
 
 /**
- * `usd_<cents>` -> plan id.
+ * `usd_<cents>_<interval>` -> plan id.
  *
- * BOTH intervals are listed because the price key encodes the AMOUNT actually
- * charged, and the annual amount is ten times the monthly one (`usd_99000_year`
- * is $990/yr against `usd_9900_month` at $99/mo — the 10x annual ratio
- * `tests/billing/catalog-parity.test.ts` asserts). Listing only the monthly
- * amounts would leave every `*_year` key unresolvable, and the completeness
- * check below would then reject the whole map and the pricing page would refuse
- * to render. Mirrors PRICE_KEY_TO_PLAN in payments/overage.ts, which carries the
- * monthly set because billing only ever quotes a monthly anchor.
+ * DERIVED from `PLANS`, not written out by hand.
+ *
+ * It used to be a literal table (`usd_9900: "starter"`, …), which made it a
+ * THIRD copy of the price list: `commercial.ts` held it, `src/views/Pricing.tsx`
+ * held it, and this map held it again — and the drift between them was
+ * invisible until a buyer saw a price the gateway did not charge. The map now
+ * reads the catalog, so a price change is one edit in one file.
+ *
+ * THE INTERVAL IS PART OF THE KEY, and it has to be. The key encodes the
+ * amount, and the current rate card contains ONE amount that two different
+ * prices share: Starter's annual price is $2,500 x 10 = $25,000, and
+ * Enterprise's monthly price is $25,000. Resolving from the amount alone made
+ * one key name two plans, and the map's own completeness check — "every tier
+ * needs BOTH intervals" — then rejected itself, so the pricing page refused
+ * to render. `usd_2500000_month` is Enterprise and `usd_2500000_year` is
+ * Starter, and neither is ambiguous.
+ *
+ * PLANS WITH `salesAssisted` ARE EXCLUDED. A plan sold by negotiation and
+ * invoiced has no Paddle product, so it has no price id to map — and
+ * including it would break the completeness check below (a tier with a monthly
+ * amount and no yearly amount would make the whole map unusable and the
+ * pricing page would refuse to render). The Pilot is such a plan: ninety
+ * days, bought once.
  */
-const AMOUNT_TO_PLAN: Readonly<Record<string, string>> = Object.freeze({
-  usd_9900: "starter",
-  usd_99000: "starter",
-  usd_49900: "growth",
-  usd_499000: "growth",
-  usd_200000: "enterprise",
-  usd_2000000: "enterprise",
-});
+const AMOUNT_TO_PLAN: Readonly<Record<string, string>> = Object.freeze(
+  (() => {
+    const out: Record<string, string> = {};
+    for (const plan of PLANS) {
+      if (plan.salesAssisted) continue;
+      if (plan.monthlyUsd !== null) out[`usd_${plan.monthlyUsd * 100}_month`] = plan.id;
+      if (plan.yearlyUsd !== null) out[`usd_${plan.yearlyUsd * 100}_year`] = plan.id;
+    }
+    return out;
+  })(),
+);
 
 type PriceTier = { month: string; year: string };
 
@@ -143,10 +162,11 @@ function readPriceIds(): Record<string, PriceTier> | null {
   const byTier: Record<string, PriceTier> = {};
   for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
     if (typeof value !== "string" || !/^pri_[A-Za-z0-9]+$/.test(value)) continue;
-    // Key shape: `usd_<cents>_<interval>`.
+    // Key shape: `usd_<cents>_<interval>`. The interval is PART of the lookup —
+    // see `AMOUNT_TO_PLAN` for the amount that two prices share.
     const parts = key.split("_");
     if (parts.length < 3) continue;
-    const plan = AMOUNT_TO_PLAN[parts.slice(0, 2).join("_")];
+    const plan = AMOUNT_TO_PLAN[key];
     if (!plan) continue;
     const interval = parts[2];
     if (interval !== "month" && interval !== "year") continue;

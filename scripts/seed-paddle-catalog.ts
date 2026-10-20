@@ -42,51 +42,44 @@ import { Environment, Paddle } from "@paddle/paddle-node-sdk";
 // is a compile error to write "GBR" or "US D" here, which is exactly the class
 // of typo that would otherwise create an override silently matching nobody.
 import type { CountryCode, CurrencyCode } from "@paddle/paddle-node-sdk";
+import { PLANS as COMMERCIAL_PLANS } from "../src/lib/commercial";
 
 const ENVIRONMENT = "sandbox" as const;
 
 /* ── plans ────────────────────────────────────────────────────────────────── */
 
-type Plan = {
+/**
+ * The published tiers, DERIVED from `src/lib/commercial.ts`.
+ *
+ * This used to be a hand-written literal table of the same three numbers — the
+ * THIRD copy of the price list, after `commercial.ts` and
+ * `src/views/Pricing.tsx`. The drift between them was invisible until a buyer
+ * saw one price and the gateway charged another, which is exactly what
+ * `tests/billing/catalog-parity.test.ts` exists to catch. Deriving it removes
+ * the copy instead of pinning it.
+ *
+ * The `monthlyUsd` string Paddle wants is a MINOR-unit string, and the catalog
+ * holds whole dollars, so the conversion is `Math.round(usd * 100)`.
+ *
+ * PLANS WITH `salesAssisted` ARE SKIPPED. A plan sold by negotiation and
+ * invoiced has no Paddle product: seeding one would create a price id that
+ * nobody bills against, and it would make the browser price map's
+ * completeness check (every tier needs BOTH intervals) reject the whole map.
+ */
+type SeedPlan = {
   id: string;
   name: string;
   description: string;
-  /** Whole USD per month, as a MINOR-unit string. 99.00 -> "9900". */
+  /** Whole USD per month, as a MINOR-unit string. 2500.00 -> "250000". */
   monthlyUsd: string;
 };
 
-/**
- * The three published tiers, matching `src/lib/commercial.ts` and
- * `src/views/Pricing.tsx`.
- *
- * IF YOU CHANGE A NUMBER HERE, change it in `commercial.ts` in the same commit —
- * `tests/billing/catalog-parity.test.ts` asserts they agree, and a page that
- * quotes one price while the gateway charges another is the failure it exists
- * to prevent.
- */
-const PLANS: Plan[] = [
-  {
-    id: "starter",
-    name: "Starter",
-    description:
-      "Real-time voice fraud intervention for evaluation teams. 500 intervention signals per month, one organization, Arabic and English voice agents.",
-    monthlyUsd: "9900", // $99.00
-  },
-  {
-    id: "growth",
-    name: "Growth",
-    description:
-      "The production tier for mid-market banks and insurers running live fraud desks. 2,500 intervention signals per month, multi-tenant, BYOK.",
-    monthlyUsd: "49900", // $499.00
-  },
-  {
-    id: "enterprise",
-    name: "Enterprise",
-    description:
-      "For Tier-1 UAE banks deploying inside their own perimeter. 10,000 intervention signals per month, in-VPC or data centre deployment, custom volume beyond.",
-    monthlyUsd: "200000", // $2,000.00
-  },
-];
+const PLANS: SeedPlan[] = COMMERCIAL_PLANS.filter((p) => !p.salesAssisted).map((p) => ({
+  id: p.id,
+  name: p.name,
+  description: p.tagline,
+  monthlyUsd: String(Math.round((p.monthlyUsd ?? 0) * 100)),
+}));
 
 /* ── regional pricing ─────────────────────────────────────────────────────── */
 

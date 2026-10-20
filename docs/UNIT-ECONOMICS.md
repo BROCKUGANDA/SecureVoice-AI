@@ -203,6 +203,86 @@ conversational-AI line entirely (we meter it for analytics but charge nothing),
 so their floor is pure carrier cost. That is roughly 45% of our cost at current
 rates — which is a real, defensible discount and costs us nothing.
 
+### 5.1 The price floor, and the published prices that clear it
+
+**The floor.** Fully loaded cost ÷ (1 − 0.70 target margin). It is the one
+number that must not be bent, because it is the only thing standing between a
+campaign and negative margin.
+
+**The arithmetic, with the rates each figure comes from.**
+
+| Cost line                            | Unit cost          | Basis                                                                                                          |
+| ------------------------------------ | ------------------ | -------------------------------------------------------------------------------------------------------------- |
+| ElevenLabs voice                     | $0.080/min         | Sourced — elevenlabs.io/pricing/agents, read 2026-10-02                                                        |
+| ElevenLabs voice (burst)             | $0.160/min         | Same — charged above the plan's concurrency                                                                    |
+| LLM                                  | ~$0.001–0.002/call | Estimated from token count × published token pricing                                                           |
+| Carrier — UAE mobile                 | $0.2995/min        | Operator input from the published Twilio price list, October 2026 — **confirm in the Twilio console** (see §2) |
+| Carrier — Kenya mobile               | $0.3933/min        | Operator input from the published Twilio price list, October 2026 — **confirm in the Twilio console**          |
+| Carrier — local SIP                  | ~$0.004/min        | Operator input — BYOC/SIP trunking                                                                             |
+| SMS fallback (30%)                   | ~$0.02             | Operator input                                                                                                 |
+| Infra, storage, audit, transcription | ~$0.04             | Operator input, per 1,000 calls                                                                                |
+
+On a 2.3-minute intervention (2.0 connected + 0.3 retries/voicemail):
+
+| Route                    | Fully loaded cost | Price floor at a 70% gross margin |
+| ------------------------ | ----------------- | --------------------------------- |
+| UAE via Twilio           | ≈ **$0.96**       | **$3.20**                         |
+| Kenya via Twilio         | ≈ **$1.17**       | **$3.90**                         |
+| Local SIP trunk (target) | ≈ **$0.39**       | **$1.30**                         |
+
+**Telephony is 70–77% of the cost on Twilio.** Two consequences, and they are
+the whole of the commercial argument:
+
+1. **The overage has to clear the floor on every route.** The floor rule —
+   fully loaded cost ÷ (1 − 0.70) — is the one number that must never be bent,
+   because it is the only thing standing between a campaign and negative
+   margin. The previous published overages of $0.15 (Starter) and $0.12
+   (Growth) were **below** the floor on every route, which is not a
+   competitive position but a loss on every extra intervention.
+2. **The carrier rate is the biggest margin lever available.** A local SIP
+   trunk at ~$0.004/min moves the floor from $3.20 to $1.30, and no amount of
+   engineering does that.
+
+**The published prices, which clear the floor on the costliest route:**
+
+| Plan               | Price                      | Included | Effective / intervention | Overage                        | Margin at full use (UAE Twilio)        |
+| ------------------ | -------------------------- | -------- | ------------------------ | ------------------------------ | -------------------------------------- |
+| Pilot (90 days)    | $12,000 one-off            | 2,000    | $6.00                    | $5.00                          | ~84%                                   |
+| Starter            | $2,500 / mo                | 500      | $5.00                    | $4.50                          | ~81%                                   |
+| Growth             | $9,000 / mo                | 2,500    | $3.60                    | $3.50                          | ~73%                                   |
+| Enterprise         | from $25,000 / mo (annual) | 10,000   | $2.50                    | $2.25 + telephony pass-through | ~83% with local SIP                    |
+| BYOK / BYOC add-on | platform fee only          | —        | from $1.50               | $1.25                          | ~95% (the bank pays voice and carrier) |
+
+Rules that go with it: an onboarding fee from $7,500 on Growth and Enterprise;
+50% of the pilot fee credited against the first annual contract; Enterprise
+telephony passed through at cost + 10% unless the bank brings its own trunk;
+Enterprise invoiced directly rather than through Paddle (~5% + $0.50); and a
+pilot volume cap enforced contractually, with overage billed at the Starter
+rate.
+
+**What is in code and what is still a decision.** The prices above are in
+`src/lib/commercial.ts` and on the pricing page, and the Paddle catalog is now
+DERIVED from that one file (`scripts/seed-paddle-catalog.ts` reads `PLANS`
+rather than carrying a third hand-written copy of the numbers), so the drift
+between "what the page says" and "what the catalog charges" is a build failure
+rather than a surprise at checkout. The Pilot is `salesAssisted` — a ninety-day
+engagement bought once and invoiced, with no Paddle product, because a plan
+sold by negotiation has no price id anybody bills against.
+
+Still open, and none of it is a code change:
+
+- **Re-seed the live catalog.** `bun run paddle:seed` then
+  `bun run paddle:repair-overrides` against the sandbox catalog. Until that
+  runs, the gateway holds the OLD prices and the parity test is the thing that
+  says so.
+- **The commercial terms** — the onboarding fee, the pilot credit, the annual
+  escalator, the carrier-rate adjustment clause, the minimum terms and the
+  discount-approval matrix — are decisions for the commercial owner. The code
+  carries the prices they apply to; it does not decide them.
+
+**This does not block a pilot.** A pilot is priced contractually, not from the
+page.
+
 ---
 
 ## 6. Provenance and integrity

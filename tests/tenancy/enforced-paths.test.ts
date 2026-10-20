@@ -218,7 +218,21 @@ describe("the database-enforced path", () => {
     // of `console/audit` and `console/settings`; the bound stays at the 26 seen
     // BEFORE it, so concurrent work in the tree is not blamed for a number it did
     // not move — and growth past that is the thing a reviewer has to explain.
-    expect(unscoped.length).toBeLessThanOrEqual(26);
+    //
+    // IT IS NOW 28, and the two additions are named here because a number that
+    // moves silently is the thing this ratchet exists to prevent:
+    //
+    //   · `console/pilot/approvals` — a human approves a dial. It reads
+    //     `db.case` with an explicit `{ caseRef, orgId }` predicate, so it is
+    //     scoped; the scan is a TEXT scan and cannot see a predicate written
+    //     inline. It is the same shape as the other console routes that carry
+    //     their own org clause.
+    //   · `twilio/recording` — a carrier callback about a recording. It is
+    //     worker-facing by construction: the carrier names a recording, not a
+    //     tenant, and the row it resolves carries its own org.
+    //
+    // Anything past 28 has to be argued for, not assumed.
+    expect(unscoped.length).toBeLessThanOrEqual(28);
     console.log(
       `[tenancy] database-enforced handlers: ${enforced.length} (${enforced.join(", ")}); still application-scoped only: ${unscoped.length}`,
     );

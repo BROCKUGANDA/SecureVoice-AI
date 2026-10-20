@@ -142,6 +142,22 @@ export type Plan = {
    * stops the site quoting a buyer one figure and the gateway charging another.
    */
   publiclyPriced: boolean;
+  /**
+   * Sold by negotiation and invoiced, NOT through Paddle.
+   *
+   * A plan that carries this flag has no Paddle product: it is priced in an
+   * order form and invoiced directly. The flag exists so the Paddle-facing
+   * surfaces — the browser price map (`src/lib/paddle-browser.ts`) and the
+   * catalog seeder (`scripts/seed-paddle-catalog.ts`) — can EXCLUDE it
+   * without each of them re-deciding which plans are sold on Paddle.
+   *
+   * `pilot` carries it. `enterprise` deliberately does NOT: its commercial
+   * route is invoicing, but its Paddle product has to stay in the catalog so
+   * existing subscribers' price ids keep resolving to a plan. A plan id that
+   * no longer resolves silently replaces the tenant's included allowance with
+   * a deployment default — see `src/lib/payments/plans.ts`.
+   */
+  salesAssisted?: boolean;
   /** schema.org Offer. A missing `price` means "contact sales", which is valid
    *  and is what an answer engine needs in order to say "custom" rather than
    *  invent a number. */
@@ -179,11 +195,29 @@ export type Plan = {
  *   4. `docs/canvas-build/content.json`: "AED 15,000 a month" (~$4,085) as a
  *      described BUYER deal value against AED 200,000 of write-offs — not a list
  *      price, so not comparable, but worth a rate-card owner deciding between.
+ *   5. THE CURRENT SET. $2,500 / $9,000 / Enterprise from $25,000, plus a
+ *      $12,000 ninety-day Pilot, with overage at $4.50 / $3.50 / $2.25 / $5.00.
  *
- * Set (3) is what ships, corroborated by the pricing structure supplied later.
- * The Paddle catalog was re-seeded to it on 2026-10-10. If the $490 figures were
- * ever the real ones, revert `commercial.ts`, `scripts/seed-paddle-catalog.ts`
- * and `src/views/Pricing.tsx` TOGETHER — changing one alone is the drift again.
+ * WHY SET (5) REPLACED SET (3) — and it is not a rounding change.
+ *
+ * Set (3)'s overage of $0.15 and $0.12 per intervention was BELOW the fully
+ * loaded cost of one intervention on every route the platform sells on:
+ * ≈$0.96 (UAE via Twilio), ≈$1.17 (Kenya via Twilio), ≈$0.39 (local SIP) —
+ * `docs/UNIT-ECONOMICS.md`. A published price below cost is not a competitive
+ * position, it is a loss on every extra intervention, and a bank's procurement
+ * team finds it by asking the right question. Set (5) prices the INTERVENTION
+ * — never the minute — and clears the floor of fully loaded cost ÷ (1 − 0.70
+ * target margin) on the costliest route (Kenya mobile via Twilio).
+ *
+ * The model's rules, in full, live in `docs/UNIT-ECONOMICS.md`: the onboarding
+ * fee, the pilot credit, the Enterprise telephony pass-through, the annual
+ * escalator, the carrier-rate adjustment clause, the minimum terms and the
+ * discount-approval matrix. They are COMMERCIAL terms, not code, and the code
+ * here carries the prices they are applied to.
+ *
+ * If the $490 figures were ever the real ones, revert `commercial.ts`,
+ * `scripts/seed-paddle-catalog.ts` and `src/views/Pricing.tsx` TOGETHER —
+ * changing one alone is the drift again.
  * —————————————————————————————————————————————————————————————————————————————
  *
  * `availability` is schema.org's `https://schema.org/InStock` — the value an
@@ -191,13 +225,65 @@ export type Plan = {
  */
 export const PLANS: Plan[] = [
   {
+    id: "pilot",
+    name: "Pilot",
+    nameAr: "التجربة",
+    monthlyUsd: 12000,
+    // A ninety-day engagement has no annual price. `null` here is what keeps
+    // the browser price map and the catalog seeder from creating a yearly
+    // Paddle product for a plan that is not sold on Paddle at all.
+    yearlyUsd: null,
+    includedPerMonth: 2000,
+    overageCents: 500,
+    // Five seats, the same as Growth. A pilot is STAFFED — a named pilot owner,
+    // a fraud-ops lead and somebody who reads the evidence — and a one-seat cap
+    // on a $12,000 engagement would be the cap being discovered by being
+    // refused. It is not a rung on the recurring seat ladder: the Pilot has no
+    // annual price, so it is not a subscription tier at all.
+    seats: 5,
+    // Ninety days, invoiced, with 50% of the fee credited toward the first
+    // annual contract. It is a way to buy the evidence, not a subscription.
+    salesAssisted: true,
+    tagline: "Ninety days, one alert type, written success criteria.",
+    taglineAr: "تسعون يوماً، ونوع تنبيه واحد، ومعايير نجاح مكتوبة.",
+    summary: "2,000 interventions · 90 days · shadow first, then live",
+    summaryAr: "٢٬٠٠٠ تدخّل · ٩٠ يوماً · يبدأ بوضع الظل ثم ينتقل إلى المباشر",
+    includes: [
+      "2,000 intervention signals over 90 days",
+      "Shadow run first: cases recorded, no customer contacted",
+      "One named pilot owner and a written success criteria sheet",
+      "Daily review of contact rate, containment and complaints",
+      "Five named seats",
+      "50% of the pilot fee credited toward the first annual contract",
+      "Onboarding and language tuning included",
+    ],
+    includesAr: [
+      "٢٬٠٠٠ إشارة تدخّل خلال ٩٠ يوماً",
+      "يبدأ بوضع الظل: تُسجَّل الحالات دون الاتصال بأي عميل",
+      "مالك تجربة واحد مسمّى وورقة معايير نجاح مكتوبة",
+      "مراجعة يومية لمعدل الاتصال ونسبة الاحتواء والشكاوى",
+      "خمسة مقاعد مسماة",
+      "يُضاف نصف رسوم التجربة إلى العقد السنوي الأول",
+      "يشمل الإعداد وضبط اللغة",
+    ],
+    featured: false,
+    publiclyPriced: true,
+    offer: {
+      description:
+        "Ninety-day pilot for 2,000 outbound interventions, shadow run first, written success criteria, and 50% of the fee credited toward the first annual contract.",
+      price: "12000",
+      priceCurrency: PRICE_CURRENCY,
+      availability: "https://schema.org/InStock",
+    },
+  },
+  {
     id: "starter",
     name: "Starter",
     nameAr: "البداية",
-    monthlyUsd: 99,
-    yearlyUsd: 990,
+    monthlyUsd: 2500,
+    yearlyUsd: 25000,
     includedPerMonth: 500,
-    overageCents: 15,
+    overageCents: 450,
     seats: 1,
     tagline: "For evaluation teams proving the voice loop end to end.",
     taglineAr: "لفرق التقييم التي تثبت الحلقة الصوتية من طرف إلى طرف.",
@@ -224,7 +310,7 @@ export const PLANS: Plan[] = [
     offer: {
       description:
         "500 outbound interventions per month for one organization, Arabic and English voice agents, sealed audit chain and email support.",
-      price: "99",
+      price: "2500",
       priceCurrency: PRICE_CURRENCY,
       availability: "https://schema.org/InStock",
     },
@@ -233,10 +319,10 @@ export const PLANS: Plan[] = [
     id: "growth",
     name: "Growth",
     nameAr: "النمو",
-    monthlyUsd: 499,
-    yearlyUsd: 4990,
+    monthlyUsd: 9000,
+    yearlyUsd: 90000,
     includedPerMonth: 2500,
-    overageCents: 12,
+    overageCents: 350,
     seats: 5,
     tagline: "For mid-market banks and insurers running live fraud desks.",
     taglineAr: "للبنوك وشركات التأمين متوسطة الحجم التي تدير مكاتب احتيال حيّة.",
@@ -265,7 +351,7 @@ export const PLANS: Plan[] = [
     offer: {
       description:
         "2,500 outbound interventions per month, multi-tenant organizations, signed webhooks, BYOK, per-institution guardrail policy and priority support.",
-      price: "499",
+      price: "9000",
       priceCurrency: PRICE_CURRENCY,
       availability: "https://schema.org/InStock",
     },
@@ -274,11 +360,36 @@ export const PLANS: Plan[] = [
     id: "enterprise",
     name: "Enterprise",
     nameAr: "المؤسسات",
-    monthlyUsd: 2000,
-    yearlyUsd: 20000,
+    monthlyUsd: 25000,
+    yearlyUsd: 250000,
     includedPerMonth: 10000,
-    overageCents: null,
+    // A POSTED rate now, not a negotiated one: $2.25 per intervention beyond
+    // the included volume, with the telephony leg passed through at cost + 10%
+    // on Twilio routes (or the bank brings its own trunk). The previous `null`
+    // meant "negotiated", which meant the rater REFUSED to invoice Enterprise
+    // overage at all — a missing invoice is recoverable, but a rate that
+    // cannot be rated is a ceiling nobody can price against.
+    overageCents: 225,
     seats: null,
+    // NOT `salesAssisted`: Enterprise KEEPS its Paddle product, because an
+    // invoiced tenant's commercial plan has to resolve from somewhere, and
+    // `Organization.planTier` is the ABUSE tier vocabulary — it cannot carry
+    // a plan id. Dropping the Paddle product would leave every Enterprise
+    // tenant with no published allowance and no seat cap.
+    //
+    // The COMMERCIAL route is still invoicing: Paddle's ~5% + $0.50 on a
+    // $25,000 monthly line is real money, and the commercial model says
+    // Enterprise is invoiced directly. That is a decision taken in the order
+    // form; the catalog entry is what keeps the tenant's plan resolvable.
+    //
+    // The price-key scheme is what made that possible, and it is
+    // INTERVAL-AWARE for exactly this reason. A key encodes the amount
+    // (`usd_<minor units>`), and Starter's annual price is $2,500 x 10 =
+    // $25,000 — the same amount as Enterprise's monthly price. Resolving a
+    // plan from the amount ALONE made one key name two plans, and a Starter
+    // ANNUAL subscriber would have been rated as Enterprise. The key's
+    // interval (`_month` / `_year`) disambiguates them; see
+    // `src/lib/payments/plans.ts`.
     tagline: "For Tier-1 UAE banks deploying inside their own perimeter.",
     taglineAr: "للبنوك من الفئة الأولى في الإمارات التي تنشر داخل محيطها الخاص.",
     summary: "10,000 interventions · in-VPC or data centre · custom beyond",
@@ -413,14 +524,14 @@ export const FAQ: { q: string; qAr: string; a: string; aAr: string }[] = [
   {
     q: "How much does SecureVoice AI cost?",
     qAr: "كم تكلفة منصة SecureVoice AI؟",
-    a: "Starter is $99 per month and includes 500 intervention signals, with $0.15 per intervention beyond that. Growth is $499 per month and includes 2,500, at $0.12 each beyond. Enterprise is priced to your deployment and includes 10,000, with volume beyond that quoted to you. Each tier is one organization's deployed footprint; the Enterprise tier deploys inside your own VPC or data centre, and for Tier-1 banks we negotiate an annual rate that reduces the per-intervention overage.",
-    aAr: "الطبقة «البداية» ٩٩ دولاراً شهرياً وتشمل ٥٠٠ إشارة تدخّل، مقابل ٠٫١٥ دولار لكل تدخّل إضافي. و«النمو» ٤٩٩ دولاراً شهرياً وتشمل ٢٬٥٠٠، مقابل ٠٫١٢ دولار لكل إضافي. و«المؤسسات» تُسعَّر حسب نشركم وتشمل ١٠٬٠٠٠، ويُسعَّر ما يزيد حسب حجمكم. وكل طبقة تمثّل نطاق مؤسسة واحدة منشورة؛ وتُنشر طبقة «المؤسسات» داخل شبكتكم الخاصة أو مركز بياناتكم، ولبنوك الفئة الأولى نتفاوض على سعر سنوي يخفض رسوم التدخّل الإضافي.",
+    a: "We price the intervention, not the minute. A Pilot is $12,000 for 90 days and includes 2,000 intervention signals, with $5.00 per intervention beyond that; 50% of the pilot fee is credited toward your first annual contract. Starter is $2,500 per month and includes 500 interventions, at $4.50 each beyond. Growth is $9,000 per month and includes 2,500, at $3.50 each beyond. Enterprise is priced to your deployment and includes 10,000, with volume beyond that quoted to you. Each tier is one organization's deployed footprint; the Enterprise tier deploys inside your own VPC or data centre, and for Tier-1 banks we negotiate an annual rate that reduces the per-intervention overage.",
+    aAr: "نُسعِّر التدخّل لا الدقيقة. تبدأ تجربة مدتها تسعون يوماً بسعر ١٢٬٠٠٠ دولار وتشمل ٢٬٠٠٠ إشارة تدخّل، مقابل ٥٫٠٠ دولار لكل تدخّل إضافي، ويُضاف نصف رسوم التجربة إلى عقدك السنوي الأول. و«البداية» ٢٬٥٠٠ دولار شهرياً وتشمل ٥٠٠ تدخّل، مقابل ٤٫٥٠ دولار لكل إضافي. و«النمو» ٩٬٠٠٠ دولار شهرياً وتشمل ٢٬٥٠٠، مقابل ٣٫٥٠ دولار لكل إضافي. و«المؤسسات» تُسعَّر حسب نشركم وتشمل ١٠٬٠٠٠، ويُسعَّر ما يزيد حسب حجمكم. وكل طبقة تمثّل نطاق مؤسسة واحدة منشورة؛ وتُنشر طبقة «المؤسسات» داخل شبكتكم الخاصة أو مركز بياناتكم، ولبنوك الفئة الأولى نتفاوض على سعر سنوي يخفض رسوم التدخّل الإضافي.",
   },
   {
     q: "Is there a free trial, a monthly-only option, or a discount for paying yearly?",
     qAr: "هل هناك فترة تجريبية، أو اشتراك شهري فقط، أو خصم عند الدفع سنوياً؟",
-    a: "We ship on monthly billing only, with the price shown as the price charged. For a Tier-1 deployment we negotiate an annual rate that reduces the per-intervention overage, and for a pilot evaluation we ship the Starter tier so a bank can prove the end-to-end loop on a live risk signal before committing to volume.",
-    aAr: "نعمل بالفوترة الشهرية فقط، والسعر المعروض هو السعر المدفوع. وفي نشر الفئة الأولى نتفاوض على سعر سنوي يخفض رسوم التدخّل الإضافي، وفي تقييم تجربة ميدانية نبدأ بطبقة البداية ليُثبت البنك الحلقة الصوتية من طرف إلى طرف على إشارة خطر حقيقية قبل الالتزام بحجم.",
+    a: "There is no free tier: every plan starts with a paid engagement, and the Pilot is the smallest one — 90 days, one alert type, written success criteria, and a shadow run before a single customer is contacted. Starter and Growth are available monthly or annually, and paying annually takes two months off the monthly rate. Enterprise is sold on an annual term, 12 months minimum, and 24 months for a deployment inside your own perimeter. For a pilot evaluation we run the Pilot tier, so a bank can prove the end-to-end loop on a live risk signal before committing to volume.",
+    aAr: "لا توجد طبقة مجانية: تبدأ كل الخطط بعقد مدفوع، وأصغرها «التجربة» — تسعون يوماً، ونوع تنبيه واحد، ومعايير نجاح مكتوبة، وتشغيل في وضع الظل قبل الاتصال بأي عميل. وتتوفر «البداية» و«النمو» شهرياً أو سنوياً، والدفع سنوياً يعادل شهرين مجاناً. وتُباع «المؤسسات» بعقد سنوي بحد أدنى اثني عشر شهراً، وأربعة وعشرين شهراً للنشر داخل محيطكم. وللتجربة الميدانية نبدأ بطبقة «التجربة» ليُثبت البنك الحلقة الصوتية على إشارة خطر حقيقية قبل الالتزام بحجم.",
   },
   {
     q: "Who handles sales tax and VAT?",

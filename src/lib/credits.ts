@@ -65,13 +65,20 @@ export type Role = "operator" | "demo";
  * "signed in, not an institution administrator", and the console renders a Demo
  * Mode badge for it — see `requireSignedIn`.
  */
-export function roleFromMembership(membershipRole: string | null, orgId: string | null): Role {
+export function roleFromMembership(
+  membershipRole: string | null,
+  orgId: string | null,
+  opts: { legacyOrgWithoutMembers?: boolean } = {},
+): Role {
   if (membershipRole === null) {
-    // No membership row consulted: an org-less session is the shared demo
-    // workspace; a session WITH an active org but no member row is the pre-
-    // Better-Auth shape this file was written against, and stays an operator so
-    // the existing pilot logins keep working the day memberships are introduced.
-    return orgId ? "operator" : "demo";
+    // No membership row was consulted. An org WITH members and no row for this
+    // user is a removed member (or a stale activeOrganizationId) and is NOT an
+    // operator. The one exception is a legacy pilot org that has never had a
+    // member row at all — that shape predates Better Auth organizations and is
+    // admitted only when the caller has verified the org is memberless. The
+    // old unconditional `orgId ? "operator"` turned every deletion into an
+    // admin grant until the session cookie expired.
+    return orgId && opts.legacyOrgWithoutMembers ? "operator" : "demo";
   }
   switch (membershipRole.toLowerCase()) {
     case "owner":
@@ -132,9 +139,18 @@ export async function getProfile(): Promise<PlatformProfile | null> {
     const member = await auth.api.getActiveMember({ headers: await headers() });
     membershipRole = member?.role ?? null;
   }
+  // The only permitted no-membership fallback is a legacy org that has never
+  // had a member row (the pre-Better-Auth pilot shape). Counting here is what
+  // separates that from a removed member: the removed member's org DOES have
+  // rows, so the fallback is refused and the next request is a 403.
+  let legacyOrgWithoutMembers = false;
+  if (orgId && membershipRole === null) {
+    const members = await db.member.count({ where: { organizationId: orgId } });
+    legacyOrgWithoutMembers = members === 0;
+  }
   // Mapped, never cast: see `roleFromMembership`. A value from Better Auth's
   // vocabulary is not a `Role` because the compiler was told to believe it is.
-  const role: Role = roleFromMembership(membershipRole, orgId);
+  const role: Role = roleFromMembership(membershipRole, orgId, { legacyOrgWithoutMembers });
 
   // Demo confinement. The one-click demo credential is PUBLIC by design (it
   // ships in the sign-in bundle), so it must never resolve to anything but the
@@ -257,6 +273,30 @@ export async function requireOperator(): Promise<OperatorGuard> {
     };
   }
   return { ok: true, profile };
+}
+
+/**
+ * Platform-level operator: an operator acting with NO active tenant.
+ *
+ * `requireOperator` answers "may this person administer an institution?". It
+ * deliberately does not answer "may they see every institution?" — but several
+ * surfaces built before multi-tenancy did: the platform mailbox, the QStash
+ * dead-letter queue, and the signed-webhook inspector all read rows with no
+ * tenant predicate. An admin of one bank is not a platform operator, so those
+ * surfaces now ask the narrower question. A tenant-scoped operator gets 403;
+ * the institution's own data stays reachable through its tenant-scoped routes.
+ */
+export async function requirePlatformOperator(): Promise<OperatorGuard> {
+  const guard = await requireOperator();
+  if (!guard.ok) return guard;
+  if (guard.profile.orgId) {
+    return {
+      ok: false,
+      status: 403,
+      error: "Platform operator access required — sign in without an active institution.",
+    };
+  }
+  return guard;
 }
 
 /**

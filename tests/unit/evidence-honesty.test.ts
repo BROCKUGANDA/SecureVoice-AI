@@ -139,19 +139,26 @@ describe("evidence honesty", () => {
     }
   });
 
-  test("no evidence artifact is newer than the suites that produced it", () => {
+  test("the agent-testing artifact admits it is not tool-call evidence", () => {
     // Guards against a stale-but-optimistic summary being cited after the
-    // underlying run regressed. The agent-testing artifact must keep admitting
-    // it is partial rather than quietly claiming a full pass rate.
+    // underlying run regressed. The previous version read `data.summary`, a key
+    // this artifact does not have, so both assertions were skipped and the gate
+    // could not fail. The artifact's real shape is `headline` + an explicit
+    // limitation; pin those fields instead.
     const path = join(DOCS_EVIDENCE, "elevenlabs-agent-testing-2026-10-01.json");
     const data = JSON.parse(readFileSync(path, "utf8"));
-    const summary = data.summary ?? {};
+    const headline = data.headline ?? {};
 
-    // Whatever the numbers are, unexecuted runs must be visible as such.
-    const executed = summary.executed ?? summary.scored;
-    const requested = summary.requested ?? summary.total;
-    if (typeof requested === "number" && typeof executed === "number") {
-      expect(executed).toBeLessThanOrEqual(requested);
-    }
+    expect(typeof headline.executed_runs).toBe("number");
+    expect(typeof headline.total_requested_runs).toBe("number");
+    expect(headline.executed_runs).toBeLessThanOrEqual(headline.total_requested_runs);
+    // The load-bearing admission: zero tool calls were observed, so this
+    // artifact may not be cited as a passing tool-call test.
+    expect(headline.tool_calls_observed_across_all_runs).toBe(0);
+    expect(String(data.IMPORTANT_LIMITATION ?? "")).toContain(
+      "DO NOT constitute a passing tool-call test",
+    );
+    // And the genuine high-stakes evidence must still be named in the artifact.
+    expect(data.guardrails_runtime).toBeDefined();
   });
 });

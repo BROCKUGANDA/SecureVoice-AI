@@ -57,6 +57,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { env } from "@/lib/config";
 import { db } from "@/lib/db";
+import { assertPilotAllowsEnqueue } from "@/lib/pilot/gate";
 import { logError } from "@/lib/validation/safe-log";
 
 /** Milliseconds → an INTERVAL literal. Used for every deadline this module writes. */
@@ -211,6 +212,8 @@ export async function enqueueDialJob(input: {
   payload?: Record<string, unknown>;
   /** Delay before the job becomes claimable. 0 (default) = due now. */
   availableInMs?: number;
+  /** The alert type, for the pilot charter's one-alert-type rule. */
+  signalKind?: string | null;
 }): Promise<EnqueueResult> {
   if (!input.caseId || !input.caseRef)
     throw new TypeError("enqueueDialJob requires caseId and caseRef");
@@ -221,6 +224,30 @@ export async function enqueueDialJob(input: {
   const availableInMs = Math.max(0, Math.trunc(input.availableInMs ?? 0));
   const id = randomUUID();
   const payload = JSON.stringify(input.payload ?? {});
+
+  // THE PILOT GATE — the last line of defence, at the one place a dial job
+  // comes into existence.
+  //
+  // Every ingest path that can create a dial job — the bank signal endpoint,
+  // the campaign endpoint, the console's fire button, the dispatch engine's
+  // `call.trigger` and `retry.callback` handlers — has to remember to consult
+  // the pilot charter and the pilot's volume cap. That is five call sites, and
+  // a sixth added later would be a sixth way to place a call the pilot was
+  // never chartered to place.
+  //
+  // The per-path calls remain, because refusing HERE is too late: the case row
+  // has already been created by then, and a pilot that silently accumulates
+  // cases it will never act on is a pilot whose shadow readout is wrong. But
+  // a path that forgets to gate itself still cannot enqueue.
+  //
+  // The refusal is a THROWN error, not a silent no-op, because a caller that
+  // believes it enqueued a job and did not will report a case as live to a
+  // bank. `PilotRefusalError` carries the code and the reason so the caller
+  // can turn it into the same 409 the intake gate produces.
+  await assertPilotAllowsEnqueue({
+    orgId: input.orgId ?? null,
+    signalKind: input.signalKind ?? null,
+  });
 
   try {
     const inserted = await db.$queryRawUnsafe<
@@ -421,7 +448,10 @@ export async function failDialJob(args: {
       const deferred = await db.$queryRaw<{ retries: number }[]>`
         UPDATE "dial_job"
            SET state = 'PENDING', "available_at" = ${availableAt}, claimed_by = NULL,
-               lease_expires_at = NULL, last_error = ${error}, updated_at = now()
+               lease_expires_at = NULL,
+               last_error = CASE WHEN "last_error" = 'dial_in_flight'
+                                 THEN 'dial_in_flight: ' ELSE '' END || ${error},
+               updated_at = now()
          WHERE id = ${args.id} AND state = 'CLAIMED'
         RETURNING retries
       `;
@@ -433,7 +463,10 @@ export async function failDialJob(args: {
     }
     const rows = await db.$queryRaw<{ retries: number }[]>`
       UPDATE "dial_job"
-         SET retries = retries + 1, last_error = ${error}, updated_at = now()
+         SET retries = retries + 1,
+             last_error = CASE WHEN "last_error" = 'dial_in_flight'
+                               THEN 'dial_in_flight: ' ELSE '' END || ${error},
+             updated_at = now()
        WHERE id = ${args.id} AND state = 'CLAIMED'
       RETURNING retries
     `;
@@ -574,6 +607,26 @@ export async function replayDeadDialJob(id: string): Promise<{ ok: boolean; reas
  *      time, and the only place that knows how long the call is about to be is
  *      here. Pass `MEAN_CALL_SECONDS` plus headroom, not the drain interval.
  *
+ * ── The lease is a RECOVERY TIMER, not an ownership token ───────────────────
+ *
+ * It is tempting to add `lease_expires_at > now()` to the predicate — "our
+ * lease lapsed, so we have lost the row" — and it is wrong.
+ *
+ * The claim above re-claims a row whose lease has expired, and it does so by
+ * WRITING `claimed_by = <the new worker>`. So ownership is not expressed by
+ * the lease at all; it is expressed by the `claimed_by` column, and this
+ * UPDATE is the atomic compare-and-set on it. Two workers whose leases have
+ * both expired race for the row, and exactly one of the two UPDATEs matches
+ * the predicate: the loser reads zero rows back and does not dial.
+ *
+ * Adding a lease check would change the answer in the one case where the
+ * current behaviour is correct. A batch of five is claimed at once with a
+ * sixty-second lease and the worker runs the handlers serially, so a job late
+ * in the batch routinely arrives at this call with its lease long expired and
+ * nobody else has claimed it — it is still ours. Refusing to extend it would
+ * skip the job, and the skip would repeat on every pass, so a slow batch
+ * would silently stop making progress.
+ *
  * @returns true if the worker owns the job (and the lease is now `leaseMs` long
  *          from now); false if it does not, in which case do NOT place the call.
  */
@@ -598,6 +651,55 @@ export async function renewClaim(
   }
 }
 
+/**
+ * A durable marker written immediately before the provider call.
+ *
+ * The claim lease cannot answer the one question that matters after a worker
+ * dies mid-dial: did the carrier accept the call before the process stopped?
+ * A redial guesses "no" and can ring the same customer twice. `last_error` is
+ * reused as the marker rather than adding a column because the row already has
+ * exactly one "what happened on the last attempt" field; a normal failure
+ * overwrites it, and a normal completion clears it.
+ */
+export const DIAL_IN_FLIGHT = "dial_in_flight";
+
+/**
+ * The marker as it appears once a failure has been folded into it.
+ *
+ * `failDialJob` used to overwrite `last_error` with the error text, which
+ * ERASED the marker. The marker then only survived a process kill — and a
+ * provider call that failed *after* the carrier had already accepted the call
+ * (a timeout, a socket reset, a 5xx from the provider after the call was
+ * queued) climbed the retry ladder and rang the customer a second time. That
+ * is the exact double-ring the marker exists to prevent, and it was the
+ * commoner of the two cases.
+ *
+ * So the marker is PRESERVED and the failure is appended to it. The worker
+ * reads the prefix (see `src/worker/dial.ts`), so both spellings mean "a call
+ * may already have been placed" and neither is retried.
+ */
+export const DIAL_IN_FLIGHT_PREFIX = `${DIAL_IN_FLIGHT}:`;
+
+/**
+ * Record that THIS worker is about to hand the job to the provider.
+ *
+ * The CAS is the same ownership check as `renewClaim`: a worker that lost the
+ * row must not mark it, and a false return means "do not dial".
+ */
+export async function markDialStarted(jobId: string, workerId: string): Promise<boolean> {
+  try {
+    const rows = await db.$queryRaw<{ id: string }[]>`
+      UPDATE "dial_job"
+         SET "last_error" = ${DIAL_IN_FLIGHT}, "updated_at" = now()
+       WHERE id = ${jobId} AND state = 'CLAIMED' AND "claimed_by" = ${workerId}
+      RETURNING id
+    `;
+    return rows.length === 1;
+  } catch (err) {
+    return rethrow(err, "markDialStarted");
+  }
+}
+
 /** Read one job by id — the queue's own view of a case's dial history. */
 export async function dialJobById(id: string): Promise<DialJob | null> {
   try {
@@ -608,6 +710,83 @@ export async function dialJobById(id: string): Promise<DialJob | null> {
     return rows[0] ?? null;
   } catch (err) {
     return rethrow(err, "dialJobById");
+  }
+}
+
+/**
+ * The highest attempt number this case has ever had.
+ *
+ * The pilot's per-dial human approval is bound to ONE attempt, so the console
+ * has to know which attempt it is approving — and the answer is the queue's,
+ * not the console's: the queue owns the attempt ladder.
+ */
+export async function latestDialAttemptForCase(caseRef: string): Promise<number> {
+  try {
+    const rows = await db.$queryRaw<{ n: number }[]>`
+      SELECT COALESCE(MAX(attempt_no), 1)::int AS "n"
+        FROM "dial_job"
+       WHERE "case_ref" = ${caseRef}
+    `;
+    return rows[0]?.n ?? 1;
+  } catch (err) {
+    return rethrow(err, "latestDialAttemptForCase");
+  }
+}
+
+/**
+ * Make a case's pending dial jobs claimable NOW.
+ *
+ * The pilot approval gate parks a job with a future `available_at` while it
+ * waits for a human, so an approved case does not wait out the parking delay
+ * before its call goes out.
+ *
+ * `last_error` is cleared for the same reason: it carries the
+ * `pilot_blocked:<reason>` marker, and the marker is what makes the worker
+ * write exactly one audit row per blocked episode. Leaving it behind would
+ * silence the next block's row.
+ *
+ * The deadline is the DATABASE clock (`now()`), for the reason the module
+ * header gives: a JavaScript instant arrives as UTC wall time and lands in the
+ * past on a host that is not UTC.
+ */
+export async function releaseDialJobsForCase(caseRef: string): Promise<number> {
+  try {
+    const rows = await db.$executeRaw`
+      UPDATE "dial_job"
+         SET "available_at" = now(), "last_error" = NULL, "updated_at" = now()
+       WHERE "case_ref" = ${caseRef} AND state = 'PENDING'
+    `;
+    return rows;
+  } catch (err) {
+    return rethrow(err, "releaseDialJobsForCase");
+  }
+}
+
+/**
+ * Stop a case's dial jobs for good: PENDING and CLAIMED rows go to DEAD.
+ *
+ * DEAD is the dead-letter state, which is the right destination for a job a
+ * human has DECLINED: it is not a failure, but it must never be dialled, and
+ * `replayDeadDialJob` — the only thing that can revive it — is an explicit
+ * operator action.
+ *
+ * CLAIMED rows are included deliberately. A worker that has claimed a job and
+ * not yet placed the call is stopped by its own CAS: `markDialStarted`
+ * requires the row to still be `state = 'CLAIMED' AND claimed_by = <this
+ * worker>`, so a row that has already gone DEAD fails that check and the
+ * worker refuses to dial.
+ */
+export async function killDialJobsForCase(caseRef: string, reason: string): Promise<number> {
+  try {
+    const rows = await db.$executeRaw`
+      UPDATE "dial_job"
+         SET state = 'DEAD', "completed_at" = now(), "last_error" = ${reason},
+             "claimed_by" = NULL, "lease_expires_at" = NULL, "updated_at" = now()
+       WHERE "case_ref" = ${caseRef} AND state IN ('PENDING', 'CLAIMED')
+    `;
+    return rows;
+  } catch (err) {
+    return rethrow(err, "killDialJobsForCase");
   }
 }
 
@@ -697,7 +876,33 @@ export async function drainDialQueue(args: {
   for (const job of jobs) {
     // Not ours any more (or our lease lapsed and someone took it): do not act.
     // Releasing it would be wrong too — the other worker owns it now.
-    if (args.beforeHandler && !(await args.beforeHandler(job))) {
+    //
+    // A THROW here is caught, and it must be. `beforeHandler` is wired to
+    // `renewClaim`, which rethrows database errors. An uncaught throw left the
+    // whole batch: the remaining claimed jobs (up to the batch size) were
+    // abandoned in CLAIMED with no handler run, the drain aborted, and the
+    // worker slept for the poll interval believing the queue was empty. A
+    // single database blip in the ownership check could therefore stall the
+    // queue completely, with no counter moving to show for it.
+    //
+    // A throw is counted as a crash and the job is SKIPPED — not settled, not
+    // retried, not marked done. The row stays CLAIMED with its lease, and
+    // becomes claimable again when the lease expires, so the work is not lost.
+    let mayRun = true;
+    if (args.beforeHandler) {
+      try {
+        mayRun = await args.beforeHandler(job);
+      } catch (err) {
+        out.crashed++;
+        logError("[queue] the ownership gate threw; the job was not run", {
+          jobId: job.id,
+          workerId: args.workerId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        mayRun = false;
+      }
+    }
+    if (!mayRun) {
       out.skipped++;
       // WP19_DEBUG_SKIP=1 prints the row we refused to act on. Kept because this
       // is the one failure in the queue that is invisible in the counters — the

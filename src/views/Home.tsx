@@ -10,6 +10,7 @@ import {
   FileCheck2,
   Play,
   Zap,
+  ShieldAlert,
   LayoutDashboard,
   BookOpenText,
   Webhook,
@@ -78,7 +79,7 @@ const FEATURES = [
     icon: FileCheck2,
     en: "An audit trail that satisfies CBUAE",
     ar: "سجل تدقيق يلبي أنظمة المصرف المركزي",
-    body: "Every call recorded, transcribed bilingually, and sealed with verification method, actions, and handoff reason into immutable AES-256 storage.",
+    body: "Every call audited and sealed with verification method, actions, and handoff reason into immutable AES-256 storage.",
   },
 ];
 
@@ -347,9 +348,17 @@ export function Home() {
               */}
               <div className="mt-9 flex flex-wrap items-center gap-x-7 gap-y-3">
                 {[
-                  { big: "38m → 0", label: "from signal to call", ar: "من الإشارة إلى المكالمة" },
-                  { big: "43% → 85%", label: "prevention rate", ar: "نسبة المنع" },
+                  {
+                    big: "0",
+                    label: "PINs, OTPs or passwords requested",
+                    ar: "رموز سرية أو كلمات مرور مطلوبة",
+                  },
                   { big: "6 langs", label: "in the voice layer", ar: "في طبقة الصوت" },
+                  {
+                    big: "100%",
+                    label: "irreversible actions need a human",
+                    ar: "الإجراءات غير القابلة للتراجع تحتاج إنساناً",
+                  },
                 ].map((s) => (
                   <div key={s.label} className="flex items-baseline gap-2">
                     <span className="num text-[15px] font-semibold text-foreground">{s.big}</span>
@@ -737,8 +746,8 @@ export function Home() {
                 <span className="h-1.5 w-1.5 rounded-full bg-red-soft" />
                 <span className="text-[12px] font-medium text-red-soft">
                   {t(
-                    "AED 340M annual losses · prevention rate 43%",
-                    "خسائر سنوية ٣٤٠ مليون درهم · نسبة منع ٤٣٪",
+                    "AED 2,847 average per-case loss · 38 min manual contact (literature baseline)",
+                    "٢٬٨٤٧ درهماً متوسط الخسارة لكل حالة · ٣٨ دقيقة للتواصل اليدوي (مرجع أدبي)",
                     lang,
                   )}
                 </span>
@@ -842,7 +851,7 @@ export function Home() {
                         ? "مسارات تحقق معتمدة من المصرف — التجار والمبالغ والتواريخ. لا يطلب الوكيل أبداً رموزاً سرية أو كلمات مرور، لذا يستحيل تحويله إلى أداة تصيّد واحتيال."
                         : f.en === "Pre-approved actions only"
                           ? "لا يوجد في نطاق أدوات الوكيل سوى إجراء كتابة واحد: تمهيد تجميد مؤقت للبطاقة ليُقرّه أخصائي بشري. وأي إجراء غير قابل للتراجع — استبدال أو تحويل أو استرداد — يُحال إلى موظف بشري مع كامل السياق."
-                          : "كل مكالمة مسجّلة ومفروغة نصياً بلغتين، ومختومة بطريقة التحقق والإجراءات المتخذة وسبب التسليم، في تخزين غير قابل للتغيير بمعيار AES-256.",
+                          : "كل مكالمة تدخل سجل تدقيق وتُختم بطريقة التحقق والإجراءات وسبب التسليم في تخزين غير قابل للتغيير بمعيار AES-256.",
                     lang,
                   )}
                 </p>
@@ -916,15 +925,15 @@ export function Home() {
                 <div className="micro text-primary">USE CASES · حالات الاستخدام</div>
                 <h2 className="font-display mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
                   {t(
-                    "Beyond fraud: five regulated voice deployments",
-                    "أبعد من الاحتيال: خمس حالات صوتية منظّمة",
+                    "Beyond fraud: six regulated voice deployments",
+                    "أبعد من الاحتيال: ست حالات صوتية منظّمة",
                     lang,
                   )}
                 </h2>
                 <p className="mt-2 max-w-xl text-[13.5px] leading-relaxed text-ink-2">
                   {t(
-                    "Governed collections, provider pre-authorisation, support through difficult moments, multilingual servicing — one guardrailed engine, five configurations.",
-                    "تحصيل منظّم، واعتماد مسبق لمقدمي الخدمة، ودعم في اللحظات الصعبة، وخدمة متعددة اللغات — محرك واحد بضمانات، وخمس تشكيلات.",
+                    "Governed collections, provider pre-authorisation, difficult moments, multilingual servicing, claims fraud and policy servicing — one guardrailed engine, six configurations.",
+                    "تحصيل منظّم، واعتماد مسبق لمقدمي الخدمة، ودعم في اللحظات الصعبة، وخدمة متعددة اللغات، واحتيال المطالبات، وخدمة الوثائق — محرك واحد بضمانات، وست تشكيلات.",
                     lang,
                   )}
                 </p>
@@ -938,7 +947,7 @@ export function Home() {
               </button>
             </div>
           </Reveal>
-          <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {[
               {
                 icon: HandCoins,
@@ -967,6 +976,20 @@ export function Home() {
                 ar: "خدمة متعددة اللغات",
                 d: "Posted rates, transfer status, salary-card entitlements — in the caller's language.",
                 dAr: "الأسعار المعلنة، وحالة التحويلات، واستحقاقات بطاقة الراتب — بلغة المتصل.",
+              },
+              {
+                icon: ShieldAlert,
+                t: "Claims fraud & payout diversion",
+                ar: "احتيال المطالبات وتحويل التعويضات",
+                d: "Confirm a redirected claim payout with the policyholder before release.",
+                dAr: "تأكيد تعويض مطالبة أُعيد توجيهه مع حامل الوثيقة قبل الصرف.",
+              },
+              {
+                icon: FileCheck2,
+                t: "Policy servicing changes",
+                ar: "تغييرات خدمة الوثيقة",
+                d: "Beneficiary and payee changes confirmed; a reversal is staged for a human.",
+                dAr: "تأكيد تغييرات المستفيد والمستلم؛ ويُجهَّز العكس ليقرّه إنسان.",
               },
             ].map((x, i) => (
               <Reveal key={x.t} delay={i * 0.05}>

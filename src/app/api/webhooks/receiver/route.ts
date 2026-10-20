@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
+import { requirePlatformOperator } from "@/lib/credits";
 import { db } from "@/lib/db";
 import { verifySignature, WEBHOOK_SIGNATURE_HEADER } from "@/lib/outbox";
 import { payload as redactPayload } from "@/lib/redact";
@@ -88,6 +89,14 @@ export async function POST(req: NextRequest) {
 
 /** GET returns the most recent deliveries for the /inspector view. */
 export async function GET() {
+  // The rows are signed bank payloads with no tenant predicate (the event
+  // table predates tenant attribution), so the read is gated to a platform
+  // operator. It was previously unauthenticated: anyone could list the last 25
+  // bank notifications the deployment had received.
+  const guard = await requirePlatformOperator();
+  if (!guard.ok) {
+    return NextResponse.json({ error: guard.error }, { status: guard.status });
+  }
   const rows = await db.inboundBankEvent.findMany({
     orderBy: { receivedAt: "desc" },
     take: 25,

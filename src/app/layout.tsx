@@ -72,7 +72,7 @@ export const metadata: Metadata = {
     template: `%s · ${COMPANY.name}`,
   },
   description:
-    "SecureVoice AI is a real-time voice fraud-intervention platform for UAE banks and insurers. An AI voice agent calls the customer in their own language within 60 seconds of a fraud signal, verifies identity, holds the card or the claim payout, and hands off to a human. Plans from $99/month.",
+    "SecureVoice AI is a real-time voice fraud-intervention platform for UAE banks and insurers. An AI voice agent calls the customer in their own language as soon as a fraud signal is raised, verifies identity, holds the card or the claim payout, and hands off to a human. Plans from $2,500/month.",
   applicationName: COMPANY.name,
   // `legalName`, not the brand: the Terms and Conditions are required to name the
   // company, and the machine-readable version of that obligation belongs in the
@@ -141,7 +141,7 @@ export const metadata: Metadata = {
     alternateLocale: ["ar_AE"],
     title: `${COMPANY.name} — Real-Time Fraud Intervention`,
     description:
-      "38 minutes → 60 seconds. A multilingual AI voice agent for UAE banks and insurers: verifies identity, holds the card or the claim payout, and hands off to a human. Plans from $99/month.",
+      "38 minutes → 60 seconds. A multilingual AI voice agent for UAE banks and insurers: verifies identity, holds the card or the claim payout, and hands off to a human. Plans from $2,500/month.",
     images: [
       {
         url: "/og-image.png",
@@ -218,6 +218,12 @@ export default function RootLayout({
         <ProductJsonLd />
       </head>
       <body className="antialiased bg-background text-foreground">
+        {/* Reveal is a client-side entrance animation. Without JavaScript the
+            initial opacity:0 would leave the whole page below the fold blank;
+            this is the no-JS equivalent of "in view". */}
+        <noscript>
+          <style>{`[data-reveal]{opacity:1!important;transform:none!important}`}</style>
+        </noscript>
         {/* The tenant's brand colour, resolved server-side from the session's
             organisation and emitted before anything paints. A `<style>` in the
             SSR output applies at first paint, so the console never shows the

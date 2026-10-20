@@ -2532,13 +2532,18 @@ describe("WP-21 / negative control — a policy refusal is 409 and NEVER 500", (
         `${code} → 409`,
       );
     }
-    // Twenty-seven codes across the three gates, and the count is a tripwire rather
+    // Thirty codes across the four gates, and the count is a tripwire rather
     // than the check: what makes the list honest is
-    // `tests/unit/policy-refusal-codes.test.ts`, which reads all three emitting
+    // `tests/unit/policy-refusal-codes.test.ts`, which reads all four emitting
     // sources and fails on any emitted code missing here — and on any declared code
     // no gate emits. This number only fires when someone edits one side and the unit
     // test has not been told.
-    expect(POLICY_REFUSAL_CODES).toHaveLength(27);
+    //
+    // The fourth gate is the pilot charter gate (`src/lib/pilot/gate.ts`), whose
+    // three codes are DECISIONS about a pilot's agreed shape and volume — so they
+    // are 409 for exactly the reason the rest are: retrying the identical signal
+    // produces the identical refusal.
+    expect(POLICY_REFUSAL_CODES).toHaveLength(30);
     expect(BILLING_REFUSAL_CODES).toEqual(["credits_exhausted"]);
 
     // Refusals this file drives through a REAL gate call — the first three by

@@ -22,6 +22,100 @@ import "server-only";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { db } from "@/lib/db";
 
+/** The tool names a tenant credential may be scoped to. */
+export const AGENT_TOOL_NAMES = [
+  "card_freeze",
+  "human_handoff",
+  "switch_language",
+  "verify_transaction",
+  "warm_transfer",
+  "signed_url",
+] as const;
+
+export type AgentToolName = (typeof AGENT_TOOL_NAMES)[number];
+
+type TenantSecret = {
+  id: string;
+  orgId: string;
+  revoked: boolean;
+  toolScope?: string | null;
+};
+
+/**
+ * Unknown until the first credential lookup. Once a database reports that the
+ * additive column is absent, every later lookup uses the legacy select: a
+ * rolling deploy must not pay a failed query on every tool call (the tool
+ * latency gate measures p95, and the extra round trip was visible there).
+ *
+ * ── But the NEGATIVE answer expires, and it used not to ─────────────────────
+ *
+ * The flag used to be pinned to `false` for the life of the process. The
+ * moment ANY lookup in that process hit `P2022`, every later lookup — in
+ * every worker, in every replica, for the rest of the deployment's uptime —
+ * selected the credential WITHOUT `toolScope`, and `authorizeToolCall` then
+ * skipped the per-credential scope check entirely. A credential scoped to
+ * `card_freeze` could invoke `warm_transfer` or `signed_url` for as long as
+ * the process lived, and the scoping column could be applied by a migration
+ * without the running code ever noticing.
+ *
+ * A privilege boundary that can be silently switched off by a transient
+ * schema error is not a boundary. So the negative answer is cached for a
+ * SHORT time and then re-probed: the rolling deploy still gets its grace
+ * period (a minute of legacy reads), and a process that outlives the
+ * migration recovers on its own.
+ */
+let toolScopeSupported: boolean | null = null;
+
+/** How long the "this column does not exist" answer is trusted. */
+const TOOL_SCOPE_PROBE_TTL_MS = 60_000;
+let toolScopeUnsupportedUntil = 0;
+
+function isMissingToolScopeColumn(err: unknown): boolean {
+  const e = err as { code?: unknown; message?: unknown };
+  return (
+    e?.code === "P2022" ||
+    (typeof e?.message === "string" &&
+      /toolScope/.test(e.message) &&
+      /column|field/i.test(e.message))
+  );
+}
+
+/**
+ * Read the credential row, tolerating a database that has not applied the
+ * `toolScope` migration yet. The fallback is deliberately not an error: an
+ * additive column must not take every existing tenant tool offline on a
+ * rolling deploy. Once the migration is applied, the scoped read is the only
+ * path.
+ */
+async function findTenantSecret(hashed: string): Promise<TenantSecret | null> {
+  if (toolScopeSupported === false && Date.now() < toolScopeUnsupportedUntil) {
+    return db.agentToolSecret.findUnique({
+      where: { keyHash: hashed },
+      select: { id: true, orgId: true, revoked: true },
+    });
+  }
+  try {
+    const row = await db.agentToolSecret.findUnique({
+      where: { keyHash: hashed },
+      select: { id: true, orgId: true, revoked: true, toolScope: true },
+    });
+    toolScopeSupported = true;
+    toolScopeUnsupportedUntil = 0;
+    return row;
+  } catch (err) {
+    if (!isMissingToolScopeColumn(err)) throw err;
+    // The column is missing RIGHT NOW. Cache the answer for a minute — long
+    // enough to cover a rolling deploy, short enough that the process
+    // recovers by itself once the migration lands.
+    toolScopeSupported = false;
+    toolScopeUnsupportedUntil = Date.now() + TOOL_SCOPE_PROBE_TTL_MS;
+    return db.agentToolSecret.findUnique({
+      where: { keyHash: hashed },
+      select: { id: true, orgId: true, revoked: true },
+    });
+  }
+}
+
 export type ToolAuth =
   | {
       ok: true;
@@ -74,10 +168,14 @@ export async function authorizeToolCall(
   // allow-list without ever holding a secret. Every refusal below is 401 for a
   // bad credential, whatever the allow-list happens to say.
   const hashed = createHash("sha256").update(presented).digest("hex");
-  const tenantKey = await db.agentToolSecret.findUnique({
-    where: { keyHash: hashed },
-    select: { id: true, orgId: true, revoked: true },
-  });
+  let tenantKey: TenantSecret | null;
+  try {
+    tenantKey = await findTenantSecret(hashed);
+  } catch {
+    // A credential lookup fault is an authentication failure, not a 500, and
+    // it must never fall through to the platform-secret branch.
+    return { ok: false, status: 401, error: "unauthorized" };
+  }
 
   let orgId: string | null = null;
   let platform = false;
@@ -85,7 +183,11 @@ export async function authorizeToolCall(
     // 1. A per-tenant credential. Only its SHA-256 is stored, exactly as for a
     //    producer key, and the matched row names the single org it may act for.
     void db.agentToolSecret
-      .update({ where: { id: tenantKey.id }, data: { lastUsedAt: new Date() } })
+      .update({
+        where: { id: tenantKey.id },
+        data: { lastUsedAt: new Date() },
+        select: { id: true },
+      })
       .catch(() => {});
     orgId = tenantKey.orgId;
   } else {
@@ -106,6 +208,19 @@ export async function authorizeToolCall(
   // high-stakes path rather than silently trusting everything.
   if (allowed.length === 0) return { ok: false, status: 403, error: "tool_scope_unconfigured" };
   if (!allowed.includes(toolName)) return { ok: false, status: 403, error: "tool_not_in_scope" };
+
+  // A tenant credential may narrow the deployment allow-list further. A missing
+  // scope is the legacy shape (all allow-listed tools); a present-but-empty
+  // scope is a malformed credential and is refused rather than widened.
+  if (tenantKey?.toolScope !== undefined && tenantKey.toolScope !== null) {
+    const tenantScope = parseScope(tenantKey.toolScope);
+    if (tenantScope.length === 0) {
+      return { ok: false, status: 403, error: "tool_not_in_scope" };
+    }
+    if (!tenantScope.includes(toolName)) {
+      return { ok: false, status: 403, error: "tool_not_in_scope" };
+    }
+  }
 
   return { ok: true, scope: allowed, orgId, platform };
 }

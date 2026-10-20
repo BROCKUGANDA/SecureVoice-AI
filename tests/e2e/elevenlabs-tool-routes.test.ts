@@ -1280,8 +1280,8 @@ describe("POST /api/elevenlabs/tools/switch-language", () => {
       ["en", "en"],
       ["ar", "ar"],
       ["ur-AE", "ur-ae"],
-      ["pt-BR", "pt-br"],
-      ["zh-Hans-CN", "zh-hans-cn"],
+      ["fr-FR", "fr-fr"],
+      ["sw-TZ", "sw-tz"],
     ] as const) {
       seams.rawResults = [[{ caseRef: "SV-JOURNEY-LANG", state: "ANSWERED" }]];
       const res = await call(
@@ -1290,6 +1290,19 @@ describe("POST /api/elevenlabs/tools/switch-language", () => {
         SECRET,
       );
       expect(LanguageBody.parse(await res.json()).language).toBe(stored);
+    }
+  });
+
+  test("a well-formed tag the voice plane cannot speak is refused", async () => {
+    // `pt-BR` and `zh-Hans-CN` are well-formed BCP-47 and were accepted
+    // before. They are now refused, and the reason matters: the database
+    // column is free text and the voice plane speaks six languages, so
+    // recording `pt-br` would look like a successful switch while the next
+    // turn resolved back to English. A stored lie is worse than a refusal.
+    for (const language of ["pt-BR", "zh-Hans-CN", "de-DE"]) {
+      seams.rawResults = [[{ caseRef: "SV-JOURNEY-LANG", state: "ANSWERED" }]];
+      const res = await call(LANGUAGE, { conversation_id: CONVERSATION_ID, language }, SECRET);
+      expect({ language, status: res.status }).toEqual({ language, status: 422 });
     }
   });
 });

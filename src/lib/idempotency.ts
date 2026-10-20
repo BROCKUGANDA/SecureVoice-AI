@@ -97,9 +97,14 @@ export async function withIdempotency<T>(
     await db.idempotencyKey.delete({ where: { id: hit.id } }).catch(() => {});
   }
 
-  // If the existing row is expired or a stale claim, delete it so we can
-  // re-claim. (An expired claim means the previous worker crashed mid-flight.)
-  if (hit && (isExpired(hit.expiresAt) || isClaim(hit))) {
+  // If the existing row is EXPIRED, delete it so we can re-claim. A live claim
+  // is deliberately left in place: the caller below then loses the INSERT race
+  // and waits for the winner, which is the entire point of the claim. Deleting
+  // an unexpired claim here (the old condition was `isClaim(hit)`, with no
+  // expiry test) let a second request remove a healthy in-flight claim and run
+  // `fn()` concurrently with the request that still owned it — the exact
+  // duplicate billable call this wrapper exists to prevent.
+  if (hit && isExpired(hit.expiresAt)) {
     await db.idempotencyKey.delete({ where: { id: hit.id } }).catch(() => {});
   }
 

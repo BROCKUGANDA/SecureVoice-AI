@@ -1,0 +1,40 @@
+-- The index the pilot's daily-cap counter needs.
+--
+-- WHY THIS EXISTS
+--
+-- `src/lib/pilot/mode.ts` answers "how many interventions has this
+-- organisation already acted on today" with a query over `dial_job` that
+-- filters on the organisation and on a day window, and counts DISTINCT cases.
+--
+-- The four indexes `dial_job` already had were:
+--
+--   (state, available_at, priority)   the claim order
+--   (state, lease_expires_at)         the reclaim predicate
+--   (case_id)                          the attempt-idempotency lookup
+--   (state, created_at)                the sweep's age filter
+--
+-- NONE of them is usable for the counter. Every one of them leads with
+-- `state`, and the counter has no state predicate -- it counts PENDING jobs
+-- and DONE jobs alike, because an intervention is an intervention whether it
+-- has been dialled yet or not. So the query was a SEQUENTIAL SCAN of
+-- `dial_job`, run on the hot path: once per claimed dial job in live pilot
+-- mode, plus once per operator status refresh.
+--
+-- Sequential scans do not announce themselves. They are slow in a way that
+-- looks like "the platform got a bit slower", the pilot volume is low
+-- enough that nobody notices, and the first time it matters is the day a
+-- bank runs a 10,000-intervention pilot.
+--
+-- The index is (org_id, created_at) because the counter's dominant filter is
+-- the organisation and its window is on the timestamps. `completed_at` is
+-- not in the key: it is the SECOND half of the counter's window (the union
+-- of "admitted today" and "settled today"), and the planner can still use
+-- the index for the `created_at` half and filter the rest. Adding it would
+-- double the write cost of every job row for a predicate that is only ever
+-- consulted on the small set of rows the `created_at` half already selected.
+--
+-- The index is NOT UNIQUE and adds no constraint: it exists to make a count
+-- cheap, and nothing about it is a promise about the data.
+
+-- CreateIndex
+CREATE INDEX IF NOT EXISTS "dial_job_org_id_created_at_idx" ON "dial_job"("org_id", "created_at");

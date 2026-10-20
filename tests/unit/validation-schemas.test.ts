@@ -1222,6 +1222,11 @@ describe("guardToolCall — the allow/deny boundary", () => {
       caseRef: "CASE-9",
       state: "CONFIRMED_FRAUD",
       conversationId: "c-1",
+      // The tenant the case was resolved FOR. The guard now reports it, so a
+      // caller can see which namespace the case belongs to without a second
+      // lookup. Null here because the stubbed case carries no org — the
+      // default namespace.
+      orgId: null,
     });
     // An allowed call is not an auditable event — only refusals are.
     expect(AUDIT.length).toBe(0);

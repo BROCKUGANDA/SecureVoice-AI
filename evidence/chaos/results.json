@@ -181,6 +181,9 @@
       "org_auto_paused",
       "org_concurrency_cap",
       "outside_calling_hours",
+      "pilot_cap_misconfigured",
+      "pilot_daily_cap_reached",
+      "pilot_signal_kind_out_of_scope",
       "prayer_time",
       "redaction_mismatch",
       "spend_ceiling",
@@ -408,7 +411,10 @@
         "guard_internal_error",
         "invalid_call_category",
         "redaction_mismatch",
-        "prayer_time"
+        "prayer_time",
+        "pilot_daily_cap_reached",
+        "pilot_signal_kind_out_of_scope",
+        "pilot_cap_misconfigured"
       ],
       "status": 409,
       "retryable": false,
@@ -445,6 +451,9 @@
         "invalid_e164",
         "org_auto_paused",
         "outside_calling_hours",
+        "pilot_cap_misconfigured",
+        "pilot_daily_cap_reached",
+        "pilot_signal_kind_out_of_scope",
         "prayer_time",
         "redaction_mismatch",
         "spend_ceiling",
@@ -514,7 +523,7 @@
         "file": "src/lib/case-state-machine.ts",
         "transactions": 1,
         "regions": [
-          "280-298"
+          "300-322"
         ],
         "findings": []
       },
@@ -528,8 +537,8 @@
         "file": "src/lib/outbox.ts",
         "transactions": 2,
         "regions": [
-          "335-353",
-          "387-393"
+          "351-369",
+          "412-418"
         ],
         "findings": []
       },
@@ -699,8 +708,8 @@
     "result": "pass",
     "areas": 7,
     "checks": {
-      "total": 481,
-      "passed": 481,
+      "total": 484,
+      "passed": 484,
       "failed": 0
     },
     "matrixRows": {
@@ -2356,7 +2365,7 @@
       "area": "gate",
       "name": "evidence-digest-is-sha256",
       "ok": true,
-      "detail": "9dcb4a90fce7b852"
+      "detail": "b93125e5734b97c9"
     },
     {
       "area": "gate",
@@ -2368,7 +2377,7 @@
       "area": "gate",
       "name": "evidence-is-byte-identical-across-builds",
       "ok": true,
-      "detail": "70625 chars"
+      "detail": "71314 chars"
     },
     {
       "area": "gate",
@@ -3086,6 +3095,24 @@
     },
     {
       "area": "negative-control",
+      "name": "declared-policy-code-is-409:pilot_cap_misconfigured",
+      "ok": true,
+      "detail": "pilot_cap_misconfigured → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "declared-policy-code-is-409:pilot_daily_cap_reached",
+      "ok": true,
+      "detail": "pilot_daily_cap_reached → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "declared-policy-code-is-409:pilot_signal_kind_out_of_scope",
+      "ok": true,
+      "detail": "pilot_signal_kind_out_of_scope → 409"
+    },
+    {
+      "area": "negative-control",
       "name": "declared-policy-code-is-409:prayer_time",
       "ok": true,
       "detail": "prayer_time → 409"
@@ -3602,5 +3629,5 @@
     }
   ],
   "digestAlgorithm": "sha256",
-  "digest": "10ace3fa4c50161f5a3384ae28ea9075d1967dc536c4db4c119999031df5e7d8"
+  "digest": "d8af992794373b6259e34badb5e983a4d7426c52e0bd8ce31972bfdafcb27a74"
 }

@@ -16,6 +16,7 @@ import {
   Database,
   Lock,
   FileJson2,
+  Landmark,
 } from "lucide-react";
 import { useApp, t } from "@/lib/store";
 import { API_BASE_URL, SUPPORT_EMAIL } from "@/lib/public-config";
@@ -30,6 +31,12 @@ const SECTIONS = [
   { id: "api", en: "API Reference", ar: "مرجع الواجهة", icon: Code2 },
   { id: "webhooks", en: "Webhooks", ar: "خطاف الأحداث", icon: Webhook },
   { id: "guardrails", en: "Guardrails", ar: "ضمانات الامتثال", icon: ShieldCheck },
+  {
+    id: "shariah",
+    en: "Shariah & Islamic finance",
+    ar: "الشريعة والتمويل الإسلامي",
+    icon: Landmark,
+  },
   { id: "languages", en: "Languages", ar: "اللغات", icon: Languages },
 ] as const;
 
@@ -94,6 +101,7 @@ export function Docs() {
             {section === "api" && <ApiReference />}
             {section === "webhooks" && <Webhooks />}
             {section === "guardrails" && <Guardrails lang={lang} />}
+            {section === "shariah" && <Shariah lang={lang} />}
             {section === "languages" && <LanguagesSection />}
           </motion.div>
         </div>
@@ -155,8 +163,8 @@ function Header({ lang }: { lang: Lang }) {
       </h1>
       <p className="mt-3 text-[15px] leading-relaxed text-ink-2">
         {t(
-          "Everything a bank integration team needs: the intervention event flow, the conversation turn API, guardrail policy, and the reference deployment running this very site.",
-          "كل ما يحتاجه فريق التكامل: تدفق أحداث التدخل، واجهة محادثة الوكيل، سياسة الضمانات، والنشر المرجعي الذي يشغّل هذا الموقع.",
+          "Everything a bank integration team needs: the intervention event flow, the conversation turn API, guardrail policy, the opt-in Shariah terminology controls for Islamic banks and Takaful operators, and the reference deployment running this very site.",
+          "كل ما يحتاجه فريق التكامل: تدفق أحداث التدخل، واجهة محادثة الوكيل، سياسة الضمانات، وضوابط المصطلحات الشرعية الاختيارية للمصارف الإسلامية ومشغّلي التكافل، والنشر المرجعي الذي يشغّل هذا الموقع.",
           lang,
         )}
       </p>
@@ -971,6 +979,143 @@ function Guardrails({ lang }: { lang: Lang }) {
               <p className="mt-1 text-[12.5px] leading-relaxed text-ink-2">{t(x.d, x.dAr, lang)}</p>
             </div>
           ))}
+        </div>
+      </Reveal>
+    </div>
+  );
+}
+
+/* ————————————————— shariah & islamic finance ————————————————— */
+
+function Shariah({ lang }: { lang: Lang }) {
+  return (
+    <div className="space-y-5">
+      <Reveal>
+        <h2 className="font-display text-xl font-semibold tracking-tight">
+          {t("Shariah and Islamic finance controls", "ضوابط الشريعة والتمويل الإسلامي", lang)}
+        </h2>
+        <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-ink-2">
+          {t(
+            "SecureVoice is a technology service for Islamic banks and Takaful operators. It does not take deposits, provide financing, underwrite insurance or Takaful risk, deal in investments, or charge or pay interest. Fees are consideration for software, telephony and related services. No Shariah certification, fatwa or supervisory-board endorsement is claimed: the institution's own Shariah supervisory board remains the authority for its products, disclosures and call scripts.",
+            "SecureVoice خدمة تقنية للمصارف الإسلامية ومشغّلي التكافل. ولا تتلقى ودائع، ولا تقدّم تمويلاً، ولا تكتتب في مخاطر التأمين أو التكافل، ولا تتداول الاستثمارات، ولا تفرض فائدة أو تدفعها. والرسوم مقابلة على البرمجيات والاتصالات والخدمات المرتبطة بها. ولا ندّعي أي شهادة شرعية أو فتوى أو تأييد من هيئة رقابة شرعية: فتبقى هيئة الرقابة الشرعية في المؤسسة هي المرجع في منتجاتها وإفصاحاتها ونصوص مكالماتها.",
+            lang,
+          )}
+        </p>
+      </Reveal>
+
+      <Reveal delay={0.04}>
+        <div className="grid gap-4 sm:grid-cols-3">
+          {[
+            {
+              icon: Landmark,
+              t: "Tenant-scoped, opt-in",
+              tAr: "اختياري ومقصور على المستأجر",
+              d: "Organization.shariahCompliant is false by default. An absent or unset organisation is treated as conventional, so a terminology rule can never promote a conventional tenant on its own.",
+              dAr: "قيمة Organization.shariahCompliant هي false افتراضياً. والمؤسسة الغائبة أو غير المضبوطة تُعامل كمؤسسة تقليدية، فلا يمكن لقاعدة مصطلحات أن ترفع مستأجراً تقليدياً من تلقاء نفسها.",
+            },
+            {
+              icon: ShieldCheck,
+              t: "After redaction, before speech",
+              tAr: "بعد التنقيح وقبل النطق",
+              d: "The pass runs after number rendering and PII redaction, and before the word-limit cap and the final vishing re-check. It is idempotent and word-boundary-safe in Latin, Arabic and Urdu, so a second pass changes nothing.",
+              dAr: "يعمل التمرير بعد تحويل الأرقام إلى كلام وتنقيح البيانات الشخصية، وقبل سقف عدد الكلمات وفحص التصيّد النهائي. وهو ثابت النتيجة وآمن عند حدود الكلمات في اللاتينية والعربية والأردية، فلا يغيّر التمرير الثاني شيئاً.",
+            },
+            {
+              icon: FileJson2,
+              t: "Takaful vocabulary",
+              tAr: "مفردات التكافل",
+              d: "A Takaful tenant sees contribution, Takaful and fund disbursement instead of premium, insurance and claim payout. A conventional insurer keeps its own product language.",
+              dAr: "يرى مستأجر التكافل «الاشتراك» و«التكافل» و«صرف الأموال» بدلاً من «العلاوة» و«التأمين» و«تعويض المطالبة». ويحتفظ مشغّل التأمين التقليدي بلغة منتجه.",
+            },
+          ].map((x) => (
+            <div key={x.t} className="rounded-2xl border border-line bg-white p-5">
+              <x.icon className="h-4.5 w-4.5 text-primary" />
+              <div className="mt-2.5 text-[13.5px] font-semibold tracking-tight">
+                {t(x.t, x.tAr, lang)}
+              </div>
+              <p className="mt-1 text-[12.5px] leading-relaxed text-ink-2">{t(x.d, x.dAr, lang)}</p>
+            </div>
+          ))}
+        </div>
+      </Reveal>
+
+      <Reveal delay={0.06}>
+        <CodeBlock
+          title={t(
+            "what the Shariah pass changes · summarised from speech-gate.ts",
+            "ما يغيّره تمرير الشريعة · ملخّص من speech-gate.ts",
+            lang,
+          )}
+          code={`// Applied ONLY when Organization.shariahCompliant === true.
+// Latin rules; Arabic and Urdu rulesets run over the same text.
+{
+  "interest rate":  "profit rate",
+  "interest":       "profit rate",
+  "insurance":      "takaful",
+  "insurer":        "takaful operator",
+  "premium":        "contribution",
+  "premiums":       "contributions",
+  "claim payout":   "fund disbursement",
+  "credit card":    "financing card",
+  "loan":           "financing",
+  "borrower":       "customer",
+  "late fee":       "late payment compensation",
+  "penalty":        "charity contribution"
+}`}
+        />
+      </Reveal>
+
+      <Reveal delay={0.08}>
+        <CodeBlock
+          title={t(
+            "tenant configuration · where the switch is read",
+            "إعداد المستأجر · من أين يُقرأ المفتاح",
+            lang,
+          )}
+          code={`{
+  "organization": {
+    "institutionType": "bank | insurer",   // no third type
+    "shariahCompliant": false              // default
+  },
+  "when_shariahCompliant": {
+    "terminology": { "appliesTo": ["latin", "arabic", "urdu"] },
+    "speech_order": ["redact", "shariah_terms", "word_limit", "speak"]
+  },
+  "calling": {
+    "prayer_window": {
+      "region": "UAE",
+      "before_minutes": 10,
+      "after_minutes": 15,
+      "jumuah_after_minutes": 50
+    },
+    "critical_fraud_verification_exempt": true
+  }
+}`}
+        />
+        <p className="mt-3 text-[12.5px] leading-relaxed text-ink-3">
+          {t(
+            "Prayer-window suppression is a courtesy for routine calls. It never stands between a customer and a time-critical fraud verification, and it is not a substitute for the institution's own conduct, calling-hours or Shariah policies.",
+            "تأجيل المكالمات حول أوقات الصلاة مجاملة للمكالمات الروتينية. وهو لا يقف أبداً بين العميل والتحقق العاجل من الاحتيال، ولا يغني عن سياسات المؤسسة الخاصة بالسلوك وأوقات الاتصال والشريعة.",
+            lang,
+          )}
+        </p>
+      </Reveal>
+
+      <Reveal delay={0.1}>
+        <div className="rounded-2xl border border-line bg-white p-5">
+          <div className="micro text-[9px] text-ink-3">
+            {t("WHERE THE COMPLIANCE RECORD LIVES", "أين يوجد سجل الامتثال", lang)}
+          </div>
+          <div className="mt-3 grid gap-2 font-mono text-[11px] leading-relaxed text-ink-2 sm:grid-cols-2">
+            <span>docs/ROPA.md</span>
+            <span>docs/AI-INVENTORY.md</span>
+            <span>docs/DPIA.md</span>
+            <span>src/lib/compliance/policy.ts</span>
+            <span>src/lib/compliance/speech-gate.ts</span>
+            <span>src/lib/audit-chain.ts</span>
+            <span>src/lib/privacy/retention.ts</span>
+            <span>tests/unit/compliance-shariah-urdu.test.ts</span>
+          </div>
         </div>
       </Reveal>
     </div>

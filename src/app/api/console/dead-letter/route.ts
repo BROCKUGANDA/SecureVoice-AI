@@ -11,13 +11,15 @@ import "server-only";
  */
 
 import { NextResponse } from "next/server";
-import { requireOperator } from "@/lib/credits";
+import { requirePlatformOperator } from "@/lib/credits";
 import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const guard = await requireOperator();
+  // QStash dead letters have no tenant column: the envelope names one, the DLQ
+  // row does not. Until the row carries a tenant, this is a platform surface.
+  const guard = await requirePlatformOperator();
   if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
   const rows = await db.deadLetter.findMany({
     where: { replayedAt: null, eventType: { startsWith: "qstash." } },

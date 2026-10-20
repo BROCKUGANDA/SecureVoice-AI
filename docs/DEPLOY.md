@@ -221,6 +221,90 @@ Schema changes are versioned SQL in `prisma/migrations/` and applied by
 `prisma migrate deploy` in db-setup. **Never** reintroduce
 `db push --accept-data-loss` — it applies destructive changes silently.
 
+### 7.1 Blue/green + canary (automatic, on the self-hosted runner)
+
+The self-hosted runner deploys with **zero downtime and an automatic
+rollback**. It is three commands and one adoption step.
+
+**The rollout:**
+
+```
+main ──▶ CI green ──▶ Deploy workflow ──▶ stage the new colour ──▶ 5% of traffic
+                                      └─▶ Canary workflow (automatic) ──▶ 25% ──▶ 100% ──▶ promote
+                                                                                  └─▶ any red gate ──▶ rollback
+```
+
+- The **Deploy** workflow builds, migrates, rolls the shared workers and then
+  stages the release into the IDLE colour slot, moving 5% of the traffic to it.
+  The old colour keeps serving the other 95% for the whole time.
+- The **Canary** workflow fires automatically when the Deploy workflow
+  succeeds (`workflow_run`). It gates on the staged colour's own readiness AND
+  on the public edge, widens to 25% and then to 100%, and promotes — retiring
+  the old colour only at the very end, because until it runs the previous build
+  is still warm and a rollback is a traffic flip rather than a cold rebuild.
+- **Any red gate rolls back.** The previous colour is restored and the edge is
+  probed before the workflow declares success.
+
+**The one-time adoption.** A host running the plain single-`app` stack has to
+be moved onto the colour slots once. It is an OPERATOR step, not something the
+pipeline does to itself, because it changes which container serves production:
+
+```bash
+cd ~/securevoice-ai
+bun scripts/deploy.mjs adopt
+```
+
+`adopt` stages the first colour on the build that is **already serving** (an
+adoption on a different build would be an unannounced release), proves it
+healthy in-container, points Caddy at it, proves the edge answers, and only
+then stops the plain `app` container. The plain container is STOPPED, not
+removed, so the rollback is `docker compose start app` away.
+
+**What to check afterwards:**
+
+```bash
+bun scripts/deploy.mjs status      # stack, active colour, canary split, edge
+bun scripts/deploy.mjs mode        # plain | bluegreen | unknown
+```
+
+**The override is a MINIMAL override of the SAME project.**
+`docker-compose.bluegreen.yml` adds the two colour slots and nothing else —
+no `name:`, no `db`, no `db-setup`, no `realtime`, no `caddy`. That is
+deliberate and load-bearing: a compose project owns its named volumes, so an
+override with its own `name:` and its own `db` service would have started a
+SECOND, EMPTY Postgres for the colours to talk to. The colour slots share the
+production database, the realtime service, Redis, the workers and the volumes.
+
+**The traffic pointer.** `APP_UPSTREAM` is delivered as a FILE
+(`.deploy/active.env`), mounted into the caddy service by the BASE compose
+file's `env_file`. It is written BEFORE Caddy is recreated — an earlier version
+wrote it after, which is how a deploy could publish an edge config pointing at
+a colour that had already been stopped.
+
+**The canary split is proportional repetition.** Caddy 2.11.4 has no
+`weighted_round_robin` and rejects a `weight` subdirective, so 5% is the old
+colour listed nineteen times and the new colour once, with
+`lb_policy round_robin` sharing requests across the list. The split is exact
+over any window of twenty requests, and it is per-request — a traffic split for
+exposing a build to real load, NOT A/B routing for cohorts.
+
+**Manual operations**, for when the automatic path is not what you want:
+
+```bash
+bun scripts/deploy.mjs auto --image <ref>        # one command: stage → 5% → soak → 50% → soak → 100% → promote, auto-rollback on any failed probe
+bun scripts/deploy.mjs stage --image <ref>       # bring the idle colour up, move no traffic
+bun scripts/deploy.mjs canary --percent 25       # widen the split
+bun scripts/deploy.mjs canary --percent 0       # abandon the canary, back to the active colour
+bun scripts/deploy.mjs promote                   # retire the old colour
+bun scripts/deploy.mjs rollback                  # flip back to the previous colour
+bun scripts/deploy.mjs probe --colour blue       # gate: the colour AND the edge
+```
+
+`auto` refuses to run on a host that has not adopted the blue/green slots, or
+while an unfinished canary is recorded in `.deploy/state.json` — resolving an
+outstanding canary is an operator decision (`--percent 0` to abandon,
+`--percent 100` to accept), not something an automatic pipeline widens for you.
+
 ## 8. Nightly backups
 
 `/etc/cron.d/securevoice-backup`:

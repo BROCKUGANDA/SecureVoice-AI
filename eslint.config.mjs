@@ -103,6 +103,12 @@ const eslintConfig = [
       ".gitnexus/**",
       ".coverage/**",
       ".covprobe2/**",
+      // A scratch `git worktree` parked inside the repository, which is how a merge gets
+      // gated without touching the working tree. ESLint does not read .gitignore, so its
+      // freshly generated `src/generated/prisma/*.ts` produced four "Unused eslint-disable
+      // directive" warnings that made `bun run lint` exit 1 on a repo whose own tree is
+      // clean — a false red that reads as "your change broke linting".
+      ".worktrees/**",
       // Vendored minified bundles. `demo/walkthrough/source/assets/gsap.min.js` is
       // a downloaded GSAP build committed as an asset for the walkthrough film,
       // not source anybody edits: it alone produced 206 `no-var` errors, which is

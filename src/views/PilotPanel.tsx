@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { t, type Lang } from "@/lib/store";
 
 /**
@@ -57,6 +57,8 @@ export type PilotStatus = {
   waitingCount?: number;
   /** Whether this caller may flip the platform-wide kill switch. */
   canFlipKillSwitch?: boolean;
+  /** Whether this caller may record a per-dial approval or decline. */
+  canApprove?: boolean;
 };
 
 type Props = { lang: Lang };
@@ -66,19 +68,48 @@ export function PilotPanel({ lang }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [staleSince, setStaleSince] = useState<string | null>(null);
+
+  /**
+   * A monotonically increasing request id, and a ref for the request in
+   * flight.
+   *
+   * The panel polls, and the poll is not instant: the status route counts the
+   * PENDING backlog with a window function. Two responses can therefore
+   * overlap, and if the OLDER one lands last it overwrites the newer state —
+   * which on this surface means an approval the operator just recorded
+   * reappearing in the waiting list.
+   *
+   * The sequence token drops any response that is not the latest, and the
+   * in-flight ref stops the interval from starting a second request while one
+   * is outstanding.
+   */
+  const requestId = useRef(0);
+  const inFlight = useRef(false);
 
   const load = useCallback(async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    const id = ++requestId.current;
     try {
       const r = await fetch("/api/console/pilot", { cache: "no-store" });
       const d = (await r.json()) as { pilot?: PilotStatus; error?: string };
+      // A response that is not the latest is dropped, not applied.
+      if (id !== requestId.current) return;
       if (!r.ok) {
         setError(d.error ?? "pilot_status_unavailable");
+        setStaleSince((prev) => prev ?? new Date().toISOString());
         return;
       }
       setError(null);
+      setStaleSince(null);
       if (d.pilot) setPilot(d.pilot);
     } catch {
+      if (id !== requestId.current) return;
       setError("pilot_status_unavailable");
+      setStaleSince((prev) => prev ?? new Date().toISOString());
+    } finally {
+      inFlight.current = false;
     }
   }, []);
 
@@ -129,7 +160,11 @@ export function PilotPanel({ lang }: Props) {
       <div className="rounded-3xl border border-line bg-white p-6">
         <h2 className="font-display text-[15px] font-semibold">{t("Pilot", "التجربة", lang)}</h2>
         <p className="mt-1.5 text-[12px] text-ink-3">
-          {t("Pilot status is unavailable.", "حالة التجربة غير متاحة.", lang)}
+          {t(
+            "Pilot status is unavailable. Reload the page; if it keeps failing, the platform's control plane is not answering — check /api/readyz.",
+            "حالة التجربة غير متاحة. أعد تحميل الصفحة؛ وإذا استمر الفشل، فمستوى التحكم في المنصة لا يستجيب — تحقّق من ‎/api/readyz.",
+            lang,
+          )}
         </p>
       </div>
     );
@@ -194,7 +229,7 @@ export function PilotPanel({ lang }: Props) {
           className="rounded-xl border border-line px-3 py-1.5 text-[12px] font-semibold text-ink-2 disabled:opacity-50"
         >
           {busy === "kill-switch"
-            ? t("Working…", "جارٍ التنفيذ…", lang)
+            ? t("Applying…", "جارٍ التنفيذ…", lang)
             : engaged
               ? t("Resume dialling", "استئناف الاتصال", lang)
               : t("Stop dialling", "إيقاف الاتصال", lang)}
@@ -253,7 +288,7 @@ export function PilotPanel({ lang }: Props) {
 
       <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-[12.5px] sm:grid-cols-4">
         <Stat
-          label={t("Acted today", "نُفِّذ اليوم", lang)}
+          label={t("Interventions today", "تدخّلات اليوم", lang)}
           value={
             pilot.actedToday === null
               ? "—"
@@ -269,13 +304,19 @@ export function PilotPanel({ lang }: Props) {
           }
         />
         <Stat
-          label={t("Chartered alert", "التنبيه chartered", lang)}
+          label={t("Chartered alert type", "نوع التنبيه المُعتمد", lang)}
           value={pilot.signalKind ?? "—"}
         />
         <Stat
           label={t("Human approval", "موافقة بشرية", lang)}
           value={
-            pilot.humanApprovalRequired ? t("required", "مطلوبة", lang) : t("off", "معطّلة", lang)
+            // The app-wide renderings, deliberately: `SloPanel` and `Docs` already
+            // spell "required" as مطلوب and `Demo` spells "off" as مُعطّل, and the
+            // translation gate refuses one English string with two Arabic
+            // renderings. The feminine forms read better against موافقة بشرية,
+            // and they are exactly the kind of local flourish that makes the same
+            // English word mean two different things on two screens.
+            pilot.humanApprovalRequired ? t("required", "مطلوب", lang) : t("off", "مُعطّل", lang)
           }
         />
       </dl>
@@ -290,15 +331,44 @@ export function PilotPanel({ lang }: Props) {
         </p>
       )}
 
+      {staleSince && (
+        <p
+          // The data below is the LAST GOOD reading, and the operator has to be
+          // told that. A panel that keeps rendering yesterday's counters with
+          // no warning is the one surface where a stale number does the most
+          // damage.
+          aria-live="polite"
+          className="mt-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] leading-relaxed text-amber-800"
+        >
+          {t(
+            "These numbers are STALE — the last refresh failed. Check /api/readyz before acting on them.",
+            "هذه الأرقام قديمة — فشل آخر تحديث. تحقّق من ‎/api/readyz قبل التصرّف بناءً عليها.",
+            lang,
+          )}
+        </p>
+      )}
+
       {notice && (
-        <p className="mt-3 rounded-xl border border-line bg-secondary px-3 py-2 text-[12px] text-ink-2">
+        <p
+          // The result of an ACTION the operator just took. Without a live
+          // region it appears silently, and a screen-reader user is left
+          // guessing whether the approval was recorded.
+          aria-live="polite"
+          className="mt-3 rounded-xl border border-line bg-secondary px-3 py-2 text-[12px] text-ink-2"
+        >
           {notice}
         </p>
       )}
 
       {waitingCount > 0 && (
         <div className="mt-4 border-t border-line pt-4">
-          <p className="text-[12.5px] font-semibold text-ink-2">
+          <p
+            // The count an operator must not miss: a case parked for want of a
+            // signature is a fraud intervention that has not happened. It
+            // changes asynchronously, so it is announced.
+            aria-live="polite"
+            className="text-[12.5px] font-semibold text-ink-2"
+          >
             {t("Waiting for a decision", "بانتظار قرار", lang)} ·{" "}
             <span className="num">{waitingCount}</span>
           </p>
@@ -308,7 +378,7 @@ export function PilotPanel({ lang }: Props) {
                 key={`${c.caseRef}-${c.attemptNo}`}
                 className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line px-3 py-2"
               >
-                <span className="num text-[12px] text-ink-2">
+                <span className="num min-w-0 break-words text-[12px] text-ink-2">
                   {c.caseRef}
                   <span className="text-ink-3">
                     {" "}
@@ -318,7 +388,20 @@ export function PilotPanel({ lang }: Props) {
                 <span className="flex gap-2">
                   <button
                     type="button"
-                    disabled={busy !== null}
+                    // The approvals route needs the operator role AND an
+                    // organisation, so the button is offered only to a caller
+                    // who can actually use it. A control that is present and
+                    // answers 400 teaches people the console is lying.
+                    disabled={busy !== null || pilot.canApprove === false}
+                    title={
+                      pilot.canApprove === false
+                        ? t(
+                            "Recording a decision needs an organisation, and an operator role.",
+                            "تسجيل القرار يحتاج منظمة ودور مشغّل.",
+                            lang,
+                          )
+                        : undefined
+                    }
                     onClick={() =>
                       void act(`approve:${c.caseRef}`, "/api/console/pilot/approvals", {
                         caseRef: c.caseRef,
@@ -331,7 +414,7 @@ export function PilotPanel({ lang }: Props) {
                   </button>
                   <button
                     type="button"
-                    disabled={busy !== null}
+                    disabled={busy !== null || pilot.canApprove === false}
                     onClick={() =>
                       void act(`decline:${c.caseRef}`, "/api/console/pilot/approvals", {
                         caseRef: c.caseRef,

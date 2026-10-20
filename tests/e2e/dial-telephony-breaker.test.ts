@@ -101,10 +101,18 @@ beforeEach(() => {
 describe("the telephony breaker is wired into the carrier path", () => {
   test("five carrier refusals open it, and the next job never reaches the carrier", async () => {
     // Five attempts, five refusals — each one recorded against the breaker.
+    //
+    // Each refusal is ALSO a 5xx, and a 5xx is the ABSENCE of an answer: the
+    // carrier's edge may have accepted the call and lost the response on the
+    // way back, so the customer's phone may already be ringing. An outcome
+    // that is unknown is not retried — ringing a customer twice is worse than
+    // reaching them by SMS. That is the rule, and the breaker's job is
+    // orthogonal to it: the breaker counts CARRIER failures, and it is the
+    // carrier that is sick, not the ladder.
     for (let i = 0; i < 5; i++) {
       const outcome = await handle(jobFor(await screenedCase()));
       expect(outcome.ok).toBe(false);
-      expect((outcome as { retryable?: boolean }).retryable).toBe(true);
+      expect((outcome as { retryable?: boolean }).retryable).toBe(false);
     }
     expect(carrier.attempts).toBe(5);
     expect(dialTelephonyBreakerState().state).toBe("open");

@@ -7,7 +7,7 @@ import { SUPPORT_EMAIL } from "@/lib/public-config";
 import { REFUND_POLICIES } from "@/lib/legal-policies";
 import { SubscribeButtons } from "@/components/billing/SubscribeButtons";
 import { paddlePriceIds } from "@/lib/paddle-browser";
-import { PLANS, formatOveragePhrase } from "@/lib/commercial";
+import { PLANS, formatIncluded, formatMonthly, formatOveragePhrase } from "@/lib/commercial";
 import type { Lang } from "@/lib/store";
 
 /**
@@ -69,7 +69,15 @@ const PADDLE_PRICE_ID: ReturnType<typeof paddlePriceIds> | null = (() => {
 
 /** One intervention signal fired = one credit. Mirrors src/lib/credits.ts. */
 const USD_TO_AED = 3.6725;
-const aed = (usd: number): string => `AED ${Math.round(usd * USD_TO_AED).toLocaleString("en-US")}`;
+/**
+ * The AED reference figure, formatted for the reader's language.
+ *
+ * The locale is the reader's, not a hardcoded one: `ar-AE` is what the
+ * catalog's own formatters use, and a figure that disagrees with the price
+ * above it is a figure nobody trusts.
+ */
+const aed = (usd: number, lang: Lang): string =>
+  `AED ${Math.round(usd * USD_TO_AED).toLocaleString(lang === "ar" ? "ar-AE" : "en-US")}`;
 
 type Tier = {
   id: "pilot" | "starter" | "growth" | "enterprise";
@@ -349,7 +357,7 @@ export function Pricing({
             >
               {tier.featured && (
                 <span className="absolute -top-3 left-6 inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-green-tint px-3 py-1 text-[10.5px] font-semibold text-primary">
-                  <Sparkles className="h-3 w-3" />
+                  <Sparkles className="h-3 w-3" aria-hidden="true" />
                   {t("Most deployed", "الأكثر استخداماً", lang)}
                 </span>
               )}
@@ -363,9 +371,11 @@ export function Pricing({
 
               <div className="mt-6 flex items-baseline gap-2">
                 <span className="font-display text-4xl font-semibold text-foreground">
-                  {tier.publiclyPriced === false
-                    ? t("Custom", "حسب الطلب", lang)
-                    : `$${(tier.monthlyUsd ?? 0).toLocaleString("en-US")}`}
+                  {/* The catalog's OWN formatter, so the card, the home page and
+                      the meta description all render the same figure the same
+                      way. It also answers "Custom" for a tier that withholds its
+                      price, which is what the card used to spell out by hand. */}
+                  {formatMonthly(tier, lang)}
                 </span>
                 {tier.publiclyPriced !== false && (
                   <span className="text-[13px] text-ink-3">
@@ -379,7 +389,7 @@ export function Pricing({
                 )}
               </div>
               {tier.publiclyPriced !== false ? (
-                <p className="mt-1 text-[12px] text-ink-3/70">{aed(tier.monthlyUsd ?? 0)}</p>
+                <p className="mt-1 text-[12px] text-ink-3/70">{aed(tier.monthlyUsd ?? 0, lang)}</p>
               ) : (
                 // Saying WHY there is no number is the difference between "Custom"
                 // reading as a negotiating position and reading as a missing value.
@@ -394,8 +404,7 @@ export function Pricing({
 
               <div className="mt-5 border-t border-line pt-4">
                 <p className="text-[13px] font-semibold text-primary">
-                  {(tier.includedPerMonth ?? 0).toLocaleString("en-US")}{" "}
-                  {t("interventions included", "تدخل مشمول", lang)}
+                  {formatIncluded(tier, lang)} {t("interventions included", "تدخل مشمول", lang)}
                 </p>
                 <p className="mt-1 text-[12px] text-ink-3">
                   {tier.overageCents === null
@@ -407,7 +416,10 @@ export function Pricing({
               <ul className="mt-5 flex-1 space-y-2.5">
                 {(lang === "ar" ? tier.includesAr : tier.includes).map((f, j) => (
                   <li key={j} className="flex gap-2.5 text-[12.5px] leading-relaxed text-ink-3">
-                    <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+                    <Check
+                      className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary"
+                      aria-hidden="true"
+                    />
                     <span>{f}</span>
                   </li>
                 ))}

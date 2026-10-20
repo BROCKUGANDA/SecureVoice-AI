@@ -439,6 +439,21 @@ export async function failDialJob(args: {
 }): Promise<FailOutcome> {
   const maxAttempts = Math.max(1, args.maxAttempts ?? MAX_DIAL_ATTEMPTS);
   const error = args.error.slice(0, 500);
+  // The in-flight marker is PRESERVED here, and that is load-bearing in a
+  // narrow window.
+  //
+  // `markDialStarted` writes the marker immediately before the carrier call.
+  // If the worker dies between this UPDATE and the DEAD-lettering UPDATE that
+  // follows it, the row is left CLAIMED with a provider message and NO
+  // marker — and the next claim would read "no marker", conclude that no call
+  // was ever placed, and PLACE THE CALL AGAIN. On a call whose outcome was
+  // unknown, that is a customer being rung twice.
+  //
+  // The marker is cleared only on the path where it is known to be wrong: the
+  // carrier ANSWERED and refused, so nothing was placed. The worker clears it
+  // explicitly (`clearDialInFlight`) BEFORE the failure is recorded, so by the
+  // time these statements run the marker is already gone and the CASE takes
+  // the plain branch.
   try {
     if (args.retryAfterMs !== undefined && !args.dead) {
       // A deferred retry is NOT an attempt: no retries increment, so parking a

@@ -65,4 +65,18 @@ describe("did the provider answer?", () => {
       expect(providerAnswered(message), message).toBe(false);
     }
   });
+
+  test("a TYPED status wins over the message", () => {
+    // The transports attach the status they got, so the judgement does not
+    // depend on a vendor's wording. A message that HAPPENS to contain a
+    // four-hundred-looking number must not override a status the transport
+    // reported, in either direction.
+    expect(providerAnswered("anything at all", 400)).toBe(true);
+    expect(providerAnswered("anything at all", 429)).toBe(true);
+    expect(providerAnswered("anything at all", 500)).toBe(false);
+    expect(providerAnswered("anything at all", 503)).toBe(false);
+    // And a status that is not a number at all is treated as absent, so the
+    // message fallback still applies.
+    expect(providerAnswered("twilio dial refused (status 400): x", null)).toBe(true);
+  });
 });

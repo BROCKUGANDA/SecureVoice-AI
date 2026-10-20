@@ -25,6 +25,7 @@ import { randomUUID } from "node:crypto";
 import {
   drainDialQueue,
   markDialStarted,
+  clearDialInFlight,
   renewClaim,
   DIAL_IN_FLIGHT,
   type DialJob,
@@ -54,7 +55,7 @@ import { advanceEscalations } from "@/lib/notifications";
 import { resolveCasePhone } from "@/lib/compliance/pii-vault";
 import { logError, logInfo, logWarn } from "@/lib/validation/safe-log";
 import { flag } from "@/lib/flags";
-import { dialKillSwitchEngaged, pilotDialDecision } from "@/lib/pilot/mode";
+import { dialKillSwitchEngaged, pilotDialDecision, pilotBlockMarker } from "@/lib/pilot/mode";
 import { resolveDeliveryLang } from "@/lib/languages";
 import { installProcessCrashHandlers } from "@/lib/process-crash-handlers";
 
@@ -210,6 +211,58 @@ export function shouldSkipRedial(
 }
 
 /**
+ * Did the provider ANSWER, or did it simply fail?
+ *
+ * ── Why the distinction decides whether the customer is called again ─────────
+ *
+ * A carrier call that crosses the provider boundary can end in three ways, and
+ * only two of them are failures:
+ *
+ *   1. The provider REFUSED it (a 4xx). It answered, and what it said was
+ *      "no". Nothing was placed, the customer's phone did not ring, and the
+ *      attempt ladder is exactly the mechanism for trying again. A 429 or a
+ *      503 from the provider's own edge is the same answer.
+ *   2. The provider FAILED without answering (a 5xx, a timeout, a socket
+ *      reset). The request may have been accepted and the response lost, so
+ *      the call MAY already be ringing on the customer's phone. Re-dialling
+ *      would ring a customer twice, which on a fraud intervention is the
+ *      failure that teaches people to ignore the number.
+ *   3. The provider accepted it and the call is in progress. Not a failure.
+ *
+ * ── Where the answer comes from ─────────────────────────────────────────────
+ *
+ * A TYPED status, when there is one. Both planes know what they got:
+ * `placeInterventionCall` RETURNS `{ ok: false, status, error }`, and
+ * `placeOutboundCall` now throws an error carrying `providerStatus`. Neither
+ * needs the status recovered from a formatted string, and neither should
+ * have it: a vendor that rewords its error message would otherwise change
+ * whether the platform retries, silently and without a test failing.
+ *
+ * The message-parsing fallback is for the errors that carry NO status — a
+ * timeout, a socket reset, a `fetch failed` — and for any transport that has
+ * not been taught the typed field yet. It is the conservative direction: an
+ * unrecognised message is the ABSENCE of an answer, so the call is not
+ * retried.
+ */
+export function providerAnswered(message: string, status?: number | null): boolean {
+  // A typed status wins over the message, always.
+  if (typeof status === "number" && Number.isFinite(status)) {
+    return status >= 400 && status < 500;
+  }
+  // The three spellings the two planes use:
+  //   `twilio dial refused (status 400): …`
+  //   `ElevenLabs outbound-call 404: …`
+  //   `Twilio 500`
+  // The gap between the word and the digits is bounded so a number further
+  // along the message — a body echoing a case ref, say — cannot be mistaken
+  // for the status.
+  const m = /(?:status|outbound-call|refused|twilio)\D{0,12}(\d{3})/i.exec(message);
+  if (!m) return false;
+  const parsed = Number(m[1]);
+  return parsed >= 400 && parsed < 500;
+}
+
+/**
  * Place one call.
  *
  * The recovery checks come first. If the case already carries a conversation id,
@@ -221,37 +274,23 @@ export function shouldSkipRedial(
 async function handle(job: DialJob): Promise<DialOutcome> {
   const payload = parsePayload(job);
   /**
-   * Has this job been handed to the carrier yet?
+   * Has the carrier been REACHED?
    *
-   * Set when the in-flight marker is written — that is, immediately before the
-   * provider call. It is what makes the difference between a failure the
-   * ladder may retry and a failure whose outcome is unknowable, so it is
-   * tracked rather than inferred from the error message: the provider's
-   * message says what the PROVIDER thought, and only the marker says what WE
-   * did.
+   * Set immediately before the provider call, so it is true even for a row
+   * with no claimant (where the in-flight marker could not be written).
+   *
+   * It is what separates a failure of OUR PREPARATION from a failure of the
+   * CARRIER CALL, and the two must not be conflated: a failure before the
+   * carrier was reached is the ladder's business, and a failure after it may
+   * have left a call ringing on the customer's phone, which is not.
+   *
+   * The DURABLE marker (written by `markDialStarted`) covers the other half of
+   * the same risk: the worker DIED between the marker and the outcome, so
+   * nothing ran and nothing was recorded, and the bare marker is what the next
+   * claim finds. The flag covers the case where the worker survived and the
+   * carrier went quiet.
    */
-  let providerCallStarted = false;
-
-  // A reclaimed job carrying this marker is the one case the lease cannot
-  // resolve: a previous worker reached the provider boundary and stopped. The
-  // provider may have accepted a call, so redialling can ring the customer
-  // twice; the honest outcome is "unknown", which the queue dead-letters into
-  // the SMS fallback and a human-visible record.
-  //
-  // The marker can carry a suffix. `failDialJob` PRESERVES it when the
-  // provider call itself failed after the boundary was crossed, so the row
-  // reads `dial_in_flight: <the provider's error>` rather than losing the
-  // marker entirely. That distinction is the difference between "the worker
-  // died mid-call" and "the provider call failed after we had already handed
-  // it over" — and in BOTH cases the carrier may have accepted the call, so
-  // in both cases the answer is the same: do not ring the customer again.
-  if (job.last_error?.startsWith(DIAL_IN_FLIGHT)) {
-    return {
-      ok: false,
-      error: "previous dial outcome unknown — the provider call started and the worker stopped",
-      retryable: false,
-    };
-  }
+  let carrierCallAttempted = false;
 
   // A reclaimed job carrying this marker is the one case the lease cannot
   // resolve: a previous worker reached the provider boundary and stopped. The
@@ -318,8 +357,18 @@ async function handle(job: DialJob): Promise<DialOutcome> {
     // today's window.
     caseId: job.case_id,
     signalKind: existing?.signalKind ?? null,
-    // A human approval is bound to ONE attempt. A retry is another call to a
-    // customer, so it needs its own approval.
+    // A human approval is bound to ONE case-attempt, and the queue's ladder
+    // stays inside that attempt: the retries a carrier's transient refusal
+    // causes are retries of a call that was NEVER DELIVERED (a 4xx, a timeout
+    // before the carrier accepted it), so no customer hears a second ring. A
+    // NEW attempt — the dispatch engine's `retry.callback`, which opens a
+    // fresh `dial_job` row — needs its own approval, because that is a new
+    // intervention and Phase 1 says a human approves every dial.
+    //
+    // The rule the code actually enforces is therefore: an approval
+    // authorises the DELIVERY of one intervention, and a delivery that may
+    // have reached the customer ends the attempt rather than being repeated
+    // under the same approval.
     attemptNo: job.attempt_no,
   });
   if (!pilot.allowed) {
@@ -328,7 +377,12 @@ async function handle(job: DialJob): Promise<DialOutcome> {
     // as the block lasts, and a chain with sixty identical rows per hour is a
     // chain nobody reads. The reason is IN the marker, so a change of reason
     // (cap reached → approved → cap reached again) still gets its own row.
-    const marker = `pilot_blocked:${pilot.reason}`;
+    //
+    // The marker spelling comes from `pilotBlockMarker` because the console's
+    // "waiting for a human" list matches on it: the two used to be written
+    // independently, and a disagreement there lists the whole backlog as if
+    // every case were waiting on a person.
+    const marker = pilotBlockMarker(pilot.reason);
     if (job.last_error !== marker) {
       void auditAppend({
         callRef: job.case_ref,
@@ -532,11 +586,17 @@ async function handle(job: DialJob): Promise<DialOutcome> {
       if (!marked) {
         return { ok: false, error: "claim lost immediately before dial", retryable: true };
       }
+      // The marker is durable, so a crash from here on leaves a row the next
+      // claim refuses to redial.
     }
 
     // Both planes must report the truth about the carrier. `placeOutboundCall`
     // throws on failure; `placeInterventionCall` RETURNS one, so the ok flag has
     // to be read here or a refused call becomes a recorded successful dial.
+    //
+    // From this line on, the carrier has been reached. Anything that fails
+    // after it may have left a call ringing on the customer's phone.
+    carrierCallAttempted = true;
     let result: {
       conversationId: string | null;
       callSid?: string | null;
@@ -588,7 +648,16 @@ async function handle(job: DialJob): Promise<DialOutcome> {
       });
       if (!dial.ok) {
         telephonyBreaker.recordFailure();
-        throw new Error(`twilio dial refused (status ${dial.status}): ${dial.error}`);
+        // The status rides on the error as a TYPED field. The worker has to
+        // know whether the carrier ANSWERED (a 4xx — nothing was placed, so
+        // the attempt may be retried) or merely FAILED (a 5xx, a timeout —
+        // the call may be ringing, so it must not be), and it must not have
+        // to recover that from a formatted string.
+        const err = new Error(
+          `twilio dial refused (status ${dial.status}): ${dial.error}`,
+        ) as Error & { providerStatus?: number };
+        err.providerStatus = dial.status;
+        throw err;
       }
       telephonyBreaker.recordSuccess();
       result = {
@@ -763,17 +832,20 @@ async function handle(job: DialJob): Promise<DialOutcome> {
 
     // ── Was the call PLACED? ─────────────────────────────────────────────────
     //
-    // `crossedBoundary` is true when the failure happened after the marker was
-    // written — that is, after the job was handed to the provider. Only then
-    // is the carrier's answer, or its silence, the question.
+    // `carrierCallAttempted` is true when the carrier was REACHED — that is,
+    // after the job was handed over. Only then is the carrier's answer, or its
+    // silence, the question.
     //
     // Before the boundary (a bad payload, a closed breaker, a case that
-    // vanished) nothing was handed over, so the ordinary ladder applies and
-    // there is no marker to clear.
-    const crossedBoundary = providerCallStarted;
+    // vanished) nothing was handed over, so the ordinary ladder applies.
+    const crossedBoundary = carrierCallAttempted;
+    // The provider's TYPED status, when the transport gave us one. Both
+    // planes attach it to the error they raise, so the judgement never
+    // depends on the wording of a message a vendor can change.
+    const providerStatus = (err as { providerStatus?: number } | null)?.providerStatus;
     // The provider ANSWERED and refused: nothing was placed, and the ladder
     // may try again. A 4xx is an answer.
-    const answered = crossedBoundary && providerAnswered(message);
+    const answered = crossedBoundary && providerAnswered(message, providerStatus);
     // The provider did not answer: a 5xx, a timeout, a socket reset. The call
     // MAY already be ringing on the customer's phone, so this attempt is the
     // last one.
@@ -781,7 +853,13 @@ async function handle(job: DialJob): Promise<DialOutcome> {
 
     // Retryable: a busy signal or a transient provider error is worth another
     // attempt; a rejected number is not, and retrying it wastes quota.
-    const permanent = /not a valid|invalid|not.*reachable|permission/i.test(message);
+    //
+    // The refusals that are PERMANENT include the platform's own: "live send
+    // not attested" is a missing configuration on THIS deployment, and retrying
+    // it three times spends a quarter of an hour of backoff to arrive at the
+    // same answer. It is a 4xx — the carrier answered — so the marker is
+    // cleared and the ladder would apply, and this is what stops it.
+    const permanent = /not a valid|invalid|not.*reachable|permission|not attested/i.test(message);
 
     // The provider REFUSED, so nothing was placed: clear the marker and let
     // the ladder do its job. This is the one case where the marker is

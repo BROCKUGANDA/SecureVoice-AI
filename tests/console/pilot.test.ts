@@ -81,8 +81,12 @@ mock.module("@/lib/credits", () => ({
 const { GET: getPilot } = await import("@/app/api/console/pilot/route");
 const { POST: postKillSwitch } = await import("@/app/api/console/pilot/kill-switch/route");
 const { POST: postApproval } = await import("@/app/api/console/pilot/approvals/route");
-const { DIAL_KILL_SWITCH_NAME, _resetPilotSwitchCacheForTest, pilotDialApproved } =
-  await import("@/lib/pilot/mode");
+const {
+  DIAL_KILL_SWITCH_NAME,
+  _resetPilotSwitchCacheForTest,
+  pilotDialApproved,
+  pilotApprovalIntent,
+} = await import("@/lib/pilot/mode");
 
 function jsonPost(url: string, body: unknown): NextRequest {
   return new NextRequest(
@@ -101,6 +105,17 @@ async function readJson(res: Response) {
       mode: string;
       killSwitch: { engaged: boolean; env: boolean; database: boolean; databaseAvailable: boolean };
       dailyCap: number | null;
+      /**
+       * What this session may actually DO, derived from the same guards the
+       * writers use: the kill switch is platform-wide (operator AND no active
+       * organisation), the per-dial approval is per-tenant (operator AND an
+       * organisation).
+       */
+      canFlipKillSwitch: boolean;
+      canApprove: boolean;
+      /** The cases whose next dial is waiting for a HUMAN. */
+      waiting: Array<{ caseRef: string; attemptNo: number }>;
+      waitingCount: number;
     };
     switch?: { name: string; engaged: boolean; updatedAt: string };
     caseRef?: string;
@@ -199,7 +214,121 @@ describe("GET /api/console/pilot — status", () => {
       expect(body.pilot!.mode).toBe("off"); // unset PILOT_MODE is "off"
       expect(body.pilot!.killSwitch.engaged).toBe(false);
       expect(body.pilot!.killSwitch.databaseAvailable).toBe(true);
+      // The kill switch is PLATFORM-wide, so a tenant-scoped operator must be
+      // told they cannot flip it — the console shows the button only when the
+      // caller may, and a control that answers 403 teaches people the console
+      // is lying.
+      expect(body.pilot!.canFlipKillSwitch).toBe(false);
     } finally {
+      session.orgId = null;
+    }
+  });
+
+  slowTest("an org-less session MAY flip the platform kill switch", async () => {
+    session.orgId = null;
+    try {
+      const res = await getPilot();
+      expect(res.status).toBe(200);
+      const body = await readJson(res);
+      expect(body.pilot!.canFlipKillSwitch).toBe(true);
+    } finally {
+      session.orgId = null;
+    }
+  });
+
+  slowTest("the status lists the cases waiting for a human decision", async () => {
+    // Phase 1's defining rule is "a human approves every dial", so the queue of
+    // cases waiting for that approval IS the pilot's work item. A case is
+    // waiting when it has a PENDING dial job and no approval row for the
+    // attempt that job is on.
+    session.orgId = ORG;
+    const caseRef = `PILOT-WAIT-${Date.now().toString(36).toUpperCase()}`;
+    await db.$executeRawUnsafe(
+      `INSERT INTO "dial_job" (id, case_id, case_ref, org_id, attempt_no, retries, state, priority, payload, available_at, created_at, updated_at)
+       VALUES (gen_random_uuid()::text, $1, $2, $3, 1, 0, 'PENDING', 0, '{}', now(), now(), now())`,
+      caseRef,
+      caseRef,
+      ORG,
+    );
+    try {
+      const res = await getPilot();
+      const body = await readJson(res);
+      const waiting = body.pilot!.waiting ?? [];
+      expect(
+        waiting.some((w: { caseRef: string }) => w.caseRef === caseRef),
+        `the waiting case is not listed: ${JSON.stringify(waiting)}`,
+      ).toBe(true);
+      expect(body.pilot!.waitingCount).toBeGreaterThan(0);
+    } finally {
+      await db.$executeRawUnsafe(`DELETE FROM "dial_job" WHERE "case_ref" = $1`, caseRef);
+      session.orgId = null;
+    }
+  });
+
+  slowTest("an APPROVED case is NOT on the waiting list", async () => {
+    // The negative half of the assertion above, and the half that matters
+    // most: a list that never shrinks is a console that cannot be believed.
+    //
+    // The approval intent has to be EXACTLY what the writer produces —
+    // `pilot_dial_approved:1` — because the reader matches on it. A reader
+    // that looked for a different spelling matched nothing, listed the whole
+    // PENDING backlog as "waiting", and could never clear the list.
+    session.orgId = ORG;
+    const caseRef = `PILOT-DONE-${Date.now().toString(36).toUpperCase()}`;
+    await db.$executeRawUnsafe(
+      `INSERT INTO "dial_job" (id, case_id, case_ref, org_id, attempt_no, retries, state, priority, payload, available_at, created_at, updated_at)
+       VALUES (gen_random_uuid()::text, $1, $2, $3, 1, 0, 'PENDING', 0, '{}', now(), now(), now())`,
+      caseRef,
+      caseRef,
+      ORG,
+    );
+    await db.$executeRawUnsafe(
+      `INSERT INTO "AuditLog" (id, "callRef", action, intent, "callerId", "chainHash", "orgId", "createdAt")
+       VALUES (gen_random_uuid()::text, $1, 'pilot', $2, 'test', $3, $4, now())`,
+      caseRef,
+      pilotApprovalIntent(1),
+      `probe-${caseRef}`,
+      ORG,
+    );
+    try {
+      const res = await getPilot();
+      const body = await readJson(res);
+      const waiting = body.pilot!.waiting ?? [];
+      expect(
+        waiting.some((w: { caseRef: string }) => w.caseRef === caseRef),
+        `an approved case is still on the waiting list: ${JSON.stringify(waiting)}`,
+      ).toBe(false);
+    } finally {
+      await db.$executeRawUnsafe(`DELETE FROM "AuditLog" WHERE "callRef" = $1`, caseRef);
+      await db.$executeRawUnsafe(`DELETE FROM "dial_job" WHERE "case_ref" = $1`, caseRef);
+      session.orgId = null;
+    }
+  });
+
+  slowTest("a case parked by the CAP is not on a human's desk", async () => {
+    // The cap is a SYSTEM's decision, not a person's. Listing a job the cap is
+    // holding as "waiting for a decision" invites an operator to approve
+    // something the volume ceiling has already refused.
+    session.orgId = ORG;
+    const caseRef = `PILOT-CAPPED-${Date.now().toString(36).toUpperCase()}`;
+    await db.$executeRawUnsafe(
+      `INSERT INTO "dial_job" (id, case_id, case_ref, org_id, attempt_no, retries, state, priority, payload, available_at, created_at, updated_at, "last_error")
+       VALUES (gen_random_uuid()::text, $1, $2, $3, 1, 0, 'PENDING', 0, '{}', now(), now(), now(), $4)`,
+      caseRef,
+      caseRef,
+      ORG,
+      "pilot_blocked:pilot_daily_cap",
+    );
+    try {
+      const res = await getPilot();
+      const body = await readJson(res);
+      const waiting = body.pilot!.waiting ?? [];
+      expect(
+        waiting.some((w: { caseRef: string }) => w.caseRef === caseRef),
+        `a cap-parked case is on the waiting list: ${JSON.stringify(waiting)}`,
+      ).toBe(false);
+    } finally {
+      await db.$executeRawUnsafe(`DELETE FROM "dial_job" WHERE "case_ref" = $1`, caseRef);
       session.orgId = null;
     }
   });

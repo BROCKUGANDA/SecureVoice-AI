@@ -51,6 +51,12 @@ on:
     workflows: ["Deploy"]
     types: [completed]
   # Manual re-run, for when the machine was down during an automatic rollout.
+  #
+  # The inputs are the OPERATOR's override; the automatic path below reads the
+  # same three values from the repository variables (`vars.*`), so a deployment
+  # tunes its own canary ladder without editing a workflow file. The defaults
+  # here are the values this repository has been shipping, and they are the
+  # values the `vars.*` fall back to when the variable is not set.
   workflow_dispatch:
     inputs:
       image:
@@ -82,6 +88,18 @@ env:
   # The public hostname Caddy serves. Replaces the retired
   # 57.130.80.158.sslip.io stand-in (site block + DNS record removed 2026-10-12).
   PUBLIC_URL: "https://securevoiceai.me"
+  # The canary ladder, as REPOSITORY VARIABLES so a deployment tunes it without
+  # editing this file. `vars.*` is empty for a repository that has not set
+  # them, and the fallback is the shipped default.
+  CANARY_START_PERCENT: ${{ vars.CANARY_START_PERCENT || '5' }}
+  CANARY_MID_PERCENT: ${{ vars.CANARY_MID_PERCENT || '50' }}
+  CANARY_SOAK_SECONDS: ${{ vars.CANARY_SOAK_SECONDS || '300' }}
+  # The probe the gates read, and how long a single probe may take.
+  CANARY_PROBE_PATH: ${{ vars.CANARY_PROBE_PATH || '/api/readyz' }}
+  CANARY_PROBE_TIMEOUT_SEC: ${{ vars.CANARY_PROBE_TIMEOUT_SEC || '15' }}
+  # How many times a gate retries, and how long it waits between attempts.
+  CANARY_PROBE_ATTEMPTS: ${{ vars.CANARY_PROBE_ATTEMPTS || '6' }}
+  CANARY_PROBE_BACKOFF_SEC: ${{ vars.CANARY_PROBE_BACKOFF_SEC || '10' }}
 
 jobs:
   canary:
@@ -148,17 +166,19 @@ jobs:
       - name: Widen the canary and promote, or roll back
         if: steps.preflight.outputs.run == 'true'
         env:
-          START_PERCENT: ${{ github.event.inputs.startPercent || '5' }}
-          MID_PERCENT: ${{ github.event.inputs.midPercent || '50' }}
-          SOAK: ${{ github.event.inputs.soakSeconds || '300' }}
+          # The operator's override wins on a manual run; on the automatic path
+          # the input is empty and the repository variable decides.
+          START_PERCENT: ${{ github.event.inputs.startPercent || env.CANARY_START_PERCENT }}
+          MID_PERCENT: ${{ github.event.inputs.midPercent || env.CANARY_MID_PERCENT }}
+          SOAK: ${{ github.event.inputs.soakSeconds || env.CANARY_SOAK_SECONDS }}
         run: |
           set -euo pipefail
           cd ~/securevoice-ai
 
           # `deploy.mjs auto` is the whole release: it stages the idle colour on
-          # the image the deploy already staged, moves 5% of the traffic to it,
-          # soaks while probing the edge AND the colour, widens to 50%, soaks
-          # again, switches to 100%, verifies the edge and retires the old
+          # the image the deploy already staged, moves the first split of the
+          # traffic to it, soaks while probing the edge AND the colour, widens,
+          # soaks again, switches to 100%, verifies the edge and retires the old
           # colour.
           #
           # The rollback lives INSIDE the command, not in a workflow step. A
@@ -168,6 +188,10 @@ jobs:
           # script aborts to a reverted split on any red probe, and the
           # workflow's own failure step below is the SECOND line of defence for
           # the case where the script itself could not finish.
+          #
+          # The three numbers are passed as ARGUMENTS, not read from the
+          # environment here, so the workflow's value and the script's value
+          # cannot disagree about which one ran.
           bun scripts/deploy.mjs auto \
             --start-percent "$START_PERCENT" \
             --mid-percent "$MID_PERCENT" \
@@ -185,10 +209,10 @@ jobs:
           set -euo pipefail
           cd ~/securevoice-ai
           bun scripts/deploy.mjs rollback || true
-          for _ in 1 2 3 4 5 6; do
-            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$PUBLIC_URL/api/health" || true)
+          for _ in $(seq 1 "$CANARY_PROBE_ATTEMPTS"); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time "$CANARY_PROBE_TIMEOUT_SEC" "$PUBLIC_URL$CANARY_PROBE_PATH" || true)
             [ "$code" = "200" ] && break
-            sleep 10
+            sleep "$CANARY_PROBE_BACKOFF_SEC"
           done
-          echo "post-rollback edge health: $code"
+          echo "post-rollback edge readiness: $code"
           test "$code" = "200"

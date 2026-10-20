@@ -229,25 +229,54 @@ rollback**. It is three commands and one adoption step.
 **The rollout:**
 
 ```
-main ──▶ CI green ──▶ Deploy workflow ──▶ stage the new colour ──▶ 5% of traffic
-                                      └─▶ Canary workflow (automatic) ──▶ 25% ──▶ 100% ──▶ promote
-                                                                                  └─▶ any red gate ──▶ rollback
+main ──▶ CI green ──▶ Deploy workflow ──▶ stage the new colour ──▶ first split of traffic
+                                       └─▶ Canary workflow (automatic) ──▶ mid split ──▶ 100% ──▶ promote
+                                                                                   └─▶ any red gate ──▶ rollback
 ```
 
 - The **Deploy** workflow builds, migrates, rolls the shared workers and then
-  stages the release into the IDLE colour slot, moving 5% of the traffic to it.
-  The old colour keeps serving the other 95% for the whole time.
+  stages the release into the IDLE colour slot, moving the first split of the
+  traffic to it. The old colour keeps serving the rest for the whole time.
 - The **Canary** workflow fires automatically when the Deploy workflow
   succeeds (`workflow_run`). It gates on the staged colour's own readiness AND
-  on the public edge, widens to 25% and then to 100%, and promotes — retiring
-  the old colour only at the very end, because until it runs the previous build
-  is still warm and a rollback is a traffic flip rather than a cold rebuild.
+  on the public edge, widens to the mid split and then to 100%, and promotes —
+  retiring the old colour only at the very end, because until it runs the
+  previous build is still warm and a rollback is a traffic flip rather than a
+  cold rebuild.
 - **Any red gate rolls back.** The previous colour is restored and the edge is
   probed before the workflow declares success.
 
+**The splits and the soak are DEPLOYMENT SETTINGS, not constants.** The Canary
+workflow reads them from repository variables, and `scripts/deploy.mjs` reads
+the same names from the environment on the box:
+
+| Variable                        | Default            | What it decides                                       |
+| ------------------------------- | ------------------ | ----------------------------------------------------- |
+| `CANARY_START_PERCENT`          | `5`                | The first split the canary widens to                  |
+| `CANARY_MID_PERCENT`            | `50`               | The second split, before the release goes to 100%     |
+| `CANARY_SOAK_SECONDS`           | `300`              | How long each split is observed before the next       |
+| `CANARY_PROBE_INTERVAL_SECONDS` | `30`               | How often the soak probes the edge and the colour     |
+| `CANARY_SLOTS`                  | `20`               | The granularity of a split: 20 slots, so 5% is a step |
+| `CANARY_PROBE_ATTEMPTS`         | `6`                | How many times a gate retries before it fails         |
+| `CANARY_PROBE_BACKOFF_SEC`      | `10`               | How long a gate waits between attempts                |
+| `CANARY_PROBE_PATH`             | `/api/readyz`      | The path the gates read                               |
+| `CANARY_PROBE_TIMEOUT_SEC`      | `15`               | How long a single probe may take                      |
+| `COLOUR_HEALTH_TIMEOUT_MS`      | `180000`           | How long a colour is given to become healthy          |
+| `COLOUR_POLL_INTERVAL_MS`       | `3000`             | How often the health wait looks                       |
+| `COLOUR_CONTAINER_GRACE_MS`     | `20000`            | How long a missing container is tolerated             |
+| `APP_PORT`                      | `3000`             | The port the colour slots serve on                    |
+| `PROBE_ORIGIN`                  | `http://127.0.0.1` | The origin the probes read                            |
+
+**A malformed value takes the default rather than failing.** A typo in a
+deployment variable must not stop a rollback, and a rollback that refuses to run
+is the worst possible time to discover one. The split percentages are the
+exception: they are passed to the script as ARGUMENTS, so the workflow's value
+and the script's value cannot disagree about which one ran.
+
 **The one-time adoption.** A host running the plain single-`app` stack has to
 be moved onto the colour slots once. It is an OPERATOR step, not something the
-pipeline does to itself, because it changes which container serves production:
+pipeline does to itself, because it changes which container serves production
+and there is no old colour to fall back to:
 
 ```bash
 cd ~/securevoice-ai
@@ -259,6 +288,15 @@ adoption on a different build would be an unannounced release), proves it
 healthy in-container, points Caddy at it, proves the edge answers, and only
 then stops the plain `app` container. The plain container is STOPPED, not
 removed, so the rollback is `docker compose start app` away.
+
+**The production VPS has NOT been adopted yet.** It still runs the plain
+single-`app` stack, so every release so far has rolled in place, and the Canary
+workflow correctly does nothing on it — its preflight sees `plain` and exits
+successfully with a notice. That is the designed behaviour, not a silent skip:
+the alternative, a canary that "adopts" the host by itself at 03:00, is a
+release changing which container serves production with no old colour to fall
+back to. Run `adopt` on the box, by hand, when you are ready for that step to
+be a decision rather than an accident.
 
 **What to check afterwards:**
 

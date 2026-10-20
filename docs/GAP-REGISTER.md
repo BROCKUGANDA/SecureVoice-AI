@@ -3964,8 +3964,10 @@ uses the delegation — before the stale records are removed.
 DPO mandatory for systematic and regular High Risk Processing; Art 16(5) permits a third party; Art
 16(7) requires UAE residency unless the DPO is employed within the group internationally; Art
 17(4)/18(1)(c) permit other roles only without a conflict of interest; Reg 10.3.3(d) requires the ASO
-to hold DPO-equivalent competencies and status. Recording these in the inventory does not appoint
-anyone, but it rules out the cheapest wrong answer, an offshore contractor.
+to hold DPO-equivalent competencies and status. Art 19 adds an annual duty: the DPO must submit an
+Annual Assessment to the Commissioner, stating whether High Risk Processing is intended in the next
+period. Recording these in the inventory does not appoint anyone, but it rules out the cheapest wrong
+answer, an offshore contractor.
 
 **3. High-Risk characterisation.** The three postures in `docs/AI-INVENTORY.md` §6 are unchanged and
 still need counsel's signature. No amount of code closes a legal characterisation.

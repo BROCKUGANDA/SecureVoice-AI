@@ -18,6 +18,7 @@ on:
 permissions:
   contents: write # create the GitHub release
   packages: write # push to GHCR
+  actions: write # dispatch the deploy that rolls this image
 
 # cancel-in-progress: FALSE, deliberately. A release pushes an image, smoke-tests
 # the published image, and creates a GitHub Release — interrupting one mid-flight
@@ -55,6 +56,40 @@ jobs:
             echo "Run: bun run version:bump $pkg  and commit before tagging."
             exit 1
           }
+
+      # ── The build args that make the pricing page sell, or make it LOOK like
+      # it does ───────────────────────────────────────────────────────────────
+      #
+      # `NEXT_PUBLIC_*` is INLINED AT BUILD TIME. An image built without the
+      # price map has a pricing page that renders the rate card and offers no
+      # checkout — the page looks right and sells nothing, and this image is
+      # PUBLISHED, so the artifact that claims to be a release is the one that
+      # cannot take money.
+      #
+      # Measured 2026-10-21: the v0.2.49 image was built with all three Paddle
+      # build args EMPTY, because the repository variables the build reads do
+      # not exist. The box's own `.env` has them, so the BRANCH deploy of the
+      # same commit had a working pricing page and the RELEASED image did not:
+      # two artifacts, one commit, and only one of them could take money.
+      #
+      # So the release refuses to publish an image that cannot sell. A missing
+      # variable is a mistake, and a mistake that costs money later should be a
+      # red build now rather than a quiet hole in a release.
+      #
+      # The check is a script rather than shell, because the rule is not "is it
+      # set" but "is it a map `paddlePriceIds()` will accept" — and that rule
+      # has a shape (every tier, both intervals) that shell would only
+      # approximate. `scripts/check-paddle-price-map.mjs` is the same rule,
+      # written once and tested.
+      - name: Refuse to publish an image that cannot sell
+        env:
+          # The VARIABLES, explicitly — not whatever the runner's environment
+          # happens to hold. A value that is set here to the empty string is
+          # still set, and that is the case this gate exists to catch.
+          NEXT_PUBLIC_PADDLE_PRICES: ${{ vars.NEXT_PUBLIC_PADDLE_PRICES }}
+          NEXT_PUBLIC_PADDLE_ENVIRONMENT: ${{ vars.NEXT_PUBLIC_PADDLE_ENVIRONMENT }}
+          NEXT_PUBLIC_PADDLE_CLIENT_TOKEN: ${{ vars.NEXT_PUBLIC_PADDLE_CLIENT_TOKEN }}
+        run: node scripts/check-paddle-price-map.mjs
 
       - name: Log in to GHCR
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
@@ -308,3 +343,35 @@ jobs:
             Verified in CI on this tag: lint, typecheck (app + realtime), 48 realtime
             tests, production build, `caddy validate` on both configs, compose parse,
             and a live stack smoke test through Caddy over TLS.
+
+      # ── The tag is the thing that gets rolled ───────────────────────────────
+      #
+      # The release image is published, smoke-tested and released — and until
+      # now nothing ever rolled it. Production ran whatever `docker compose
+      # build` produced on the box, so the published artifact and the serving
+      # artifact were two different images of the same commit, and the tag
+      # still said nothing about what was actually serving traffic. That is the
+      # failure this workflow was written to end.
+      #
+      # So the release asks the deploy to roll the image it just published.
+      # `deploy.yml` takes the tag as an input and PULLS that image from GHCR
+      # instead of building from source, and its "the tag must be on main" gate
+      # still holds.
+      #
+      # BEST EFFORT ON PURPOSE, and for the same reason the version bump is: a
+      # release that published successfully must not go red because the roll
+      # was refused. The refusal is loud in the deploy's own log, and the
+      # branch deploy has already rolled the same commit to production.
+      - name: Ask the deploy to roll the published image
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if gh workflow run deploy.yml --ref main -f "tag=${GITHUB_REF_NAME}"; then
+            echo "::notice::deploy.yml was dispatched for ${GITHUB_REF_NAME}."
+            echo "::notice::it pulls the published image and rolls it through the canary."
+          else
+            echo "::warning::could not dispatch deploy.yml for ${GITHUB_REF_NAME}."
+            echo "::warning::the image is published and released, but production is still"
+            echo "::warning::serving the branch build of this commit."
+          fi

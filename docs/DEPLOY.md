@@ -290,9 +290,23 @@ then stops the plain `app` container. The plain container is STOPPED, not
 removed, so the rollback is `docker compose start app` away.
 
 **The production VPS HAS been adopted** (2026-10-21). It runs the blue/green
-stack, production is served by `app-blue`, and the Canary workflow now does
-real work on it: its preflight reads `bluegreen` and proceeds to the split
-instead of exiting with a notice.
+stack and the Canary workflow now does real work on it: its preflight reads
+`bluegreen` and proceeds to the split instead of exiting with a notice.
+
+**And the first release through the adopted path ran the whole way on the same
+day.** Deploy run `39537833586` staged `app-green` and moved no traffic; canary
+run `39538178175` split 5% → 50% → 100% with a 300-second soak at each step,
+and promoted. Caddy's own access log for `securevoiceai.me` across the whole
+window records **zero 5xx** — the twenty seconds of 502 in
+`docs/RUNBOOK.md` §9.1 is the history of the plain path, not of this host. The
+measured sequence and the status histogram are in `docs/RUNBOOK.md` §9.5.
+
+Production is now served by `app-green`. The promotion retired `app-blue`, and
+that is the shape of the thing to know: **after a promotion there is no warm
+colour to roll back to**, because `promote` stops the old colour and clears
+`previous`. The rollback guarantee covers the canary window, while the release
+is still being introduced. After that the fallback is the plain container
+(stopped, never removed) or a re-deploy of the previous SHA image.
 
 Every release BEFORE the adoption rolled the plain single-`app` stack in
 place, and an in-place roll of the only upstream leaves the edge with no

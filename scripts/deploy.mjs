@@ -107,6 +107,83 @@ function readState() {
 }
 
 /**
+ * The networks caddy is attached to that this compose file does NOT declare.
+ *
+ * Caddy is this box's shared edge: it fronts this project AND other projects
+ * that live on the same host, and it reaches those by service name, which only
+ * works from inside their compose networks. Those attachments are made by
+ * hand, because they belong to another project's compose file and not to this
+ * one — and `docker compose up` rebuilds a container from its compose
+ * definition, so every recreate DROPS them.
+ *
+ * That is not a theoretical loss. On 2026-10-21 a traffic flip recreated
+ * caddy, the attachment to the other project's network was silently dropped,
+ * and that project answered 502 for every request while all of its own
+ * containers reported themselves healthy. The failure looked like an outage
+ * in the other project and had nothing to do with it.
+ *
+ * So the attachment is preserved across a recreate: the extra networks are
+ * read before caddy is rebuilt and reconnected afterwards. It is deliberately
+ * generic — this file never learns the other project's name.
+ */
+function extraCaddyNetworks() {
+  const r = spawnSync(
+    "docker",
+    [
+      "inspect",
+      "-f",
+      "{{range $k,$v := .NetworkSettings.Networks}}{{$k}}\n{{end}}",
+      containerId("caddy"),
+    ],
+    { encoding: "utf8" },
+  );
+  if (r.status !== 0) return [];
+  // The networks this compose file owns are named after the project. Everything
+  // else caddy is attached to belongs to another project on this box, and is
+  // the thing a recreate would drop.
+  const ours = new Set([`${projectName()}_default`]);
+  return (r.stdout ?? "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((name) => !ours.has(name));
+}
+
+function reattachCaddyNetworks(networks) {
+  for (const network of networks) {
+    const r = spawnSync("docker", ["network", "connect", network, containerId("caddy")], {
+      encoding: "utf8",
+    });
+    if (r.status === 0) console.log(`  reattached caddy to ${network}`);
+    else console.log(`  could not reattach caddy to ${network}: ${(r.stderr ?? "").trim()}`);
+  }
+}
+
+/**
+ * Recreate caddy, keeping the network attachments this compose file does not
+ * own.
+ *
+ * EVERY recreate of caddy goes through here. That is the point: the loss is
+ * silent and the damage lands on a project that has nothing to do with this
+ * one, so a second recreate path that "forgot" to preserve the attachments
+ * would reproduce the 2026-10-21 outage in a different command. The emergency
+ * revert (`revertToPlain`) is the worst place for that to hide — it is the
+ * path taken when an adoption has already failed, and it recreates caddy on
+ * the way out.
+ */
+function recreateCaddy(options = {}) {
+  // Read BEFORE the recreate: afterwards the container is the compose file's
+  // own, and the attachments are already gone.
+  const extraNetworks = extraCaddyNetworks();
+  if (extraNetworks.length > 0) {
+    console.log(`  caddy also serves ${extraNetworks.join(", ")} — preserving those attachments`);
+  }
+  const r = compose(["up", "-d", "--no-deps", "caddy"], options);
+  reattachCaddyNetworks(extraNetworks);
+  return r;
+}
+
+/**
  * Every tunable this script reads, and where it comes from.
  *
  * The deploy script is the one program in this repository that runs ON the
@@ -585,7 +662,12 @@ async function flipTraffic(colour, split) {
 
   // caddy is the ONLY public process, so recreating just it moves all traffic.
   // The colours are untouched and keep serving while caddy restarts.
-  const r = compose(["up", "-d", "--no-deps", "caddy"], { capture: true, env: { IMAGE: image } });
+  //
+  // The networks caddy reaches other projects on are preserved across the
+  // recreate — see `recreateCaddy`. Without that, this recreate silently drops
+  // every attachment this compose file does not own, and the other projects on
+  // the box start answering 502.
+  const r = recreateCaddy({ capture: true, env: { IMAGE: image } });
 
   // A FAILED FLIP MUST LEAVE THE BOX AS IT WAS.
   //
@@ -934,7 +1016,10 @@ function revertToPlain() {
   console.error("\n  reverting to the plain stack");
   writeState({ ...readState(), active: null, previous: null, upstream: `app:${APP_PORT}` });
   compose(["up", "-d", "--no-deps", "app"], { allowFail: true });
-  compose(["up", "-d", "--no-deps", "caddy"], { allowFail: true });
+  // This recreate of caddy carries the same obligation as any other: the
+  // shared edge still fronts the other projects on this box, and an emergency
+  // revert is not a good moment to take one of them offline.
+  recreateCaddy({ allowFail: true });
 }
 
 async function rollback() {

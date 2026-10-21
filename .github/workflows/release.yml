@@ -116,10 +116,32 @@ jobs:
           #    and carried the `vars` spelling; the merge took its side). Two
           #    files' worth of isolation fixes survived that same merge, which
           #    is what makes this one file the trap: check main, do not assume.
+          #
+          #  · NEXT_PUBLIC_PADDLE_ENVIRONMENT / NEXT_PUBLIC_PADDLE_CLIENT_TOKEN
+          #    — added 2026-10-21. The Dockerfile has declared both as ARGs since
+          #    they were introduced, and the browser code needs both: the
+          #    environment is what says which Paddle account is being charged,
+          #    and the client token is what opens the checkout. Neither was
+          #    passed here, so every build shipped a bundle in which
+          #    `paddleToken()` THROWS — "NEXT_PUBLIC_PADDLE_ENVIRONMENT is not
+          #    set to sandbox or production" — and the price page could render
+          #    but could not open a checkout. A price map without an environment
+          #    and a token is a price page that looks configured and is not.
+          #
+          #    They are `vars`, not `secrets`, and the reason is the same as for
+          #    the price ids: a Paddle CLIENT-SIDE token is designed to be
+          #    public — it authorises opening the checkout and nothing else —
+          #    and it is inlined into the browser bundle by definition. The code
+          #    checks the PAIRING rather than trusting the value: a sandbox
+          #    environment carrying a `prod_` token, or a production environment
+          #    carrying a `test_` token, is refused at runtime
+          #    (`src/lib/paddle-browser.ts`).
           build-args: |
             BETTER_AUTH_SECRET=ci-only-not-a-secret-ci-only-not-a-secret
             NEXT_PUBLIC_SITE_URL=https://securevoiceai.me
             NEXT_PUBLIC_PADDLE_PRICES=${{ vars.NEXT_PUBLIC_PADDLE_PRICES }}
+            NEXT_PUBLIC_PADDLE_ENVIRONMENT=${{ vars.NEXT_PUBLIC_PADDLE_ENVIRONMENT }}
+            NEXT_PUBLIC_PADDLE_CLIENT_TOKEN=${{ vars.NEXT_PUBLIC_PADDLE_CLIENT_TOKEN }}
             NEXT_PUBLIC_DEMO_LOGIN_EMAIL=${{ secrets.NEXT_PUBLIC_DEMO_LOGIN_EMAIL }}
             NEXT_PUBLIC_DEMO_LOGIN_PASSWORD=${{ secrets.NEXT_PUBLIC_DEMO_LOGIN_PASSWORD }}
 

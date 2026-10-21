@@ -297,6 +297,52 @@ function containerId(service) {
 }
 
 /**
+ * The image a colour slot is actually serving, or "" when it is not running.
+ *
+ * The flip needs an image to name, because the merged compose files refuse to
+ * parse without one. The right image is the one the TARGET colour is serving,
+ * not whatever the environment happens to hold: a flip that names the wrong
+ * image would bring the colour slots up on the wrong build, which is the
+ * stale-image condition the whole release path exists to catch.
+ */
+function colourImage(colour) {
+  const id = containerId(`app-${colour}`);
+  if (!id) return "";
+  const r = spawnSync("docker", ["inspect", "--format", "{{.Config.Image}}", id], {
+    encoding: "utf8",
+  });
+  return r.stdout?.trim() ?? "";
+}
+
+/**
+ * The upstream Caddy is ACTUALLY serving, read from the running container.
+ *
+ * `stackMode()` answers "does a colour slot exist"; this answers "is the edge
+ * served by one". They are not the same question, and the difference is the
+ * whole difference between an adopted host and an interrupted adoption.
+ *
+ * Read from DOCKER rather than from `.deploy/active.env`, because the file is
+ * what the deploy script WRITES and the container environment is what the
+ * edge RUNS on. When a flip fails, the two disagree — the file names the new
+ * colour and Caddy is still on the old one — and only the container tells the
+ * truth.
+ */
+function runningUpstream() {
+  const id = containerId("caddy");
+  if (!id) return "";
+  const r = spawnSync(
+    "docker",
+    ["inspect", "--format", "{{range .Config.Env}}{{println .}}{{end}}", id],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+  );
+  for (const line of (r.stdout ?? "").split(/\r?\n/)) {
+    const m = /^APP_UPSTREAM=(.*)$/.exec(line.trim());
+    if (m) return m[1].trim();
+  }
+  return "";
+}
+
+/**
  * Which stack is actually serving.
  *
  * `bluegreen` — at least one colour slot exists.
@@ -388,15 +434,65 @@ function flipTraffic(colour, split) {
   // `.deploy/active.env`; recreating it before that file is updated would bring
   // the container back on the PREVIOUS value and the flip would do nothing.
   const state = readState();
+
+  // THE IMAGE MUST BE NAMED, OR COMPOSE CANNOT PARSE THE MERGED FILES.
+  //
+  // `docker-compose.bluegreen.yml` declares the colour slots as
+  // `image: ${IMAGE:?set IMAGE…}` with NO default, on purpose. Compose resolves
+  // that interpolation for EVERY service in the merged file set — not just the
+  // ones the command names — so `docker compose up -d --no-deps caddy` on a host
+  // whose environment has no IMAGE fails before it does anything:
+  //
+  //   error while interpolating services.app-blue.image:
+  //   required variable IMAGE is missing a value
+  //
+  // That is not a corner case. `deploy.yml` exports IMAGE, so the automatic
+  // deploy path works; `adopt` did not, and it failed on the production box
+  // with the pointer file already written — leaving the recorded upstream and
+  // the running Caddy disagreeing, which is a state with no operator-facing way
+  // back. An operator running a command BY HAND during an incident is the case
+  // this matters most for, and that is exactly the case with no IMAGE in the
+  // environment.
+  //
+  // So the flip resolves the image the colour is actually serving, and refuses
+  // rather than guessing when it cannot.
+  const image = colourImage(colour) ?? resolveImage();
+  if (!image) {
+    console.error(
+      `\n  cannot flip to app-${colour}: no image to give compose. The colour is not ` +
+        `running and neither the deploy state nor the environment names one.`,
+    );
+    process.exit(1);
+  }
+
   writeState({
     ...state,
     active: colour,
     previous: colour === state.active ? state.previous : state.active,
     upstream: split ?? upstreamFor(colour),
   });
+
   // caddy is the ONLY public process, so recreating just it moves all traffic.
   // The colours are untouched and keep serving while caddy restarts.
-  compose(["up", "-d", "--no-deps", "caddy"], { capture: true });
+  const r = compose(["up", "-d", "--no-deps", "caddy"], { capture: true, env: { IMAGE: image } });
+
+  // A FAILED FLIP MUST LEAVE THE BOX AS IT WAS.
+  //
+  // The pointer file was written before the recreate, because compose reads it
+  // when it creates the container. If the recreate then fails, the file names
+  // an upstream that is NOT serving: the file says `app-blue:3000` while the
+  // running Caddy still proxies to `app:3000`. The next `adopt` would then
+  // report "already running the blue/green stack" and do nothing, and a later
+  // `stage` would compute a traffic split against a colour that is not serving.
+  // Restoring the previous pointer and state puts the recording back in
+  // agreement with reality, which is the only thing the recording is for.
+  if (r.status !== 0) {
+    console.error(
+      `\n  the traffic flip to app-${colour} FAILED — restoring the previous upstream.`,
+    );
+    writeState(state);
+    process.exit(r.status ?? 1);
+  }
 }
 
 function stopColour(colour) {
@@ -557,9 +653,60 @@ async function deploy(image, canaryPercent) {
  */
 async function adopt() {
   const mode = stackMode();
-  if (mode === "bluegreen") {
-    console.log("\n  already running the blue/green stack — nothing to adopt.");
+  const upstream = runningUpstream();
+
+  // ── Is this an adoption, a finished adoption, or an INTERRUPTED one? ────────
+  //
+  // "A colour slot exists" is not the same question as "the edge is served by
+  // a colour", and the difference matters because an adoption can be
+  // interrupted: the pointer file is written, then the Caddy recreate fails,
+  // and the box is left with a colour running and an edge still on the plain
+  // container. The first version of this command answered only the first
+  // question, so it said "already running the blue/green stack — nothing to
+  // adopt" and REFUSED to finish an adoption it had started. The operator was
+  // left with a recording that disagreed with the box and no command that
+  // would make them agree.
+  //
+  // So the command is resumable: if the edge is already served by a colour,
+  // there is nothing to do; if a colour is running but the edge is not on it,
+  // the adoption is INCOMPLETE and this command finishes it.
+  if (mode === "bluegreen" && upstream.startsWith("app-")) {
+    // The edge is ALREADY served by a colour. The only thing that can still be
+    // unfinished is the retirement: an adoption that stopped before step 5
+    // leaves the plain `app` container running, and a running second copy of
+    // production that nothing is using is a thing to turn off, not a thing to
+    // leave.
+    const colour = upstream.split(":")[0].replace(/^app-/, "");
+    const plain = containerId("app");
+    if (!plain) {
+      console.log(`\n  already adopted — the edge is served by ${upstream}.`);
+      console.log("    nothing to do.");
+      return;
+    }
+    console.log(`\n  the edge is served by ${upstream}; retiring the plain \`app\` container.`);
+    // The image is resolved BEFORE the stop, and passed explicitly: compose
+    // parses the whole merged file set to run any command, and the colour
+    // slots declare `image: ${IMAGE:?…}` with no default, so a stop without an
+    // image fails to parse and the container is never stopped.
+    const image = colourImage(colour) || readState().image;
+    compose(["stop", "app"], { allowFail: true, env: image ? { IMAGE: image } : {} });
+    writeState({
+      ...readState(),
+      active: colour,
+      previous: null,
+      image: image ?? readState().image,
+      upstream: upstreamFor(colour),
+      adopted: true,
+    });
+    console.log(`  ✓ adopted. Production is served by app-${colour}.`);
+    console.log(
+      "    the plain `app` container is stopped, not removed: `docker compose start app` brings it back.",
+    );
     return;
+  }
+  if (mode === "bluegreen") {
+    console.log(`\n  an adoption was interrupted: ${upstream || "no upstream"} is serving,`);
+    console.log("  and a colour slot is running. Finishing the adoption.");
   }
   if (mode === "unknown") {
     console.error(
@@ -569,9 +716,16 @@ async function adopt() {
   }
 
   const plainId = containerId("app");
-  const imageRef = spawnSync("docker", ["inspect", "--format", "{{.Config.Image}}", plainId], {
-    encoding: "utf8",
-  }).stdout?.trim();
+  const plainImage = plainId
+    ? spawnSync("docker", ["inspect", "--format", "{{.Config.Image}}", plainId], {
+        encoding: "utf8",
+      }).stdout?.trim()
+    : "";
+  // The image the colour must serve: the PLAIN container's image when it is
+  // still running, and otherwise the colour's own image. An adoption must not
+  // change what customers see, so it inherits the build that is already
+  // serving rather than naming one of its own.
+  const imageRef = plainImage || colourImage("blue");
   if (!imageRef) {
     console.error(
       "\n  could not read the running image of the plain `app` container — refusing to adopt.",
@@ -600,6 +754,13 @@ async function adopt() {
 
   // 3. Move the pointer. `flipTraffic` writes the state file BEFORE recreating
   // caddy — see the ordering note there.
+  //
+  // The image is recorded FIRST, so the flip can name it and so a later command
+  // can resolve it without an environment. `deploy.yml` exports IMAGE, so the
+  // automatic path never needed this; `adopt` runs by hand, on a box where
+  // nothing exports it, and the merged compose files refuse to parse without
+  // one. That is how the first adoption failed on the production box.
+  writeState({ ...readState(), image: imageRef });
   console.log("\n  pointing caddy at app-blue");
   flipTraffic("blue", upstreamList("blue", null, 0));
 

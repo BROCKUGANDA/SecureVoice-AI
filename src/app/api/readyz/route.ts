@@ -141,8 +141,14 @@ export async function GET() {
 
   // Recording is a regulated-finance obligation, not a nice-to-have. The
   // ElevenLabs ConvAI plane archives audio through the post-call audio webhook
-  // only when object storage is configured; the Twilio media-stream plane has
-  // no recording path at all. Reporting this as `degraded` is deliberately
+  // only when object storage is configured. The Twilio planes now ASK for the
+  // recording (`Record` + `RecordingStatusCallback`, src/lib/twilio.ts) and
+  // /api/twilio/recording archives what comes back — but what has never been
+  // verified against live Twilio is provider-side capture of a
+  // `<Connect><Stream>` media-stream leg. A recording that was requested and
+  // silently never produced is worse than an absent one, because the operator
+  // believes the evidence exists. So this stays degraded while that plane is
+  // enabled, and says which half is missing. Reporting `degraded` is deliberately
   // non-fatal — refusing traffic would stop calls while an operator fixes
   // storage — but it must not be invisible behind a green readiness check.
   await timed("recording_archive", false, async () => {
@@ -153,11 +159,11 @@ export async function GET() {
       name: "recording_archive",
       ok,
       fatal: false,
-      detail: mediaStream
-        ? "media-stream plane has no recording path"
-        : storage
-          ? "post-call audio archive configured"
-          : "storage unconfigured — live calls will not be archived",
+      detail: !storage
+        ? "storage unconfigured — live calls will not be archived"
+        : mediaStream
+          ? "media-stream leg: recording is requested but provider-side capture is unverified — archive one real call before claiming it"
+          : "post-call audio archive configured",
     };
   });
 

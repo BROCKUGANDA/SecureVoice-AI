@@ -202,9 +202,13 @@ only when every item below is closed or has a written, owner-signed exception.
 - [ ] Caller ID is owned or attributable to the institution, carrier-verified,
       and not a shared or foreign number. The current UAE-number gap is a hard
       blocker for a UAE pilot.
-- [ ] Recording decision recorded per tenant. Default is no recording; the
-      media-stream plane has no recording path today. Audio retention is only
-      claimed where the recording plane and object storage are configured.
+- [ ] Recording verified on the plane the pilot actually runs. Recording is now
+      requested on both Twilio planes when object storage is configured, and
+      `POST /api/twilio/recording` archives what the provider returns; what has
+      never been verified against live Twilio is provider-side capture of a
+      `<Connect><Stream>` media-stream leg, which is why `readyz` keeps reporting
+      `recording_archive` as degraded while that flag is on. Verify by placing one
+      real call and confirming a `recording_archived` audit row exists.
 - [ ] Recorded-call disclosure reconciled with the actual recording plane:
       either record on every live plane, or change the spoken disclosure and the
       privacy policy. The current disclosure says the call is recorded.
@@ -217,8 +221,12 @@ only when every item below is closed or has a written, owner-signed exception.
 
 - [ ] Model and prompt versions pinned; provider preview models replaced with
       production-tier identifiers.
-- [ ] Tool allow-list minimised for the pilot; per-tool secrets tracked as a
-      known gap.
+- [ ] Tool allow-list minimised for the pilot. Per-tool secrets now exist and are
+      scoped by `AgentToolSecret.toolScope`, with a lifecycle API at
+      `/api/console/agent-tools`; the migration
+      `9zzz…_agent_tool_scope` has to be applied on the pilot database before the
+      first tenant is issued a key, and the deployment must record which tool each
+      tenant was given.
 - [ ] Human-commit invariant re-tested: no path from an uncertain case to a
       committed hold.
 - [ ] If Shariah mode is enabled: the institution's Shariah supervisory board

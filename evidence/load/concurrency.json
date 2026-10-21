@@ -1,0 +1,331 @@
+{
+  "schemaVersion": 1,
+  "gate": "Concurrency ladder — platform hot-path latency versus offered concurrency; vendors absent",
+  "result": "recorded",
+  "integrity": {
+    "labels": {
+      "measured": "Latency percentiles and throughput per rung. Observed by THIS run, on THIS machine, against local Postgres, in ONE process. No vendor call, no network, no telephony.",
+      "extrapolated": "The top rung is the WP-19 modelled campaign burst (210 concurrent conversations offered as 224 workers). The campaign shape is modelled, not observed.",
+      "not_measured_here": [
+        "Vendor and carrier latency, and ElevenLabs concurrent-session enforcement at the ceiling.",
+        "Cross-instance contention: the audit semaphore and the connection pool are per-process, so N app replicas divide this headroom by N.",
+        "Postgres at realistic table sizes — the gauge is a COUNT over Case.state and this database holds thousands of rows, not millions."
+      ]
+    },
+    "network": {
+      "calls": 0,
+      "urls": []
+    },
+    "database": {
+      "available": true,
+      "note": "dial_job already present",
+      "baseline_gauge_at_start": 0,
+      "warm_up": {
+        "attempts": 20,
+        "ms": 327,
+        "note": "opened 20/20 pooled connections before the first rung"
+      },
+      "pool": "20 connections"
+    },
+    "budgets": {
+      "p95_ms": {
+        "gauge_read_cached": 400,
+        "admission_decision": 900,
+        "queue_claim": 900,
+        "case_transition_with_audit": 2000
+      },
+      "max_amplification": {
+        "gauge_read_cached": 8,
+        "gauge_read_uncached": null,
+        "admission_decision": 8,
+        "queue_claim": 8,
+        "case_transition_with_audit": 14
+      },
+      "asserted": [
+        "gauge_read_cached",
+        "admission_decision",
+        "queue_claim",
+        "case_transition_with_audit"
+      ],
+      "evidence_only": [
+        "gauge_read_uncached"
+      ],
+      "absolute_budget_max_concurrency": 64,
+      "note": "gauge_read_uncached is measured and never asserted: it is the cost of the design the platform rejected (one global COUNT per concurrent admission), kept so the counterfactual is on the record rather than re-derived by the next reader."
+    }
+  },
+  "rungs": [
+    {
+      "concurrency": 8,
+      "ops_per_worker": 3,
+      "duration_ms": 1248,
+      "throughput_ops_per_sec": 89.8,
+      "latency": {
+        "gauge_read_cached": {
+          "samples": 24,
+          "errors": 0,
+          "error_messages": [],
+          "p50_ms": 0,
+          "p95_ms": 0.4,
+          "p99_ms": 12.1,
+          "max_ms": 12.1
+        },
+        "gauge_read_uncached": {
+          "samples": 16,
+          "errors": 0,
+          "error_messages": [],
+          "p50_ms": 79,
+          "p95_ms": 89.8,
+          "p99_ms": 89.8,
+          "max_ms": 89.8
+        },
+        "admission_decision": {
+          "samples": 24,
+          "errors": 0,
+          "error_messages": [],
+          "p50_ms": 10.7,
+          "p95_ms": 71.1,
+          "p99_ms": 72.8,
+          "max_ms": 72.8
+        },
+        "queue_claim": {
+          "samples": 24,
+          "errors": 0,
+          "error_messages": [],
+          "p50_ms": 11.1,
+          "p95_ms": 49.7,
+          "p99_ms": 52.8,
+          "max_ms": 52.8
+        },
+        "case_transition_with_audit": {
+          "samples": 24,
+          "errors": 0,
+          "error_messages": [],
+          "p50_ms": 119,
+          "p95_ms": 974.7,
+          "p99_ms": 1007.5,
+          "max_ms": 1007.5
+        }
+      }
+    },
+    {
+      "concurrency": 32,
+      "ops_per_worker": 3,
+      "duration_ms": 805,
+      "throughput_ops_per_sec": 551.4,
+      "latency": {
+        "gauge_read_cached": {
+          "samples": 96,
+          "errors": 0,
+          "error_messages": [],
+          "p50_ms": 0,
+          "p95_ms": 1.1,
+          "p99_ms": 10.1,
+          "max_ms": 10.1
+        },
+        "gauge_read_uncached": {
+          "samples": 60,
+          "errors": 0,
+          "error_messages": [],
+          "p50_ms": 21.7,
+          "p95_ms": 224.6,
+          "p99_ms": 243.5,
+          "max_ms": 243.5
+        },
+        "admission_decision": {
+          "samples": 96,
+          "errors": 0,
+          "error_messages": [],
+          "p50_ms": 11.6,
+          "p95_ms": 76.8,
+          "p99_ms": 91,
+          "max_ms": 91
+        },
+        "queue_claim": {
+          "samples": 96,
+          "errors": 0,
+          "error_messages": [],
+          "p50_ms": 11.4,
+          "p95_ms": 92.1,
+          "p99_ms": 94.9,
+          "max_ms": 94.9
+        },
+        "case_transition_with_audit": {
+          "samples": 96,
+          "errors": 0,
+          "error_messages": [],
+          "p50_ms": 205.5,
+          "p95_ms": 303.8,
+          "p99_ms": 320.4,
+          "max_ms": 320.4
+        }
+      }
+    },
+    {
+      "concurrency": 64,
+      "ops_per_worker": 3,
+      "duration_ms": 1193,
+      "throughput_ops_per_sec": 693.9,
+      "latency": {
+        "gauge_read_cached": {
+          "samples": 192,
+          "errors": 0,
+          "error_messages": [],
+          "p50_ms": 0,
+          "p95_ms": 0.3,
+          "p99_ms": 5,
+          "max_ms": 8.3
+        },
+        "gauge_read_uncached": {
+          "samples": 60,
+          "errors": 0,
+          "error_messages": [],
+          "p50_ms": 14.4,
+          "p95_ms": 18.6,
+          "p99_ms": 19,
+          "max_ms": 19
+        },
+        "admission_decision": {
+          "samples": 192,
+          "errors": 0,
+          "error_messages": [],
+          "p50_ms": 10.5,
+          "p95_ms": 20.6,
+          "p99_ms": 25.3,
+          "max_ms": 25.9
+        },
+        "queue_claim": {
+          "samples": 192,
+          "errors": 0,
+          "error_messages": [],
+          "p50_ms": 11.1,
+          "p95_ms": 40.1,
+          "p99_ms": 42.5,
+          "max_ms": 42.5
+        },
+        "case_transition_with_audit": {
+          "samples": 192,
+          "errors": 0,
+          "error_messages": [],
+          "p50_ms": 355.6,
+          "p95_ms": 454.2,
+          "p99_ms": 483,
+          "max_ms": 489.2
+        }
+      }
+    },
+    {
+      "concurrency": 128,
+      "ops_per_worker": 3,
+      "duration_ms": 2143,
+      "throughput_ops_per_sec": 744.9,
+      "latency": {
+        "gauge_read_cached": {
+          "samples": 384,
+          "errors": 0,
+          "error_messages": [],
+          "p50_ms": 0,
+          "p95_ms": 0.7,
+          "p99_ms": 5.4,
+          "max_ms": 12.1
+        },
+        "gauge_read_uncached": {
+          "samples": 60,
+          "errors": 0,
+          "error_messages": [],
+          "p50_ms": 13.6,
+          "p95_ms": 15.2,
+          "p99_ms": 15.3,
+          "max_ms": 15.3
+        },
+        "admission_decision": {
+          "samples": 384,
+          "errors": 0,
+          "error_messages": [],
+          "p50_ms": 9.1,
+          "p95_ms": 35.1,
+          "p99_ms": 39.4,
+          "max_ms": 39.7
+        },
+        "queue_claim": {
+          "samples": 384,
+          "errors": 0,
+          "error_messages": [],
+          "p50_ms": 10,
+          "p95_ms": 58.6,
+          "p99_ms": 68.8,
+          "max_ms": 69.3
+        },
+        "case_transition_with_audit": {
+          "samples": 384,
+          "errors": 0,
+          "error_messages": [],
+          "p50_ms": 685.8,
+          "p95_ms": 816.8,
+          "p99_ms": 859.9,
+          "max_ms": 877.9
+        }
+      }
+    },
+    {
+      "concurrency": 224,
+      "ops_per_worker": 3,
+      "duration_ms": 4138,
+      "throughput_ops_per_sec": 664,
+      "latency": {
+        "gauge_read_cached": {
+          "samples": 672,
+          "errors": 0,
+          "error_messages": [],
+          "p50_ms": 0,
+          "p95_ms": 0.3,
+          "p99_ms": 7.6,
+          "max_ms": 15.6
+        },
+        "gauge_read_uncached": {
+          "samples": 60,
+          "errors": 0,
+          "error_messages": [],
+          "p50_ms": 16.8,
+          "p95_ms": 18.5,
+          "p99_ms": 18.7,
+          "max_ms": 18.7
+        },
+        "admission_decision": {
+          "samples": 672,
+          "errors": 0,
+          "error_messages": [],
+          "p50_ms": 9.9,
+          "p95_ms": 53.1,
+          "p99_ms": 64.7,
+          "max_ms": 66.2
+        },
+        "queue_claim": {
+          "samples": 672,
+          "errors": 0,
+          "error_messages": [],
+          "p50_ms": 11.4,
+          "p95_ms": 109.4,
+          "p99_ms": 113.5,
+          "max_ms": 114.3
+        },
+        "case_transition_with_audit": {
+          "samples": 672,
+          "errors": 0,
+          "error_messages": [],
+          "p50_ms": 1329.9,
+          "p95_ms": 1542.9,
+          "p99_ms": 1646.2,
+          "max_ms": 1660.8
+        }
+      }
+    }
+  ],
+  "amplification_p95_bottom_to_top": {
+    "gauge_read_cached": null,
+    "admission_decision": 0.75,
+    "queue_claim": 2.2,
+    "case_transition_with_audit": 1.58,
+    "gauge_read_uncached": 0.21
+  }
+}

@@ -109,7 +109,6 @@ function mulberry32(seed: number): () => number {
     let t = a;
     t = Math.imul(t ^ (t >>> 15), t + 1);
     t = Math.imul(t ^ (t >>> 7), t + 61);
-    t ^= t + Math.imul(t ^ (t >>> 14));
     return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296;
   };
 }
@@ -136,13 +135,16 @@ const ASSERTED_OPS: OpName[] = [
 const EVIDENCE_ONLY_OPS: OpName[] = ["gauge_read_uncached"];
 
 /**
- * The counterfactual does not run inside the asserted rungs. It is 672 deliberate
- * uncached COUNTs at the top rung, and on a 20-connection pool that load is
- * enough to move the numbers of the operations sharing the rung with it — a gate
- * whose instrument perturbs its subject measures the instrument. So it gets its
- * own sweep, after the ladder, at the peak concurrency, with a bounded sample.
+ * How many uncached gauge reads each rung fires as its counterfactual.
+ *
+ * Bounded on purpose. The probe has to run WITH the load cohort — a probe fired
+ * against a pool the workers have already vacated understates the cost of a
+ * per-caller COUNT and would argue that the reuse window is unnecessary — but a
+ * full C×OPS of deliberate starvations would move the numbers of the operations
+ * sharing the rung, and a gate whose instrument perturbs its subject is measuring
+ * the instrument. 60 concurrent reads is the compromise: enough queueing to show
+ * the shape, small enough not to become the load under test.
  */
-const COUNTERFACTUAL_CONCURRENCY = 224;
 const COUNTERFACTUAL_READS = 60;
 
 /**
@@ -223,7 +225,21 @@ function fail(b: Bucket, err: unknown): void {
     b.errorMessages.add(err instanceof Error ? `${err.name}: ${err.message}` : String(err));
   }
 }
-function summarise(b: Bucket): Record<string, unknown> {
+/**
+ * A percentile summary. `p95_ms`/`p99_ms` are null on an empty bucket rather than
+ * 0, because a reported zero is a claim that something was measured quickly.
+ */
+type Latency = {
+  samples: number;
+  errors: number;
+  error_messages: string[];
+  p50_ms: number;
+  p95_ms: number | null;
+  p99_ms: number | null;
+  max_ms: number;
+};
+
+function summarise(b: Bucket): Latency {
   const s = [...b.values].sort((x, y) => x - y);
   return {
     samples: s.length,
@@ -505,12 +521,12 @@ function writeEvidence(): void {
         note: dbReason,
         baseline_gauge_at_start: baselineGauge,
         warm_up: warmUp,
-        pool: dbUrl ? `${/[?&]connection_limit=(\d+)/.exec(dbUrl)?.[1] ?? "unset"} connections` : "unset",
+        pool: dbUrl
+          ? `${/[?&]connection_limit=(\d+)/.exec(dbUrl)?.[1] ?? "unset"} connections`
+          : "unset",
       },
       budgets: {
-        p95_ms: Object.fromEntries(
-          ASSERTED_OPS.map((op) => [op, BUDGET_P95_MS[op]]),
-        ),
+        p95_ms: Object.fromEntries(ASSERTED_OPS.map((op) => [op, BUDGET_P95_MS[op]])),
         max_amplification: MAX_AMPLIFICATION,
         asserted: ASSERTED_OPS,
         evidence_only: EVIDENCE_ONLY_OPS,
@@ -552,7 +568,10 @@ describe.skipIf(!dbAvailable)(
           expect(s.samples).toBe(r.concurrency * r.ops_per_worker);
           // See ABSOLUTE_BUDGET_MAX_CONCURRENCY: above the single-process shape,
           // the write path is judged on the curve, not on this absolute.
-          if (op === "case_transition_with_audit" && r.concurrency > ABSOLUTE_BUDGET_MAX_CONCURRENCY)
+          if (
+            op === "case_transition_with_audit" &&
+            r.concurrency > ABSOLUTE_BUDGET_MAX_CONCURRENCY
+          )
             continue;
           expect(
             s.p95_ms,

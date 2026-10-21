@@ -56,7 +56,8 @@ describe("published claims about credit expiry must match the ledger", () => {
     // the truthful sentence now says the opposite in both languages, and a gate
     // that bans a vocabulary word would ban the correction too.
     const offenders: string[] = [];
-    const claimEn = /credits?[ _-]?(are )?(non-)?refundable and unused credits expir|expire[sd]? [0-9]+ months? (from|after) (the date of )?purchase|unused credits expir/i;
+    const claimEn =
+      /credits?[ _-]?(are )?(non-)?refundable and unused credits expir|expire[sd]? [0-9]+ months? (from|after) (the date of )?purchase|unused credits expir/i;
     const claimAr = /تنتهي صلاحيتها بعد [0-9٠-٩]+ ?شهر|تنتهي الأرصدة بعد/;
     for (const [name, text] of Object.entries({
       "src/views/Legal.tsx": legal,
@@ -105,9 +106,10 @@ describe("published retention text must match the sweeper", () => {
   });
 
   test("the default hold is five years and is configurable", () => {
-    const m = /const raw = Number\(process\.env\.PRIVACY_EVIDENCE_RETENTION_DAYS\)[\s\S]{0,140}/.exec(
-      retention,
-    );
+    const m =
+      /const raw = Number\(process\.env\.PRIVACY_EVIDENCE_RETENTION_DAYS\)[\s\S]{0,140}/.exec(
+        retention,
+      );
     expect(m?.[0]).toMatch(/5 \* 365/);
     expect(read(".env.example")).toMatch(/PRIVACY_EVIDENCE_RETENTION_DAYS/);
   });
@@ -117,7 +119,9 @@ describe("recording claims must match the wiring", () => {
   test("the Twilio plane requests a recording when storage exists", () => {
     expect(twilio).toMatch(/RecordingStatusCallback/);
     expect(twilio).toMatch(/TWILIO_RECORDING_CALLBACK_PATH/);
-    expect(read("src/app/api/twilio/recording/route.ts")).toMatch(/X-Twilio-Signature|twilioSignedUrl/);
+    expect(read("src/app/api/twilio/recording/route.ts")).toMatch(
+      /X-Twilio-Signature|twilioSignedUrl/,
+    );
   });
 
   test("no document still claims the media-stream plane has no recording path", () => {

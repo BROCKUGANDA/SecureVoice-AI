@@ -124,7 +124,7 @@ that path and names the knob (`DB_AUDIT_POOL_MAX`) rather than tuning the
 expectation down until it passes.
 
 Two limits belong in the same sentence as the numbers. The top rung is the WP-19
-*modelled* campaign burst, offered through one process — a shape no single
+_modelled_ campaign burst, offered through one process — a shape no single
 deployment runs, since the aggregate is spread over replicas each with its own
 pool and its own semaphore. And the reuse window on the admission gauge (see
 `src/lib/admission.ts`) is measured here against a local database where a `COUNT`

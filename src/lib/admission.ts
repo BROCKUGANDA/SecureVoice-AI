@@ -18,7 +18,9 @@ import "server-only";
  * wrong in the dangerous direction (each instance believes it has full
  * headroom). Counting in-flight cases from the `Case` table is naturally
  * correct across instances, survives a restart, and needs no reconciliation
- * sweep. It costs one indexed COUNT per ingest.
+ * sweep. It costs one indexed COUNT per process per `GAUGE_REUSE_MS` window — the
+ * window is why the burst does not turn the gauge into a queue (see below), not a
+ * way of avoiding the read.
  * ────────────────────────────────────────────────────────────────────────────
  */
 
@@ -38,6 +40,32 @@ import { logError } from "@/lib/validation/safe-log";
 const IN_FLIGHT_STATES = ["DIALING", "RINGING", "ANSWERED", "DISCLOSED", "VERIFYING"] as const;
 
 /**
+ * How stale a served gauge reading may be, in milliseconds.
+ *
+ * The gauge decides which admission BAND a case falls in, and the band
+ * thresholds are percentages of a 40-session burst ceiling. In-flight count moves
+ * at the rate calls start and stop, so at the modelled campaign peak
+ * (1.17 interventions/second) a quarter-second window is off by well under one
+ * conversation — which is why reusing the read cannot cause an overflow. The
+ * number that actually bounds concurrent sessions is the client-side vendor gate
+ * in `src/lib/scale/capacity.ts`, plus the vendor's own 429; the gauge is triage,
+ * not the safety case.
+ *
+ * `0` is not "read a bit more often": it means never serve a value that is already
+ * in hand, and never take one while a refresh is in flight — every admission waits
+ * on its own COUNT, which is the shape this module used to have. The value exists
+ * so `tests/load/concurrency-ladder.test.ts` can reproduce that shape on demand and
+ * show what the window is buying, rather than asserting it from prose.
+ */
+const GAUGE_REUSE_MS = (() => {
+  const raw = Number(process.env.ADMISSION_GAUGE_REUSE_MS);
+  return Number.isFinite(raw) && raw >= 0 ? raw : 250;
+})();
+
+let gauge: { n: number; atMs: number } | null = null;
+let gaugeRead: Promise<number> | null = null;
+
+/**
  * Expected-loss threshold below which we stop spending the voice channel.
  * Amount in minor units, so the number is currency-agnostic and integer-only.
  */
@@ -46,17 +74,67 @@ function shedThresholdMinor(): number {
   return env.shedExpectedLossMinor;
 }
 
-/** Live count of conversations currently consuming a voice slot. */
-export async function activeConversations(): Promise<number> {
-  try {
-    return await db.case.count({ where: { state: { in: [...IN_FLIGHT_STATES] } } });
-  } catch {
-    // A DB blip must not turn into "we are full" — that would shed traffic on
-    // our outage rather than the campaign's. Fail open on the gauge; the vendor
-    // will reject the call if we are genuinely over, and that rejection is
-    // visible in the delivery audit.
-    return 0;
+/** Live count of conversations currently consuming a voice slot.
+ *
+ * `fresh: true` skips the reuse window. The capacity gates use it, because a
+ * measurement instrument that reads a cached value measures the cache.
+ */
+export async function activeConversations(opts?: { fresh?: boolean }): Promise<number> {
+  const now = performance.now();
+  if (opts?.fresh) {
+    gauge = null;
+    gaugeRead = null;
+  } else if (gauge && now - gauge.atMs < GAUGE_REUSE_MS) {
+    return gauge.n;
   }
+  // Single-flight: 224 concurrent admissions in one process share ONE global COUNT
+  // instead of issuing 224 of them, each queued behind the same pool. Measured at
+  // the campaign peak (`tests/load/concurrency-ladder.test.ts`): p95 19.6 ms for
+  // the read per caller, 1.0 ms for the shared one, on a local database where a
+  // COUNT is cheap.
+  if (gaugeRead) {
+    // Stale-while-revalidate. A refresh is already running, so this caller takes
+    // the last known count and lets the refresh land for the next caller, instead
+    // of inheriting the leader's pool wait. That inheritance is the reason the
+    // window alone is not enough: with every caller awaiting the leader, the read
+    // a fraud ingest waits on costs whatever the deployment's round trip costs —
+    // milliseconds on a local database, and seconds against the remote session-mode
+    // pooler production actually runs on.
+    //
+    // The bounded staleness is the trade, and it is a triage trade. The gauge
+    // selects an admission BAND; at the modelled campaign peak (1.17
+    // interventions/second) even a multi-second-stale read is off by a handful of
+    // conversations against a 40-session ceiling, and what actually bounds
+    // concurrent sessions is the client-side vendor gate plus the vendor's own 429
+    // — neither of which reads this number. Refusing to accept a fraud signal
+    // because a COUNT is slow is the failure mode with no upside.
+    //
+    // With no previous value (a cold process) the caller DOES wait: inventing 0
+    // for the first admission would hand a fresh replica full headroom, which is
+    // the wrong direction to be wrong in.
+    if (gauge && GAUGE_REUSE_MS > 0) return gauge.n;
+    return gaugeRead;
+  }
+  gaugeRead = (async () => {
+    try {
+      const n = await db.case.count({ where: { state: { in: [...IN_FLIGHT_STATES] } } });
+      gauge = { n, atMs: performance.now() };
+      return n;
+    } catch {
+      // A DB blip must not turn into "we are full" — that would shed traffic on
+      // our outage rather than the campaign's. Fail open on the gauge; the vendor
+      // will reject the call if we are genuinely over, and that rejection is
+      // visible in the delivery audit.
+      //
+      // The fail-open value is deliberately NOT cached: the next caller re-probes
+      // instead of inheriting a healthy-looking zero for the whole window.
+      gauge = null;
+      return 0;
+    } finally {
+      gaugeRead = null;
+    }
+  })();
+  return gaugeRead;
 }
 
 export type AdmissionDecision = {

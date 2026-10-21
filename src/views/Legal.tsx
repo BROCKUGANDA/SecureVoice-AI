@@ -217,7 +217,7 @@ const PRIVACY_SECTIONS = [
   {
     h: "How long we keep it",
     body: [
-      "Pilot requests are retained only for as long as needed to evaluate and manage the request, and are then deleted or anonymised. Inside a bank deployment, retention runs in four tiers, each configurable per organisation: call audio is kept for 30 days and then deleted — an organisation under a no-recording agreement keeps no recording at all; transcripts are retained for 90 days, after which the per-case encryption key is shredded so the sealed payload can no longer be read while the audit chain stays verifiable; the redacted case row is kept for 7 years; and the tamper-evident audit chain is retained permanently, holding hashes only and no personal data.",
+      "Pilot requests are retained only for as long as needed to evaluate and manage the request, and are then deleted or anonymised. Inside a bank deployment, retention runs in four tiers, each configurable per organisation: call audio is kept for 30 days and then deleted — an organisation under a no-recording agreement keeps no recording at all; transcripts are retained for 90 days, after which the per-case encryption key is shredded so the sealed payload can no longer be read while the audit chain stays verifiable; the redacted case row is kept for 7 years; and the tamper-evident audit chain is retained permanently, holding hashes only and no personal data. A case that has been flagged as evidence is held back from all three deleting tiers until 5 years have passed since fraud confirmation (configurable, `PRIVACY_EVIDENCE_RETENTION_DAYS`), because a row a court or a regulator may still need must not age out on an operational clock.",
     ],
   },
   {
@@ -540,7 +540,7 @@ const REFUND_SECTIONS = [
   {
     h: "The prepaid credit wallet",
     body: [
-      "The platform runs on a prepaid Credit Wallet: a monthly platform fee per tier, plus credits that fund intervention signals. One credit funds one intervention signal. Purchased credits are non-refundable and unused credits expire 12 months from the date of purchase.",
+      "The platform runs on a prepaid Credit Wallet: a monthly platform fee per tier, plus credits that fund intervention signals. One credit funds one intervention signal. Purchased credits are non-refundable. Unused credits do not expire on a clock — the platform runs no expiry job against a wallet balance, so a credit carries until it is spent or the account is closed. Treat any expiry period in a signed order form as a contractual term, not a system behaviour.",
       "A consumed credit is never refunded, because the intervention it paid for has already burned carrier minutes, speech synthesis and a model turn. Refunding those would let a customer probe the platform for free. We will show you a per-intervention consumption breakdown on request, so you can see exactly how many credits were spent and on what.",
     ],
   },
@@ -548,7 +548,7 @@ const REFUND_SECTIONS = [
     h: "Shariah treatment of fees and credits",
     body: [
       "The parties intend fees and credits to be consideration for services (ujrah), not a loan, deposit, investment or trust. No interest (riba) is charged on late payment or earned on any prepaid balance, and no profit is distributed on unused credits.",
-      "The 12-month expiry of unused credits is a service-term limit disclosed before purchase; it is not a forfeiture of a deposit or trust. Where an institution requires a different Shariah-approved billing structure, the signed Master Services Agreement governs and prevails over this page.",
+      "An unused credit balance is not held as a deposit or in trust, earns no return, and is not expired by the platform — so nothing is forfeited by the passage of time. Where an institution requires a different Shariah-approved billing structure, including a defined lapse on prepayment, the signed Master Services Agreement governs and prevails over this page, and the institution's Shariah supervisory board is the authority for it.",
       "Refunds and service credits are returned to the wallet in the same currency; no interest is added to a refund or to a service credit.",
     ],
   },
@@ -583,7 +583,7 @@ const REFUND_SECTIONS = [
   {
     h: "Changes to this policy",
     body: [
-      "We may update this policy. Material changes will be announced on this page with a new version number and effective date, and balances purchased under the previous terms keep those terms until they expire.",
+      "We may update this policy. Material changes will be announced on this page with a new version number and effective date, and balances purchased under the previous terms keep those terms until they are spent or the account is closed.",
     ],
   },
 ];
@@ -657,8 +657,8 @@ export function Refund() {
       icon={Undo2}
       titleEn="Refund Policy"
       titleAr="سياسة الاسترداد"
-      subtitleEn="Prepaid credits are non-refundable and expire 12 months after purchase. Credits consumed by a SecureVoice infrastructure fault come back automatically within 48 hours. The demo environment is free, so there is nothing to refund."
-      subtitleAr="الأرصدة المدفوعة مسبقاً غير قابلة للاسترداد وتنتهي صلاحيتها بعد 12 شهراً من الشراء. ويرجع الرصيد المستهلك بخلل في بنية SecureVoice تلقائياً خلال 48 ساعة. وبيئة العرض مجانية، فلا يوجد ما يُسترد."
+      subtitleEn="Prepaid credits are non-refundable. Unused credits carry until they are spent or the account is closed — the platform runs no expiry clock against a balance. Credits consumed by a SecureVoice infrastructure fault come back automatically within 48 hours. The demo environment is free, so there is nothing to refund."
+      subtitleAr="الأرصدة المدفوعة مسبقاً غير قابلة للاسترداد. وتبقى الأرصدة غير المستهلكة حتى تُصرف أو يُغلق الحساب، فلا يُطبّق النظام مؤقّت انتهاء صلاحية على الرصيد. ويرجع الرصيد المستهلك بخلل في بنية SecureVoice تلقائياً خلال 48 ساعة. وبيئة العرض مجانية، فلا يوجد ما يُسترد."
       meta={{
         version: "2.1",
         effective: "2026-10-20",

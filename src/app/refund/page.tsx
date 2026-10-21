@@ -15,7 +15,7 @@ import { Refund } from "@/views/Legal";
 export const metadata: Metadata = {
   title: "Refund Policy",
   description:
-    "SecureVoice AI refund policy for the prepaid credit wallet: purchased credits are non-refundable and unused credits expire 12 months after purchase. A credit consumed by a SecureVoice infrastructure fault is returned automatically within 48 hours. Fees and credits are consideration for services (ujrah), not a loan, deposit or interest-bearing balance. Plans are billed in USD through Paddle as Merchant of Record.",
+    "SecureVoice AI refund policy for the prepaid credit wallet: purchased credits are non-refundable, and unused credits carry until they are spent or the account is closed rather than expiring on a system clock. A credit consumed by a SecureVoice infrastructure fault is returned automatically within 48 hours. Fees and credits are consideration for services (ujrah), not a loan, deposit or interest-bearing balance. Plans are billed in USD through Paddle as Merchant of Record.",
   alternates: { canonical: "/refund" },
   openGraph: {
     title: "Refund Policy — SecureVoice AI",

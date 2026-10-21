@@ -180,10 +180,74 @@ function tunable(key) {
 /** The resolved tunables, read once so every use below agrees. */
 const CANARY_SLOTS = tunable("canarySlots");
 const APP_PORT = tunable("appPort");
-const PROBE_ORIGIN = tunable("probeOrigin");
 const PROBE_PATH = tunable("probePath");
 const HEALTH_PATH = tunable("healthPath");
 const PROBE_TIMEOUT_SEC = tunable("probeTimeoutSec");
+
+/**
+ * The box's own `.env`, parsed once.
+ *
+ * The deploy script runs from a shell, so `process.env` does NOT carry the
+ * deployment's configuration — that lives in the compose env file, which
+ * compose reads and this script does not.
+ */
+function readDotEnv() {
+  const out = {};
+  let src;
+  try {
+    src = readFileSync(resolve(ROOT, ".env"), "utf8");
+  } catch {
+    return out;
+  }
+  for (const line of src.split("\n")) {
+    const t = line.trim();
+    if (!t || t.startsWith("#")) continue;
+    const at = t.indexOf("=");
+    if (at < 1) continue;
+    const key = t.slice(0, at).trim();
+    let val = t.slice(at + 1).trim();
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+      val = val.slice(1, -1);
+    }
+    out[key] = val;
+  }
+  return out;
+}
+
+/**
+ * The origin the edge is reached at, for a probe that goes THROUGH it.
+ *
+ * ── Why the loopback address is not the answer ────────────────────────────────
+ *
+ * The default was `http://127.0.0.1`, which is right on a laptop running the
+ * compose stack and WRONG on the production box, where Caddy's port 80 answers
+ * an HTTP→HTTPS redirect. The probe asked for `/api/readyz` over plain HTTP
+ * and got a **308** — a redirect, not a health answer — so the verification
+ * could never succeed, and the first adoption attempt on the production box
+ * rolled back a perfectly good flip because the edge was answering exactly as
+ * configured.
+ *
+ * The site's real origin cannot be guessed: the Caddyfile's site list is
+ * LITERAL (see the Caddyfile's gotcha 1 — a `{$VAR}` site address collides
+ * fatally with a literal block for the same host), so there is no environment
+ * variable that names it. The APP's own spelling of the same answer is
+ * `NEXT_PUBLIC_SITE_URL` / `SITE_DOMAIN` / `SITE_ADDRESS`, and this mirrors
+ * the resolution order in `src/lib/site-origin.ts` so the two cannot drift.
+ */
+function resolveProbeOrigin() {
+  const explicit = process.env.PROBE_ORIGIN?.trim();
+  if (explicit) return explicit;
+  const dot = readDotEnv();
+  const publicUrl = dot.NEXT_PUBLIC_SITE_URL?.trim();
+  if (publicUrl) return publicUrl.replace(/\/+$/, "");
+  const domain = dot.SITE_DOMAIN?.trim();
+  if (domain) return `https://${domain.replace(/^https?:\/\//, "").replace(/\/+$/, "")}`;
+  const host = dot.SITE_ADDRESS?.trim();
+  if (host && host !== "localhost") return `https://${host}`;
+  return tunable("probeOrigin");
+}
+
+const PROBE_ORIGIN = resolveProbeOrigin();
 
 /** The upstream one colour serves on. */
 const upstreamFor = (colour) => `app-${colour}:${APP_PORT}`;
@@ -297,6 +361,99 @@ function containerId(service) {
 }
 
 /**
+ * The image a colour slot is actually serving, or "" when it is not running.
+ *
+ * The flip needs an image to name, because the merged compose files refuse to
+ * parse without one. The right image is the one the TARGET colour is serving,
+ * not whatever the environment happens to hold: a flip that names the wrong
+ * image would bring the colour slots up on the wrong build, which is the
+ * stale-image condition the whole release path exists to catch.
+ */
+function colourImage(colour) {
+  const id = containerId(`app-${colour}`);
+  if (!id) return "";
+  const r = spawnSync("docker", ["inspect", "--format", "{{.Config.Image}}", id], {
+    encoding: "utf8",
+  });
+  return r.stdout?.trim() ?? "";
+}
+
+/**
+ * The upstream Caddy is ACTUALLY serving, read from the running container.
+ *
+ * `stackMode()` answers "does a colour slot exist"; this answers "is the edge
+ * served by one". They are not the same question, and the difference is the
+ * whole difference between an adopted host and an interrupted adoption.
+ *
+ * Read from DOCKER rather than from `.deploy/active.env`, because the file is
+ * what the deploy script WRITES and the container environment is what the
+ * edge RUNS on. When a flip fails, the two disagree — the file names the new
+ * colour and Caddy is still on the old one — and only the container tells the
+ * truth.
+ */
+function runningUpstream() {
+  const id = containerId("caddy");
+  if (!id) return "";
+  const r = spawnSync(
+    "docker",
+    ["inspect", "--format", "{{range .Config.Env}}{{println .}}{{end}}", id],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+  );
+  for (const line of (r.stdout ?? "").split(/\r?\n/)) {
+    const m = /^APP_UPSTREAM=(.*)$/.exec(line.trim());
+    if (m) return m[1].trim();
+  }
+  return "";
+}
+
+/**
+ * Wait for the EDGE to answer, through the edge.
+ *
+ * ── Why this exists ───────────────────────────────────────────────────────────
+ *
+ * Caddy is the only public process, and a traffic flip reaches it by
+ * recreating the container. The new container needs a moment to bind the port
+ * and serve, and a probe fired inside that window gets a connection refused —
+ * which is not a verdict on the flip, it is a verdict on the clock.
+ *
+ * The second adoption attempt on the production box failed exactly this way:
+ * the flip SUCCEEDED, the probe ran while Caddy was still "Up Less than a
+ * second", it got `000`, and the script rolled back a perfectly good
+ * adoption. The rollback was correct; the reason for it was not.
+ *
+ * So the flip waits for the edge before it returns, and every command that
+ * flips (adopt, stage, canary, promote, rollback) inherits the wait.
+ */
+async function waitForEdge(timeoutMs = tunable("colourHealthTimeoutMs")) {
+  const deadline = Date.now() + timeoutMs;
+  process.stdout.write("  waiting for the edge to answer");
+  while (Date.now() < deadline) {
+    const r = spawnSync(
+      "curl",
+      [
+        "-sS",
+        "-o",
+        "/dev/null",
+        "--max-time",
+        String(PROBE_TIMEOUT_SEC),
+        "-w",
+        "%{http_code}",
+        `${PROBE_ORIGIN}${PROBE_PATH}`,
+      ],
+      { encoding: "utf8" },
+    );
+    const code = (r.stdout ?? "").trim();
+    if (code === "200") {
+      console.log(" 200");
+      return true;
+    }
+    await new Promise((r) => setTimeout(r, 1_000));
+  }
+  console.log(" no response");
+  return false;
+}
+
+/**
  * Which stack is actually serving.
  *
  * `bluegreen` — at least one colour slot exists.
@@ -382,21 +539,75 @@ function probeDirect(colour) {
   return { ok: r.status === 0, code };
 }
 
-function flipTraffic(colour, split) {
+async function flipTraffic(colour, split) {
   // ORDER MATTERS: persist the new upstream FIRST, then recreate caddy. Caddy
   // reads APP_UPSTREAM from its process environment, which compose supplies from
   // `.deploy/active.env`; recreating it before that file is updated would bring
   // the container back on the PREVIOUS value and the flip would do nothing.
   const state = readState();
+
+  // THE IMAGE MUST BE NAMED, OR COMPOSE CANNOT PARSE THE MERGED FILES.
+  //
+  // `docker-compose.bluegreen.yml` declares the colour slots as
+  // `image: ${IMAGE:?set IMAGE…}` with NO default, on purpose. Compose resolves
+  // that interpolation for EVERY service in the merged file set — not just the
+  // ones the command names — so `docker compose up -d --no-deps caddy` on a host
+  // whose environment has no IMAGE fails before it does anything:
+  //
+  //   error while interpolating services.app-blue.image:
+  //   required variable IMAGE is missing a value
+  //
+  // That is not a corner case. `deploy.yml` exports IMAGE, so the automatic
+  // deploy path works; `adopt` did not, and it failed on the production box
+  // with the pointer file already written — leaving the recorded upstream and
+  // the running Caddy disagreeing, which is a state with no operator-facing way
+  // back. An operator running a command BY HAND during an incident is the case
+  // this matters most for, and that is exactly the case with no IMAGE in the
+  // environment.
+  //
+  // So the flip resolves the image the colour is actually serving, and refuses
+  // rather than guessing when it cannot.
+  const image = colourImage(colour) ?? resolveImage();
+  if (!image) {
+    console.error(
+      `\n  cannot flip to app-${colour}: no image to give compose. The colour is not ` +
+        `running and neither the deploy state nor the environment names one.`,
+    );
+    process.exit(1);
+  }
+
   writeState({
     ...state,
     active: colour,
     previous: colour === state.active ? state.previous : state.active,
     upstream: split ?? upstreamFor(colour),
   });
+
   // caddy is the ONLY public process, so recreating just it moves all traffic.
   // The colours are untouched and keep serving while caddy restarts.
-  compose(["up", "-d", "--no-deps", "caddy"], { capture: true });
+  const r = compose(["up", "-d", "--no-deps", "caddy"], { capture: true, env: { IMAGE: image } });
+
+  // A FAILED FLIP MUST LEAVE THE BOX AS IT WAS.
+  //
+  // The pointer file was written before the recreate, because compose reads it
+  // when it creates the container. If the recreate then fails, the file names
+  // an upstream that is NOT serving: the file says `app-blue:3000` while the
+  // running Caddy still proxies to `app:3000`. The next `adopt` would then
+  // report "already running the blue/green stack" and do nothing, and a later
+  // `stage` would compute a traffic split against a colour that is not serving.
+  // Restoring the previous pointer and state puts the recording back in
+  // agreement with reality, which is the only thing the recording is for.
+  if (r.status !== 0) {
+    console.error(
+      `\n  the traffic flip to app-${colour} FAILED — restoring the previous upstream.`,
+    );
+    writeState(state);
+    process.exit(r.status ?? 1);
+  }
+
+  // The edge is back; wait until it actually answers before anyone probes it
+  // or believes it.
+  await waitForEdge();
 }
 
 function stopColour(colour) {
@@ -459,7 +670,7 @@ async function deploy(image, canaryPercent) {
   const pct = canaryPercent === undefined ? 100 : Math.min(100, Math.max(0, canaryPercent));
   if (pct >= 100) {
     console.log(`\n  flipping traffic to app-${target}`);
-    flipTraffic(target, upstreamList(target, null, 0));
+    await flipTraffic(target, upstreamList(target, null, 0));
     writeState({ active: target, previous: serving, image, upstream: upstreamFor(target) });
   } else {
     const slots = Math.round((pct / 100) * CANARY_SLOTS);
@@ -471,7 +682,7 @@ async function deploy(image, canaryPercent) {
     }
     const split = upstreamList(target, serving ?? target, pct);
     console.log(`\n  canary ${slots}/${CANARY_SLOTS} slots → ${pct}% app-${target}`);
-    flipTraffic(target, split);
+    await flipTraffic(target, split);
     // `active` stays the colour taking the majority: `rollback` and `promote`
     // reason about which colour is the safe one, and below 50% the canary is
     // not.
@@ -506,7 +717,7 @@ async function deploy(image, canaryPercent) {
     console.error(
       `\n  ✗ post-switch probe failed (got "${status ?? "no response"}") — ROLLING BACK.`,
     );
-    rollback();
+    await rollback();
     process.exit(1);
   }
 
@@ -557,9 +768,60 @@ async function deploy(image, canaryPercent) {
  */
 async function adopt() {
   const mode = stackMode();
-  if (mode === "bluegreen") {
-    console.log("\n  already running the blue/green stack — nothing to adopt.");
+  const upstream = runningUpstream();
+
+  // ── Is this an adoption, a finished adoption, or an INTERRUPTED one? ────────
+  //
+  // "A colour slot exists" is not the same question as "the edge is served by
+  // a colour", and the difference matters because an adoption can be
+  // interrupted: the pointer file is written, then the Caddy recreate fails,
+  // and the box is left with a colour running and an edge still on the plain
+  // container. The first version of this command answered only the first
+  // question, so it said "already running the blue/green stack — nothing to
+  // adopt" and REFUSED to finish an adoption it had started. The operator was
+  // left with a recording that disagreed with the box and no command that
+  // would make them agree.
+  //
+  // So the command is resumable: if the edge is already served by a colour,
+  // there is nothing to do; if a colour is running but the edge is not on it,
+  // the adoption is INCOMPLETE and this command finishes it.
+  if (mode === "bluegreen" && upstream.startsWith("app-")) {
+    // The edge is ALREADY served by a colour. The only thing that can still be
+    // unfinished is the retirement: an adoption that stopped before step 5
+    // leaves the plain `app` container running, and a running second copy of
+    // production that nothing is using is a thing to turn off, not a thing to
+    // leave.
+    const colour = upstream.split(":")[0].replace(/^app-/, "");
+    const plain = containerId("app");
+    if (!plain) {
+      console.log(`\n  already adopted — the edge is served by ${upstream}.`);
+      console.log("    nothing to do.");
+      return;
+    }
+    console.log(`\n  the edge is served by ${upstream}; retiring the plain \`app\` container.`);
+    // The image is resolved BEFORE the stop, and passed explicitly: compose
+    // parses the whole merged file set to run any command, and the colour
+    // slots declare `image: ${IMAGE:?…}` with no default, so a stop without an
+    // image fails to parse and the container is never stopped.
+    const image = colourImage(colour) || readState().image;
+    compose(["stop", "app"], { allowFail: true, env: image ? { IMAGE: image } : {} });
+    writeState({
+      ...readState(),
+      active: colour,
+      previous: null,
+      image: image ?? readState().image,
+      upstream: upstreamFor(colour),
+      adopted: true,
+    });
+    console.log(`  ✓ adopted. Production is served by app-${colour}.`);
+    console.log(
+      "    the plain `app` container is stopped, not removed: `docker compose start app` brings it back.",
+    );
     return;
+  }
+  if (mode === "bluegreen") {
+    console.log(`\n  an adoption was interrupted: ${upstream || "no upstream"} is serving,`);
+    console.log("  and a colour slot is running. Finishing the adoption.");
   }
   if (mode === "unknown") {
     console.error(
@@ -569,9 +831,16 @@ async function adopt() {
   }
 
   const plainId = containerId("app");
-  const imageRef = spawnSync("docker", ["inspect", "--format", "{{.Config.Image}}", plainId], {
-    encoding: "utf8",
-  }).stdout?.trim();
+  const plainImage = plainId
+    ? spawnSync("docker", ["inspect", "--format", "{{.Config.Image}}", plainId], {
+        encoding: "utf8",
+      }).stdout?.trim()
+    : "";
+  // The image the colour must serve: the PLAIN container's image when it is
+  // still running, and otherwise the colour's own image. An adoption must not
+  // change what customers see, so it inherits the build that is already
+  // serving rather than naming one of its own.
+  const imageRef = plainImage || colourImage("blue");
   if (!imageRef) {
     console.error(
       "\n  could not read the running image of the plain `app` container — refusing to adopt.",
@@ -600,8 +869,15 @@ async function adopt() {
 
   // 3. Move the pointer. `flipTraffic` writes the state file BEFORE recreating
   // caddy — see the ordering note there.
+  //
+  // The image is recorded FIRST, so the flip can name it and so a later command
+  // can resolve it without an environment. `deploy.yml` exports IMAGE, so the
+  // automatic path never needed this; `adopt` runs by hand, on a box where
+  // nothing exports it, and the merged compose files refuse to parse without
+  // one. That is how the first adoption failed on the production box.
+  writeState({ ...readState(), image: imageRef });
   console.log("\n  pointing caddy at app-blue");
-  flipTraffic("blue", upstreamList("blue", null, 0));
+  await flipTraffic("blue", upstreamList("blue", null, 0));
 
   // 4. Verify through the proxy.
   const viaProxy = spawnSync(
@@ -661,7 +937,7 @@ function revertToPlain() {
   compose(["up", "-d", "--no-deps", "caddy"], { allowFail: true });
 }
 
-function rollback() {
+async function rollback() {
   const state = readState();
   if (!state.previous) {
     console.error("\n  no previous colour recorded — nothing to roll back to.");
@@ -677,7 +953,7 @@ function rollback() {
   console.log(`\n  rolling back: app-${state.active} → app-${state.previous}`);
   // Flip first, THEN stop. Stopping before the flip is an outage, not a rollback.
   compose(["up", "-d", "--no-deps", `app-${state.previous}`], { capture: true });
-  flipTraffic(state.previous);
+  await flipTraffic(state.previous);
   writeState({ ...state, active: state.previous, previous: state.active });
   console.log(`  ✓ live on ${state.previous}. The failed colour was left running for inspection.`);
 }
@@ -700,7 +976,7 @@ function rollback() {
  * DIFFERENT from the active one". When they are the same there is nothing to
  * retire, and the command says so instead of stopping the live container.
  */
-function promote() {
+async function promote() {
   const state = readState();
   if (!state.active || !state.previous) {
     console.error("\n  nothing to promote — no previous colour recorded.");
@@ -790,7 +1066,7 @@ async function stage(image) {
  * `--to <colour>` targets an explicit colour; omitted, the standby colour is the
  * one that is not currently serving.
  */
-function canary({ to, percent }) {
+async function canary({ to, percent }) {
   const state = readState();
   if (!state.active) {
     console.error("\n  no active colour recorded — run `deploy` first.");
@@ -814,13 +1090,13 @@ function canary({ to, percent }) {
   // out that twenty identical entries are really one upstream.
   if (pct === 100) {
     console.log(`\n  canary 100% → app-${target} (full switch)`);
-    flipTraffic(target, upstreamFor(target));
+    await flipTraffic(target, upstreamFor(target));
     console.log(`  ✓ all traffic on app-${target}`);
     return;
   }
   if (pct === 0) {
     console.log(`\n  canary 0% → reverting all traffic to app-${state.active}`);
-    flipTraffic(state.active, upstreamFor(state.active));
+    await flipTraffic(state.active, upstreamFor(state.active));
     console.log(`  ✓ all traffic on app-${state.active}`);
     return;
   }
@@ -840,7 +1116,7 @@ function canary({ to, percent }) {
   console.log(
     `  upstreams: ${split.split(" ").length} entries (repetition + lb_policy round_robin)`,
   );
-  flipTraffic(target, split);
+  await flipTraffic(target, split);
   // `active` stays the colour taking the majority: `rollback` and `promote`
   // reason about which colour is the safe one, and at <50% the canary is not.
   writeState({
@@ -1068,11 +1344,11 @@ async function auto(image, opts) {
       // the previous colour is still running, so the rollback is a flip, not a
       // rebuild. The failed colour is left RUNNING — stopping it is the
       // postmortem's decision, not the abort's urgency.
-      rollback();
+      await rollback();
     } else if (state.canary) {
       // Split-stage failure: `active` is the majority colour the canary state
       // never displaced; canary(0) reverts all traffic to it.
-      canary({ percent: 0, to: state.canary.colour });
+      await canary({ percent: 0, to: state.canary.colour });
     }
     process.exit(1);
   };
@@ -1122,9 +1398,9 @@ async function auto(image, opts) {
     .then(() => canary({ percent: startPct }));
   const canaryColour = () => readState().canary?.colour ?? opposite(readState().active);
   await soak("canary", canaryColour(), soakSeconds);
-  canary({ percent: midPct });
+  await canary({ percent: midPct });
   await soak("mid", canaryColour(), soakSeconds);
-  canary({ percent: 100 });
+  await canary({ percent: 100 });
 
   // The full switch IS the acceptance. Verify the edge once more, then retire
   // the old colour — but only if it is genuinely not the active one (promote's
@@ -1148,7 +1424,7 @@ async function auto(image, opts) {
   if (edge.status !== 0 || code !== "200") {
     await abort("post-switch verification", `edge answered "${code ?? "nothing"}"`);
   }
-  promote();
+  await promote();
   writeState({ ...readState(), canary: undefined });
   console.log(`\n  ✓ auto release complete: app-${readState().active} is serving ${releaseImage}`);
 }
@@ -1167,15 +1443,15 @@ switch (cmd) {
     break;
   }
   case "rollback":
-    rollback();
+    await rollback();
     break;
   case "promote":
-    promote();
+    await promote();
     break;
   case "canary": {
     const p = rest.indexOf("--percent");
     const t = rest.indexOf("--to");
-    canary({
+    await canary({
       percent: p >= 0 ? Number(rest[p + 1]) : undefined,
       to: t >= 0 ? rest[t + 1] : undefined,
     });

@@ -149,6 +149,21 @@ describe("the automatic canary", () => {
     expect(canary).toContain("if: failure()");
     expect(canary).toContain("deploy.mjs rollback");
   });
+
+  test("shares the deploy's concurrency group, and never cancels", () => {
+    // A deploy that starts while a canary is mid-flight stages a release into
+    // the colour the canary is already widening. Measured 2026-10-21, on the
+    // first release-path deploy: the release deploy and a canary interleaved,
+    // and the result was right by luck.
+    //
+    // And cancelling is worse than racing: a cancelled canary does NOT run its
+    // rollback step, so the traffic stays at the interrupted split, and the
+    // next canary refuses to run while an unfinished canary is recorded.
+    const groupOf = (yaml: string) => /concurrency:\s*\n\s*group:\s*(\S+)/.exec(yaml)?.[1];
+    expect(groupOf(canary)).toBe(groupOf(deploy));
+    expect(groupOf(canary)).toBeTruthy();
+    expect(canary).toMatch(/cancel-in-progress:\s*false/);
+  });
 });
 
 describe("the automatic deploy", () => {

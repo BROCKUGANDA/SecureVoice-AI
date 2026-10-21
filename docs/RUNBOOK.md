@@ -401,3 +401,114 @@ The dangerous failure mode in a fraud platform is not an error — it is silence
 If the worker fleet stops claiming jobs, or no webhook arrives, or the
 evidence bundle goes stale, that is a page. A green dashboard with a dead
 queue is not a healthy system.
+
+---
+
+## 9. The deploy window, and the two probes that see it differently
+
+**Read this before you trust a monitor.** A release on a host that has NOT
+adopted the blue/green slots is an in-place roll of the only application
+container, and for about twenty seconds the edge has no origin to serve.
+
+### 9.1 What it looks like from outside
+
+Measured on the production box, from the deploy that shipped `v0.2.48`:
+
+```
+21:43:29.712  Container securevoice-ai-app-1  Recreated   ← the old container is gone
+21:43:43.320  Container securevoice-ai-app-1  Started     ← the new one is up
+21:43:49.217  health attempt 1: 200                       ← the origin finally answers
+```
+
+Two phases, and they fail differently:
+
+| Phase                           | Duration | What the edge does                                             |
+| ------------------------------- | -------- | -------------------------------------------------------------- |
+| No container at all             | ~13.6 s  | Connection refused → Caddy answers **502**                     |
+| Container up, app still booting | ~5.9 s   | The request is forwarded to an origin that will not answer yet |
+
+The first phase answers. The second one **hangs**, and a monitor reports a hang
+as _timeout: no headers received_ — the connection was made and no response
+headers came back before the deadline. That is the message that should send
+you to the deploy, not to the database.
+
+The deploy's own health check does not see any of this: it starts AFTER the
+roll, so by the time it probes, the origin is up and it passes on attempt 1.
+**A green Deploy run does not mean the edge never went dark.**
+
+### 9.2 The three paths, and which one to alert on
+
+| Path          | Answered by | Touches the origin? | Use it for                        |
+| ------------- | ----------- | ------------------- | --------------------------------- |
+| `/healthz`    | Caddy       | **No**              | Edge liveness. Never false-alarms |
+| `/api/readyz` | The app     | Yes                 | "Can the platform serve?"         |
+| `/api/health` | The app     | Yes                 | "Is the process alive?"           |
+
+`/healthz` is answered by the edge itself. It proves DNS, TLS and Caddy, and
+it **cannot** report a deploy-time blip, because it never asks the app. That
+is what makes it the right probe for a monitor that must not cry wolf.
+
+`/api/readyz` is a machine surface and is deliberately excluded from the
+maintenance page, so it reports the app's real state rather than the edge's
+story about it. It is the same probe Caddy's own active health check uses, and
+it is the one that will report a real outage.
+
+The **root page** is a page surface: during a roll the edge answers it with
+the maintenance page (503, `Retry-After: 20`). That is a designed degradation,
+not a down site, and a monitor pointed at it cannot tell the difference.
+
+**The monitoring shape is two probes, not one:**
+
+- `securevoiceai.me — edge` → `https://securevoiceai.me/healthz`
+- `securevoiceai.me — app (readyz)` → `https://securevoiceai.me/api/readyz`
+
+### 9.3 The fix, and how to check it
+
+Adopting the blue/green slots removes the window entirely: the release is
+staged into the IDLE colour, the old colour keeps serving throughout, and the
+traffic flip is a one-line `APP_UPSTREAM` change plus a Caddy recreate.
+
+```bash
+cd ~/securevoice-ai
+bun scripts/deploy.mjs mode     # plain | bluegreen | unknown
+bun scripts/deploy.mjs status   # stack, active colour, canary split, edge
+bun scripts/deploy.mjs adopt    # the one-time migration, by hand
+```
+
+`mode` answers "what is running"; `status` answers "what is serving". After
+the adoption they agree, and the deploy window is gone.
+
+### 9.4 A half-finished adoption
+
+The adoption can be interrupted — the traffic flip failed once on the
+production box, and it left the box in a state whose record did not match
+reality:
+
+- a colour slot was running and healthy,
+- `.deploy/active.env` named the new colour,
+- **Caddy was still proxying to the old one**, because the Caddy recreate is
+  what failed and Caddy was never restarted.
+
+Production was never affected — the running container was never touched — but
+the recording lied, and the next `adopt` would have refused to finish it.
+
+**How to recognise it.** Compare the two:
+
+```bash
+bun scripts/deploy.mjs mode                                   # says "bluegreen"?
+docker inspect securevoice-ai-caddy-1 --format '{{range .Config.Env}}{{println .}}{{end}}' \
+  | grep APP_UPSTREAM                                          # says "app:3000"?
+```
+
+A colour running with no `APP_UPSTREAM` in the Caddy environment is an
+**interrupted adoption**, not an adopted host. The `adopt` command is
+resumable: it reads the upstream from the running Caddy container, finishes
+the flip, verifies through the proxy, and only then retires the plain
+container.
+
+**Recovery, if the edge is wrong and you cannot wait for the script:**
+
+```bash
+# the plain container is stopped, never removed — a `start` away
+docker compose start app
+```

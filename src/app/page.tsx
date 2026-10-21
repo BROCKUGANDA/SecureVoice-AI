@@ -9,6 +9,7 @@ import { useViewerSeat } from "@/lib/auth/use-viewer-seat";
 import { isShellPath, pathForView, viewForPath } from "@/lib/console-routes";
 import { cn } from "@/lib/utils";
 import { Navbar } from "@/components/shell/Navbar";
+import { ViewLoading } from "@/components/ui/ViewLoading";
 import { Footer } from "@/components/shell/Footer";
 import { Home } from "@/views/Home";
 import { IdleTimeoutHandler } from "@/components/shell/IdleTimeoutHandler";
@@ -37,11 +38,18 @@ import { TwoFactorPrompt } from "@/components/security/TwoFactorPrompt";
  * prize here — they are behind a sign-in that most visitors never reach, and
  * they are the heaviest of the set.
  *
- * `loading` keeps the frame occupied while a chunk lands. There is no spinner
- * because the swap already runs inside an `AnimatePresence` transition; an
- * empty frame would read as a blank page rather than a load.
+ * `loading` keeps the frame occupied while a chunk lands, and now shows the
+ * skeleton of the view that is coming rather than an empty box. Reserving the
+ * height stayed (no layout shift on swap); the blank inside it went, because a
+ * reserved empty frame on a slow connection is indistinguishable from a broken
+ * page. `ssr: false` means this is also what a first paint shows while the view
+ * hydrates, so it earns its keep twice.
  */
-const viewChunk = (name: string, loader: () => Promise<unknown>) =>
+const viewChunk = (
+  name: string,
+  loader: () => Promise<unknown>,
+  variant: "page" | "table" | "panel" | "chat" = "page",
+) =>
   dynamic(
     async () => {
       // `next/dynamic` normalises the module as `{ default: mod?.default || mod }`
@@ -69,26 +77,26 @@ const viewChunk = (name: string, loader: () => Promise<unknown>) =>
     },
     {
       ssr: false,
-      loading: () => <div className="min-h-[60vh]" aria-hidden />,
+      loading: () => <ViewLoading variant={variant} />,
     },
   );
 
-const Demo = viewChunk("Demo", () => import("@/views/Demo"));
-const Dashboard = viewChunk("Dashboard", () => import("@/views/Dashboard"));
+const Demo = viewChunk("Demo", () => import("@/views/Demo"), "chat");
+const Dashboard = viewChunk("Dashboard", () => import("@/views/Dashboard"), "table");
 const Product = viewChunk("Product", () => import("@/views/Product"));
 const UseCases = viewChunk("UseCases", () => import("@/views/UseCases"));
 const Docs = viewChunk("Docs", () => import("@/views/Docs"));
 const Security = viewChunk("Security", () => import("@/views/Security"));
-const Pricing = viewChunk("Pricing", () => import("@/views/Pricing"));
+const Pricing = viewChunk("Pricing", () => import("@/views/Pricing"), "panel");
 const Privacy = viewChunk("Privacy", () => import("@/views/Legal"));
 const Terms = viewChunk("Terms", () => import("@/views/Legal"));
 const Refund = viewChunk("Refund", () => import("@/views/Legal"));
 const Deck = viewChunk("Deck", () => import("@/views/Deck"));
-const Auth = viewChunk("Auth", () => import("@/views/Auth"));
-const Console = viewChunk("Console", () => import("@/views/Console"));
-const Settings = viewChunk("Settings", () => import("@/views/Settings"));
-const AuditExplorer = viewChunk("AuditExplorer", () => import("@/views/AuditExplorer"));
-const SetupWizard = viewChunk("SetupWizard", () => import("@/views/SetupWizard"));
+const Auth = viewChunk("Auth", () => import("@/views/Auth"), "panel");
+const Console = viewChunk("Console", () => import("@/views/Console"), "table");
+const Settings = viewChunk("Settings", () => import("@/views/Settings"), "panel");
+const AuditExplorer = viewChunk("AuditExplorer", () => import("@/views/AuditExplorer"), "table");
+const SetupWizard = viewChunk("SetupWizard", () => import("@/views/SetupWizard"), "panel");
 
 const VIEWS: Record<View, React.ComponentType> = {
   home: Home,

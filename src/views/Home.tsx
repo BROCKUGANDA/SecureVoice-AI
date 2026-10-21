@@ -247,35 +247,15 @@ export function Home() {
           {/* Left column */}
           <div>
             <Reveal>
-              {/*
-                The pill used to read "v1.0", and a version number sitting next
-                to a pulsing live dot reads as a STATUS — "v1.0 is live". It is
-                also the least newsworthy thing on the page: the footer already
-                carries "v1.0" twice, and a version number does not move a bank.
-
-                What is news is the pilot programme, so the strip now says what
-                the strip is FOR — we are taking the first cohort.
-
-                "Enrolling", and not "live". The pilot has not started with a
-                bank: the MSA, the DPA and the LOI are unsigned, the named
-                pilot owner is not named, and support hours and the escalation
-                path are still TO AGREE (`docs/PILOT-READINESS.md` §2, §3). A
-                strip that said "PILOT · LIVE WITH UAE BANKS" would claim a
-                deployment that does not exist, on the one surface nobody
-                fact-checks. "Now enrolling" is the strongest claim that is
-                true, and it matches the Pilot plan the pricing page sells —
-                a ninety-day engagement, which is what the old line spent its
-                space describing instead.
-              */}
               <div className="inline-flex items-center gap-2.5 rounded-full border border-line bg-white py-1.5 pl-2 pr-3.5 shadow-sm">
                 <span className="flex h-5 items-center rounded-full bg-green-tint px-2 text-[10px] font-bold uppercase tracking-wider text-green-deep">
-                  {t("Pilot", "التجربة", lang)}
+                  v1.0
                 </span>
                 <LiveDot />
                 <span className="text-[12px] font-medium text-ink-2">
                   {t(
-                    "Now enrolling UAE banks & insurers · 90-day engagement",
-                    "نستقبل الآن المصارف وشركات التأمين في الإمارات · ٩٠ يوماً",
+                    "Real-time fraud intervention · Built for UAE banks & insurers",
+                    "تدخّل فوري في الاحتيال · مبني للمصارف وشركات التأمين في الإمارات",
                     lang,
                   )}
                 </span>

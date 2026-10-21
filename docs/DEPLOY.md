@@ -289,14 +289,23 @@ healthy in-container, points Caddy at it, proves the edge answers, and only
 then stops the plain `app` container. The plain container is STOPPED, not
 removed, so the rollback is `docker compose start app` away.
 
-**The production VPS has NOT been adopted yet.** It still runs the plain
-single-`app` stack, so every release so far has rolled in place, and the Canary
-workflow correctly does nothing on it — its preflight sees `plain` and exits
-successfully with a notice. That is the designed behaviour, not a silent skip:
-the alternative, a canary that "adopts" the host by itself at 03:00, is a
-release changing which container serves production with no old colour to fall
-back to. Run `adopt` on the box, by hand, when you are ready for that step to
-be a decision rather than an accident.
+**The production VPS HAS been adopted** (2026-10-21). It runs the blue/green
+stack, production is served by `app-blue`, and the Canary workflow now does
+real work on it: its preflight reads `bluegreen` and proceeds to the split
+instead of exiting with a notice.
+
+Every release BEFORE the adoption rolled the plain single-`app` stack in
+place, and an in-place roll of the only upstream leaves the edge with no
+origin for about twenty seconds — measured, and written up in
+`docs/RUNBOOK.md` §9. From the adoption onward the release is staged into the
+IDLE colour, the old colour keeps serving throughout, and the traffic flip is
+a one-line `APP_UPSTREAM` change.
+
+The adoption was interrupted once and resumed once, and both facts are worth
+knowing: the first attempt failed at the traffic flip because compose could
+not parse the merged files without an image to name, and the second because
+the verification probe was asking the wrong origin and racing the Caddy
+recreate. `adopt` is now resumable and the probe waits for the edge.
 
 **What to check afterwards:**
 
@@ -304,6 +313,10 @@ be a decision rather than an accident.
 bun scripts/deploy.mjs status      # stack, active colour, canary split, edge
 bun scripts/deploy.mjs mode        # plain | bluegreen | unknown
 ```
+
+**The plain container is STOPPED, not removed.** It is the rollback:
+`docker compose start app` brings it back, and pointing `.deploy/active.env`
+at `app:3000` and recreating Caddy returns the edge to it.
 
 **The override is a MINIMAL override of the SAME project.**
 `docker-compose.bluegreen.yml` adds the two colour slots and nothing else —

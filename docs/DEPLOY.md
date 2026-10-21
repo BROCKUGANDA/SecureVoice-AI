@@ -301,12 +301,42 @@ window records **zero 5xx** — the twenty seconds of 502 in
 `docs/RUNBOOK.md` §9.1 is the history of the plain path, not of this host. The
 measured sequence and the status histogram are in `docs/RUNBOOK.md` §9.5.
 
-Production is now served by `app-green`. The promotion retired `app-blue`, and
-that is the shape of the thing to know: **after a promotion there is no warm
-colour to roll back to**, because `promote` stops the old colour and clears
-`previous`. The rollback guarantee covers the canary window, while the release
-is still being introduced. After that the fallback is the plain container
-(stopped, never removed) or a re-deploy of the previous SHA image.
+Production is served by whichever colour the last promotion left active —
+`app-green` after the first adopted release, `app-blue` after v0.2.50. The
+promotion retires the other colour, and that is the shape of the thing to
+know: **after a promotion there is no warm colour to roll back to**, because
+`promote` stops the old colour and clears `previous`. The rollback guarantee
+covers the canary window, while the release is still being introduced. After
+that the fallback is the plain container (stopped, never removed) or a
+re-deploy of the previous SHA image.
+
+**And the RELEASE path has now run on production, so the published artifact is
+the one that serves.** On 2026-10-21, v0.2.50 was published to GHCR, the
+release dispatched the deploy with the tag it had just published, the deploy
+PULLED `ghcr.io/brockuganda/securevoice-ai:v0.2.50` instead of building from
+source, and the canary widened and promoted it. The box was serving
+`ghcr.io/brockuganda/securevoice-ai:v0.2.50` afterwards — so the tag, the
+image digest and the running container agree, which is the thing the release
+path exists to make true.
+
+That took two fixes, both on 2026-10-21, and both worth knowing about:
+
+- the release path was **unreachable** (`deploy.yml` chose its path from a
+  field that only exists on a `workflow_run` event, so every manual dispatch
+  took the branch path and the published image could not be rolled by any
+  means). It takes the tag as an input now.
+- the release build could ship an image that **cannot sell**, because
+  `NEXT_PUBLIC_*` is inlined at build time and the repository variables the
+  build reads did not exist. `scripts/check-paddle-price-map.mjs` refuses to
+  publish an image whose price map is empty, unparseable, malformed, or
+  missing an interval for a tier.
+
+And one race, because the release path adds a SECOND deploy to a host that
+already had one: a deploy that starts while a canary is mid-flight stages a
+release into the colour the canary is widening. The canary and the deploy now
+share one concurrency group, and a superseded run WAITS rather than cancels —
+a cancelled canary does not run its rollback step, so cancelling one leaves
+the traffic at the interrupted split.
 
 Every release BEFORE the adoption rolled the plain single-`app` stack in
 place, and an in-place roll of the only upstream leaves the edge with no

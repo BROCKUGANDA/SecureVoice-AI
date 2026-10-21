@@ -78,11 +78,32 @@ on:
 permissions:
   contents: read
 
-# Only the newest run matters: a superseded run proves nothing and costs a runner
-# slot on the box that also serves production.
+# THE SAME GROUP AS THE DEPLOY, AND IT MUST NOT CANCEL.
+#
+# A deploy that starts while a canary is mid-flight stages a release into a
+# colour the canary is already widening, and the two fight over the traffic
+# pointer. Measured 2026-10-21, on the first release-path deploy: the release
+# deploy (dispatched by `release.yml` with the tag it had just published) ran
+# while the branch deploy's canary was soaking, re-staged the colour the
+# canary was canarying, and the two interleaved. The outcome was right — the
+# canary promoted the published image — but it was right BY LUCK: the release
+# deploy happened to stage into the colour the canary had already chosen, and
+# the canary happened to re-read the state. The other order would have
+# promoted a build that was never soaked.
+#
+# `cancel-in-progress: true` was worse than a race. A CANCELLED canary does
+# not run its rollback step, so the traffic is left at whatever split the
+# cancellation interrupted — and the next canary refuses to run while an
+# unfinished canary is recorded in `.deploy/state.json`, which the script
+# calls an operator decision. A cancelled canary is an outage with extra
+# steps.
+#
+# So the group is the deploy's group (`deploy-vps`), and a superseded run
+# WAITS instead of cancelling. The canary is triggered by the deploy's
+# COMPLETION, so it never queues behind the deploy that started it.
 concurrency:
-  group: canary
-  cancel-in-progress: true
+  group: deploy-vps
+  cancel-in-progress: false
 
 env:
   # The public hostname Caddy serves. Replaces the retired

@@ -1,6 +1,6 @@
 /**
- * Seed the Paddle **sandbox** catalog: 3 products, 3 monthly subscription
- * prices.
+ * Seed the Paddle **sandbox** catalog: one product per self-serve plan, with
+ * a monthly AND an annual price.
  *
  * Run:   PADDLE_SANDBOX_API_KEY=pdl_sdbx_... bun scripts/seed-paddle-catalog.ts
  *
@@ -46,6 +46,16 @@ import { PLANS as COMMERCIAL_PLANS } from "../src/lib/commercial";
 
 const ENVIRONMENT = "sandbox" as const;
 
+/**
+ * The API host for that environment.
+ *
+ * `sandbox-api.paddle.com` and `api.paddle.com` are separate catalogs with
+ * separate credentials, and a request that crosses them is a request that
+ * either 404s or, worse, writes to the wrong account.
+ */
+const API_HOST =
+  ENVIRONMENT === "sandbox" ? "https://sandbox-api.paddle.com" : "https://api.paddle.com";
+
 /* ── plans ────────────────────────────────────────────────────────────────── */
 
 /**
@@ -72,6 +82,8 @@ type SeedPlan = {
   description: string;
   /** Whole USD per month, as a MINOR-unit string. 2500.00 -> "250000". */
   monthlyUsd: string;
+  /** Whole USD per YEAR, as a MINOR-unit string, or null when the plan has no annual price. */
+  yearlyUsd: string | null;
 };
 
 const PLANS: SeedPlan[] = COMMERCIAL_PLANS.filter((p) => !p.salesAssisted).map((p) => ({
@@ -79,6 +91,7 @@ const PLANS: SeedPlan[] = COMMERCIAL_PLANS.filter((p) => !p.salesAssisted).map((
   name: p.name,
   description: p.tagline,
   monthlyUsd: String(Math.round((p.monthlyUsd ?? 0) * 100)),
+  yearlyUsd: p.yearlyUsd === null ? null : String(Math.round(p.yearlyUsd * 100)),
 }));
 
 /* ── regional pricing ─────────────────────────────────────────────────────── */
@@ -163,7 +176,9 @@ async function seed() {
     {
       productId: string;
       monthly: string;
+      yearly: string | null;
       monthlyUsd: string;
+      yearlyUsd: string | null;
       regional: Record<string, string>;
     }
   > = {};
@@ -189,15 +204,48 @@ async function seed() {
       unitPriceOverrides: overrides,
     });
 
+    // ── The annual price ────────────────────────────────────────────────────
+    //
+    // The browser price map is only usable when EVERY tier has BOTH intervals:
+    // a half-filled map renders a working monthly Buy and a dead annual one,
+    // and the map's own completeness check rejects the whole map rather than
+    // half of it. A monthly-only seed therefore produces a catalog that cannot
+    // be mapped, and the pricing page renders with checkout unavailable — which
+    // is exactly what the live pricing page did, because the sandbox catalog
+    // was seeded from the OLD rate card and never re-seeded after it changed.
+    let yearly: string | null = null;
+    if (plan.yearlyUsd) {
+      const yearlyRegional = regionalAmounts(plan.yearlyUsd);
+      yearly = (
+        await paddle.prices.create({
+          productId: product.id,
+          description: `${plan.name} annual (USD)`,
+          unitPrice: { amount: plan.yearlyUsd, currencyCode: "USD" },
+          billingCycle: { interval: "year", frequency: 1 },
+          unitPriceOverrides: REGIONALS.map((r) => ({
+            countryCodes: r.countryCodes,
+            unitPrice: {
+              amount: yearlyRegional[r.label]!,
+              currencyCode: r.currencyCode,
+            },
+          })),
+        })
+      ).id;
+    }
+
     created[plan.id] = {
       productId: product.id,
       monthly: monthly.id,
+      yearly,
       monthlyUsd: plan.monthlyUsd,
+      yearlyUsd: plan.yearlyUsd,
       regional,
     };
 
     console.log(
-      `created ${plan.name}: ${product.id}  monthly=${monthly.id}  $${(Number(plan.monthlyUsd) / 100).toFixed(2)}`,
+      `created ${plan.name}: ${product.id}  monthly=${monthly.id}  yearly=${yearly ?? "—"}  ` +
+        `$${(Number(plan.monthlyUsd) / 100).toFixed(2)}/mo` +
+        (plan.yearlyUsd ? `  $${(Number(plan.yearlyUsd) / 100).toFixed(2)}/yr` : ""),
     );
   }
 
@@ -212,8 +260,68 @@ async function seed() {
     }
   }
 
+  // ── Archive the products THIS run superseded ────────────────────────────────
+  //
+  // A rate-card change leaves the previous catalog's products active, with
+  // their old prices still sellable: the sandbox carried Starter at $99 and
+  // Growth at $499 long after the published rate card moved to $2,500 and
+  // $9,000, and nothing in the repository noticed — the price map pointed at
+  // the new cards' keys, those keys mapped to no product, and the pricing page
+  // rendered with checkout unavailable.
+  //
+  // The rule is by NAME, so it is self-maintaining: any other ACTIVE product
+  // carrying a current plan's name is an older generation of that plan and is
+  // archived. A product with a name that is not a plan's — "Negotiated Terms",
+  // which the invoiced Enterprise path uses — is untouched.
+  const fresh = new Set(Object.values(created).map((c) => c.productId));
+  const planNames = new Set(PLANS.map((p) => p.name));
+  try {
+    // The REST API, not the SDK's `products.list`.
+    //
+    // The SDK's list returns an EMPTY list for this endpoint on this account —
+    // every argument shape, `perPage` included, returns zero items — while
+    // `GET /products?per_page=50` over plain HTTP returns the catalog. A
+    // seeder that archives "every product with a plan's name" and silently
+    // archives NOTHING is worse than one that does not try, because the log
+    // says the job was done.
+    const r = await fetch(`${API_HOST}/products?per_page=50`, {
+      headers: { Authorization: `Bearer ${requireKey()}` },
+    });
+    if (!r.ok) throw new Error(`GET /products -> ${r.status}`);
+    const body = (await r.json()) as { data?: Array<{ id: string; name: string; status: string }> };
+    for (const p of body.data ?? []) {
+      if (p.status !== "active") continue;
+      if (fresh.has(p.id)) continue;
+      if (!planNames.has(p.name)) continue;
+      await paddle.products.update(p.id, { status: "archived" });
+      console.log(`archived superseded product ${p.id} (${p.name})`);
+    }
+  } catch (e) {
+    console.warn(
+      `could not archive superseded products: ${e instanceof Error ? e.message : "unknown"}`,
+    );
+  }
+
+  // ── The price map, in the EXACT shape the environment wants ─────────────────
+  //
+  // `NEXT_PUBLIC_PADDLE_PRICES` and `PADDLE_PRICES` are both
+  // `usd_<minor units>_<month|year>` -> price id, and the interval is part of
+  // the key because the rate card contains one amount two prices share
+  // (Starter's annual $25,000 and Enterprise's monthly $25,000). Printing the
+  // map here means the operator pastes one line rather than assembling it from
+  // ids by hand, which is how a key ends up with a mismatched interval.
+  const priceMap: Record<string, string> = {};
+  for (const plan of PLANS) {
+    const c = created[plan.id]!;
+    priceMap[`usd_${c.monthlyUsd}_month`] = c.monthly;
+    if (c.yearly && c.yearlyUsd) priceMap[`usd_${c.yearlyUsd}_year`] = c.yearly;
+  }
+
   console.log("\n=== PADDLE SANDBOX CATALOG — id mapping ===\n");
   console.log(JSON.stringify(created, null, 2));
+
+  console.log("\n=== THE PRICE MAP — paste into NEXT_PUBLIC_PADDLE_PRICES and PADDLE_PRICES ===\n");
+  console.log(JSON.stringify(priceMap));
 
   console.log("\n=== PRICES (minor units) ===\n");
   console.table(
@@ -222,7 +330,8 @@ async function seed() {
       return [
         {
           plan: p.name,
-          USD: p.monthlyUsd,
+          "USD / mo": p.monthlyUsd,
+          "USD / yr": p.yearlyUsd ?? "—",
           GBP: r["UK"]!,
           EUR: r["Ireland"]!,
           AUD: r["Australia"]!,
@@ -230,7 +339,7 @@ async function seed() {
       ];
     }),
   );
-  console.log("\nNo annual price and no trial: the page publishes neither.");
+  console.log("\nNo trial: the page publishes none.");
   console.log("No overage price: overage is a global rate invoiced in code, not a Paddle charge.");
 }
 

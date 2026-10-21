@@ -48,6 +48,7 @@ const bluegreen = YAML.parse(read("docker-compose.bluegreen.yml"), { merge: true
 const base = YAML.parse(read("docker-compose.yml"), { merge: true });
 const canary = read(".github/workflows/canary.yml");
 const deploy = read(".github/workflows/deploy.yml");
+const release = read(".github/workflows/release.yml");
 const deployScript = read("scripts/deploy.mjs");
 
 describe("the blue/green override", () => {
@@ -167,6 +168,64 @@ describe("the automatic deploy", () => {
     // roll back from inside itself.
     expect(deploy).toContain("deploy.mjs stage --image");
     expect(deploy).not.toContain("deploy.mjs deploy --image");
+  });
+});
+
+describe("the release path", () => {
+  test("a manual deploy can NAME the release it is rolling", () => {
+    // The resolve step used to read `github.event.workflow_run.name`, which
+    // exists only on a workflow_run event. On a manual dispatch it is empty,
+    // so EVERY dispatch took the branch path and the release path could not be
+    // reached at all: the published image could be built, stamped and
+    // released, and nothing could roll it. The tag is the input that says
+    // "roll that image".
+    expect(deploy).toContain("workflow_dispatch:");
+    expect(deploy).toContain("tag:");
+    expect(deploy).toContain("inputs.tag");
+    expect(deploy).toContain("DEPLOY_SOURCE=release");
+  });
+
+  test("the release path can PULL from GHCR", () => {
+    // `docker login` with a token that cannot read packages fails at the pull,
+    // and the pull is the release path's first action. `contents: read` alone
+    // is not enough.
+    expect(deploy).toMatch(/packages:\s*read/);
+  });
+
+  test("the release refuses to publish an image that cannot sell", () => {
+    // `NEXT_PUBLIC_*` is inlined at BUILD time, so an image built without the
+    // price map has a pricing page that renders the rate card and offers no
+    // checkout. Measured on v0.2.49: all three Paddle build args were empty,
+    // so the published image could not take money while the branch build of
+    // the same commit could.
+    expect(release).toContain("vars.NEXT_PUBLIC_PADDLE_PRICES");
+    expect(release).toContain("vars.NEXT_PUBLIC_PADDLE_ENVIRONMENT");
+    expect(release).toContain("vars.NEXT_PUBLIC_PADDLE_CLIENT_TOKEN");
+    expect(release).toContain("Refuse to publish an image that cannot sell");
+  });
+
+  test("the release refuses a price map that is present but unusable", () => {
+    // "Not empty" is not "usable": a map that does not parse, or that is
+    // missing one interval for a tier, renders a dead Buy button. The map that
+    // was set by mistake, with its quotes stripped by a shell, is exactly that
+    // case — and it was stored in the repository variables for a whole release
+    // cycle before anything looked at it.
+    //
+    // The rule lives in a script, because it is the same rule
+    // `paddlePriceIds()` applies and it has a shape shell only approximates.
+    // Its own tests are in tests/unit/paddle-price-map-gate.test.ts.
+    const gate = read("scripts/check-paddle-price-map.mjs");
+    expect(release).toContain("check-paddle-price-map.mjs");
+    expect(gate).toContain("JSON.parse(PRICES)");
+    expect(gate).toContain("a tier needs both intervals");
+  });
+
+  test("the release asks the deploy to roll the image it published", () => {
+    // Otherwise the published artifact and the serving artifact are two
+    // different images of the same commit, and the tag says nothing about
+    // what is serving traffic — the failure the release path exists to close.
+    expect(release).toContain("gh workflow run deploy.yml");
+    expect(release).toContain("tag=${GITHUB_REF_NAME}");
   });
 });
 

@@ -73,10 +73,31 @@ on:
   # for releasing a tagged, provenance-stamped image explicitly. `workflow_run`
   # can only reference ONE upstream workflow, so the Release path comes in here
   # and the job resolves what it is deploying from the SHA or tag.
+  #
+  # THE `tag` INPUT IS WHAT MAKES THAT TRUE. The resolve step below used to read
+  # `github.event.workflow_run.name`, which exists ONLY on a workflow_run event:
+  # on a manual dispatch it is empty, so EVERY dispatch took the branch path and
+  # the release path was unreachable. The published image could be built,
+  # stamped, smoke-tested and released, and nothing could roll it - which is the
+  # same "the tag says nothing about what is serving traffic" failure this file
+  # was written to close, wearing a different hat.
+  #
+  # `release.yml` dispatches this workflow with the tag it just published, so
+  # the released artifact is the one that goes to production, and a human can
+  # re-roll a tag by hand with the same command.
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Roll a published release image (v0.2.49). Empty = roll what CI proved on main."
+        required: false
+        type: string
 
 permissions:
   contents: read
+  # The release path PULLS the published image from GHCR, and a `docker login`
+  # with a token that cannot read packages fails at the pull rather than at the
+  # roll. Without this the release path fails on the way in, every time.
+  packages: read
 
 # Two deploys must never interleave: a half-applied migration followed by a
 # second `git pull` is how a schema ends up ahead of the code that reads it.
@@ -141,19 +162,35 @@ jobs:
       # `github.ref`: on a workflow_run trigger, `github.ref` is the DEFAULT
       # branch, not the tag that was pushed. Reading the tag from the wrong field
       # is the classic way a "wired up" release deploy ends up deploying `:main`.
+      #
+      # AND THE REQUESTED TAG WINS OVER BOTH, because on a manual dispatch
+      # `github.event.workflow_run` does not exist at all. Without this branch
+      # the release path was unreachable by hand and the only thing that could
+      # start it was an event that never fires.
       - name: Resolve what is being deployed
         run: |
           set -euo pipefail
           UPSTREAM="${{ github.event.workflow_run.name }}"
-          if [ "$UPSTREAM" = "Release" ]; then
+          REQUESTED="${{ inputs.tag }}"
+          if [ -n "$REQUESTED" ]; then
+            case "$REQUESTED" in
+              v*) ;;
+              *) echo "::error::the requested tag must be a v* tag (got '${REQUESTED}') — refusing to deploy."; exit 1 ;;
+            esac
+            # One redirect block, not three separate `echo >>` lines: shellcheck
+            # SC2129 flags those, the CI actionlint job treats it as a failure,
+            # and a red actionlint job stalls the promotion ladder.
+            {
+              echo "DEPLOY_SOURCE=release"
+              echo "RELEASE_TAG=${REQUESTED}"
+              echo "IMAGE=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]'):${REQUESTED}"
+            } >> "$GITHUB_ENV"
+          elif [ "$UPSTREAM" = "Release" ]; then
             TAG="${{ github.event.workflow_run.head_branch }}"
             case "$TAG" in
               v*) ;;
               *) echo "::error::release run has no v* tag (head_branch='${TAG}') — refusing to deploy."; exit 1 ;;
             esac
-            # One redirect block, not three separate `echo >>` lines: shellcheck
-            # SC2129 flags those, the CI actionlint job treats it as a failure,
-            # and a red actionlint job stalls the promotion ladder.
             {
               echo "DEPLOY_SOURCE=release"
               echo "RELEASE_TAG=${TAG}"

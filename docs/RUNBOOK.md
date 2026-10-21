@@ -512,3 +512,74 @@ container.
 # the plain container is stopped, never removed — a `start` away
 docker compose start app
 ```
+
+### 9.5 What the adopted host actually did — the first blue/green release
+
+§9.1 describes the deploy window of a host that has NOT adopted the slots, and
+that is still the right description of the plain path. It is no longer a
+description of production. This is the measured first release through the
+adopted path on the production box (deploy run `39537833586`, canary run
+`39538178175`, 2026-10-21):
+
+```
+03:18:41  deployed commit: 221f9dfcc141        ← the commit CI proved
+03:18:41  rolling immutable tag securevoice-ai-app:221f9dfcc141
+03:18:41  stack mode: bluegreen                ← the box is adopted
+03:22:17  ✓ app-green is staged and verified. Traffic has NOT moved.
+03:22:17  canary 1/20 slots → 5% app-green, 95% app-blue
+03:22:30  ✓ split live
+03:27:32  canary 10/20 slots → 50% app-green, 50% app-blue
+03:27:45  ✓ split live
+03:32:48  canary 100% → app-green (full switch)
+03:32:54  ✓ all traffic on app-green
+03:32:54  promoting: stopping app-blue
+03:32:54  ✓ auto release complete: app-green is serving securevoice-ai-app:221f9dfcc141
+```
+
+**The edge never went dark.** Caddy's own access log for `securevoiceai.me`
+over 03:10–03:40Z — the window that contains the whole deploy, both 300-second
+soaks and the flip:
+
+| Status  | Count |
+| ------- | ----- |
+| 200     | 30    |
+| 308     | 6     |
+| 404     | 31    |
+| **5xx** | **0** |
+
+The 404s are `/remote/logincheck`, `/global-protect/login.esp`,
+`/sslvpn/Login/Login` and the rest of the internet's VPN-scanner vocabulary —
+none of them our routes. The 308s are Caddy's own HTTP→HTTPS redirect. There
+is no 502 in the window, and no hang either: the app was up and answering for
+the whole release because the OLD colour was serving until the flip.
+
+Two soaks of 300 seconds each, five minutes apart, with the edge AND the new
+colour probed every 30 seconds. The release took about twelve and a half
+minutes from staging to promotion, and it took that long because the soak is
+the point — not because anything was slow.
+
+**What the rollback is, once a release has been promoted.** `promote` retires
+the old colour and clears `previous`, so after a successful promotion there is
+deliberately no warm colour left to flip back to:
+
+```bash
+bun scripts/deploy.mjs rollback
+#   no previous colour recorded — nothing to roll back to.
+```
+
+The rollback guarantee covers the window that matters — the canary, while the
+release is still being introduced. Inside that window the old colour is still
+running, and the rollback is a flip rather than a rebuild, which is why the
+rollback lives inside `deploy.mjs auto` and not in a workflow step.
+
+After the promotion the fallback is the plain container, which the adoption
+deliberately left stopped rather than removed:
+
+```bash
+docker compose start app    # the pre-adoption build, stopped, never removed
+```
+
+and the box keeps every SHA-tagged image it has built, so a rollback to a
+previous release is `bun scripts/deploy.mjs deploy --image
+securevoice-ai-app:<sha>` away. Neither is automatic. Know which one you have
+before the next release, not after it.

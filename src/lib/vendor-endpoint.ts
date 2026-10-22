@@ -152,9 +152,12 @@ export async function assertVendorUrlSaveable(
  */
 export async function assertVendorUrlDeliverable(
   url: string,
-): Promise<{ ok: true } | { ok: false; reason: string }> {
+): Promise<
+  | { ok: true; addresses: readonly string[] }
+  | { ok: false; reason: string }
+> {
   const verdict = await validateOutboundUrl(url);
   return verdict.ok
-    ? { ok: true }
+    ? { ok: true, addresses: verdict.addresses }
     : { ok: false, reason: `address no longer permitted (${verdict.code})` };
 }

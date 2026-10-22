@@ -24,6 +24,9 @@ import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto
 import type { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 import { env, replayWindowSec } from "@/lib/config";
+import http from "node:http";
+import https from "node:https";
+import type { LookupFunction } from "node:net";
 import { assertVendorUrlDeliverable, resolveVendorEndpoint } from "@/lib/vendor-endpoint";
 import { recordWebhookDeliverySpan } from "@/lib/telemetry/confirmation";
 
@@ -272,6 +275,66 @@ export type DeliveryResult =
   | { id: string; status: "RETRY"; attempts: number; nextAttemptAt: Date }
   | { id: string; status: "DEAD"; attempts: number };
 
+/** The subset of `fetch` the delivery path needs; tests inject their own. */
+type DeliveryFetch = (url: string, init: RequestInit) => Promise<{ status: number }>;
+
+/**
+ * POST to the validated address, not to a fresh DNS answer.
+ *
+ * `assertVendorUrlDeliverable` resolved the hostname and approved one or more
+ * addresses. Passing the URL to `fetch` lets the client resolve it again, which
+ * is the DNS-rebinding window: a hostname can answer public during the check
+ * and private when the connection is made. Node's `https.request` accepts a
+ * `lookup` function, so this connects to the approved IP while keeping the
+ * hostname for the Host header and TLS SNI. Redirects are not followed by this
+ * API; the existing 3xx check remains in `deliver`.
+ */
+export function postPinned(
+  target: string,
+  addresses: readonly string[],
+  headers: Record<string, string>,
+  body: string,
+  timeoutMs: number,
+): Promise<{ status: number }> {
+  const url = new URL(target);
+  const mod = url.protocol === "https:" ? https : http;
+  const address = addresses[0];
+  const lookup: LookupFunction | undefined = address
+    ? (_hostname, options, callback) => {
+        const family = address.includes(":") ? 6 : 4;
+        // Node requests `all` when it is willing to try every address. Return
+        // the validated one in the shape the caller asked for.
+        if (options.all) callback(null, [{ address, family }]);
+        else callback(null, address, family);
+      }
+    : undefined;
+
+  return new Promise((resolve, reject) => {
+    const req = mod.request(
+      {
+        protocol: url.protocol,
+        hostname: url.hostname,
+        port: url.port || undefined,
+        path: `${url.pathname}${url.search}`,
+        method: "POST",
+        headers,
+        servername: url.hostname,
+        ...(lookup ? { lookup } : {}),
+        timeout: timeoutMs,
+      },
+      (res) => {
+        // Drain the body so the socket can be reused/closed; the delivery
+        // decision depends on the status, not on the bank's response payload.
+        res.resume();
+        resolve({ status: res.statusCode ?? 0 });
+      },
+    );
+    req.on("timeout", () => req.destroy(new Error("outbox delivery timed out")));
+    req.on("error", reject);
+    req.end(body);
+  });
+}
+
 /** Deliver one claimed event. Retryable: network errors, 408, 429, 5xx. */
 export async function deliver(
   event: {
@@ -283,7 +346,7 @@ export async function deliver(
     targetUrl: string;
     attempts: number;
   },
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: DeliveryFetch = fetch,
   now: Date = new Date(),
 ): Promise<DeliveryResult> {
   const attempt = event.attempts + 1;
@@ -302,28 +365,31 @@ export async function deliver(
     if (!resolved.ok) throw new Error(`endpoint unresolvable: ${resolved.reason}`);
     if (!resolved.endpoint.secret) throw new Error("endpoint has no usable signing key");
 
-    const res = await fetchImpl(event.targetUrl, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        [WEBHOOK_SIGNATURE_HEADER]: signPayload(
-          event.payload,
-          Math.floor(now.getTime() / 1000),
-          resolved.endpoint.secret,
-        ),
-      },
-      body: event.payload,
-      // A tenant-controlled endpoint must not be able to redirect a signed
-      // payload somewhere the SSRF check never saw. `assertVendorUrlDeliverable`
-      // validated the stored URL, but `fetch` follows a 3xx by default and the
-      // signature is over the body, not the destination — so a 302 to a
-      // metadata address or another host delivered a validly signed event
-      // there. Redirects are refused as a delivery failure instead.
-      redirect: "manual",
-      // A slow bank server must not hang the worker. 10s is generous for a
-      // webhook delivery; the retry ladder handles transient failures.
-      signal: AbortSignal.timeout(Number(process.env.OUTBOX_DELIVERY_TIMEOUT_MS) || 10_000),
-    });
+    const headers = {
+      "content-type": "application/json",
+      [WEBHOOK_SIGNATURE_HEADER]: signPayload(
+        event.payload,
+        Math.floor(now.getTime() / 1000),
+        resolved.endpoint.secret,
+      ),
+    };
+    const timeoutMs = Number(process.env.OUTBOX_DELIVERY_TIMEOUT_MS) || 10_000;
+    // Production pins the connection to the address the validator approved.
+    // Tests inject a fake fetch to observe the retry ladder; that seam is kept
+    // deliberately, and does not exercise DNS.
+    const res =
+      fetchImpl === (fetch as unknown as DeliveryFetch)
+        ? await postPinned(event.targetUrl, urlOk.addresses, headers, event.payload, timeoutMs)
+        : await fetchImpl(event.targetUrl, {
+            method: "POST",
+            headers,
+            body: event.payload,
+            // A tenant-controlled endpoint must not redirect a signed payload
+            // somewhere the SSRF check never saw. The pinned path above uses
+            // `https.request`, which does not follow redirects at all.
+            redirect: "manual",
+            signal: AbortSignal.timeout(timeoutMs),
+          });
     if (res.status >= 300 && res.status < 400) {
       throw new Error(`redirect refused (HTTP ${res.status})`);
     }

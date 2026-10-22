@@ -10,8 +10,6 @@ import {
   recordScammerHash,
 } from "@/lib/abuse/honeypot-blocklist";
 
-
-
 /**
  * Active defense for the decoy surfaces.
  *
@@ -35,9 +33,7 @@ export async function recordHoneypotHit(ip: string, detail: string): Promise<voi
   // `untrusted` is the proxy's sentinel for a request that did not come through
   // the trusted edge. Blocking that key would block every such caller — a
   // self-inflicted outage from one scanner. The hit is still witnessed.
-  const key = isRealIp(ip)
-    ? await recordHoneypotBlock(ip)
-    : hashIdentifier(`untrusted:${detail}`);
+  const key = isRealIp(ip) ? await recordHoneypotBlock(ip) : hashIdentifier(`untrusted:${detail}`);
   logWarn("[honeypot] decoy endpoint hit", { source: key, detail, blocked: isRealIp(ip) });
   try {
     await auditAppend({

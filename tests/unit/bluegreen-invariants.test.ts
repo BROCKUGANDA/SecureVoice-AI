@@ -109,9 +109,18 @@ describe("the blue/green override", () => {
 
 describe("the automatic canary", () => {
   test("is triggered by a successful deploy, not by a human", () => {
-    expect(canary).toContain("workflow_run");
-    expect(canary).toContain('workflows: ["Deploy"]');
-    expect(canary).toContain("types: [completed]");
+    // The deploy DISPATCHES the canary as its last step, so a successful
+    // deploy always canaries what it staged, and a failed one never does.
+    //
+    // It used to be a `workflow_run` trigger on the Deploy workflow, and that
+    // reached the BRANCH path only: GitHub emits no `workflow_run` event for
+    // a run that was itself started by `workflow_dispatch`, and the release
+    // path reaches the deploy exactly that way. The v0.2.50 and v0.2.51
+    // releases were both published, staged, proven healthy, and serving 0% of
+    // the requests. The measurements are in
+    // tests/unit/release-canary-trigger.test.ts.
+    expect(deploy).toContain("gh workflow run canary.yml");
+    expect(deploy).toContain("actions: write");
   });
 
   test("still allows a manual run", () => {

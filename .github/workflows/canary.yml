@@ -12,6 +12,11 @@
 # succeeds, because a canary that somebody has to remember to run is a canary
 # that does not run during the incident it was meant to protect against.
 #
+# "When a deploy succeeds" means EVERY deploy — a branch deploy and a release
+# deploy alike. The release path used to be excluded from it by an accident of
+# GitHub's event plumbing that nobody had measured: see the note on the
+# trigger below.
+#
 # HOW IT RUNS
 # -----------
 #   stage → 5% → soak (edge + colour) → 50% → soak → 100% → verify → promote
@@ -44,36 +49,67 @@
 name: Canary
 
 on:
-  # THE AUTOMATIC TRIGGER. `workflow_run` fires after the Deploy workflow
-  # FINISHES on main, so the canary runs on a release that has already been
-  # built, migrated and health-checked — and never on a deploy that failed.
-  workflow_run:
-    workflows: ["Deploy"]
-    types: [completed]
-  # Manual re-run, for when the machine was down during an automatic rollout.
+  # THE AUTOMATIC TRIGGER IS A DISPATCH FROM THE DEPLOY, NOT `workflow_run`.
   #
-  # The inputs are the OPERATOR's override; the automatic path below reads the
-  # same three values from the repository variables (`vars.*`), so a deployment
-  # tunes its own canary ladder without editing a workflow file. The defaults
-  # here are the values this repository has been shipping, and they are the
-  # values the `vars.*` fall back to when the variable is not set.
+  # It used to be `workflow_run` on the Deploy workflow, and that reached the
+  # branch path and NOT the release path. Measured, twice, on 2026-10-22:
+  #
+  #   Deploy #39574133567  workflow_run      completed 09:06:45  -> Canary 09:06:49
+  #   Deploy #39575714596  workflow_run      completed 09:19:26  -> Canary 09:19:28
+  #   Deploy #39577117053  workflow_dispatch completed 09:28:42  -> (none)
+  #   Deploy #39582683719  workflow_run      completed 10:12:45  -> Canary 10:12:47
+  #   Deploy #39709642750  workflow_run      completed 02:11:04  -> Canary 02:11:06
+  #   Deploy #39710620859  workflow_dispatch completed 02:30:28  -> (none)
+  #
+  # A canary appears 2-4 seconds after every `workflow_run` deploy and after
+  # NEITHER `workflow_dispatch` deploy. GitHub emits no `workflow_run` event
+  # for a run that was itself started by `workflow_dispatch`, and the release
+  # path reaches the deploy exactly that way: `release.yml` dispatches
+  # `deploy.yml` with the tag it just published, because `workflow_run` can
+  # name only ONE upstream workflow and a release is not a CI run.
+  #
+  # So the release deploy staged the published image, proved it healthy, and
+  # moved no traffic, and nothing widened it. The image sat there serving 0%
+  # of the requests while the tag on the release page said it was the version
+  # in production. It took a manual `gh workflow run canary.yml` to finish
+  # v0.2.51, and the v0.2.50 release had needed the same thing — it only
+  # appeared to work because an unrelated branch deploy's canary happened to
+  # be widening the same colour at the time. That luck is recorded in the
+  # comment at the concurrency group below.
+  #
+  # The fix is to have the ONE workflow that knows a release is staged and
+  # ready — the deploy — hand it over. `deploy.yml` dispatches this workflow
+  # as its last step, so a branch deploy and a release deploy reach the canary
+  # the same way, and there is exactly ONE canary per deploy because there is
+  # exactly ONE dispatcher.
   workflow_dispatch:
     inputs:
       image:
         description: "Image reference to roll out (sha, tag, or registry ref)"
         required: false
+      # NO `default:` ON THE THREE NUMBERS, and that is load-bearing.
+      #
+      # A `workflow_dispatch` input WITH a default is always populated, so
+      # `github.event.inputs.startPercent` would be "5" even when the
+      # dispatcher passed nothing — and the step below would read the literal
+      # in this file instead of the repository variable. That is how a
+      # deployment's own canary ladder (CANARY_START_PERCENT and friends)
+      # stops being read, silently, the first time the canary is dispatched
+      # instead of triggered.
+      #
+      # With no default, an unset input is EMPTY, the `||` fallback in the
+      # step takes the repository variable, and the variable's own shipped
+      # default applies when the variable is not set. The values this
+      # repository has been shipping (5 / 50 / 300) are unchanged.
       startPercent:
         description: "First canary split"
         required: false
-        default: "5"
       midPercent:
         description: "Second canary split before full rollout"
         required: false
-        default: "50"
       soakSeconds:
         description: "Seconds to observe each split before widening"
         required: false
-        default: "300"
 
 permissions:
   contents: read
@@ -99,8 +135,18 @@ permissions:
 # steps.
 #
 # So the group is the deploy's group (`deploy-vps`), and a superseded run
-# WAITS instead of cancelling. The canary is triggered by the deploy's
-# COMPLETION, so it never queues behind the deploy that started it.
+# WAITS instead of cancelling.
+#
+# The canary is DISPATCHED by the deploy's last step, so the canary run is
+# created while the deploy still holds this group — and therefore QUEUES
+# behind it, which is exactly the ordering wanted: the canary starts only
+# after the deploy that staged the release has released the box. The canary
+# never runs concurrently with the roll that produced what it is canarying.
+#
+# The ordering this group used to have to protect — "the canary is triggered
+# by the deploy's COMPLETION, so it never queues behind the deploy that
+# started it" — is now structural rather than lucky: there is one dispatcher,
+# and it is the deploy.
 concurrency:
   group: deploy-vps
   cancel-in-progress: false
@@ -129,16 +175,13 @@ jobs:
     timeout-minutes: 60
     steps:
       # ── the gate on the gate ────────────────────────────────────────────────
-      # A canary that runs after a FAILED deploy is a canary of nothing, and a
-      # canary that runs when the box is not in blue/green mode is a canary of
-      # a stack that does not exist. Both are answered in ONE step, and both
-      # answers are OUTPUTS — because `exit 0` ends a STEP, not the job, so a
-      # step that merely returns early would still let the rollout steps run.
+      # A canary that runs when the box is not in blue/green mode is a canary
+      # of a stack that does not exist, and a canary with nothing staged is a
+      # canary of nothing. Both are answered in ONE step, and both answers are
+      # OUTPUTS — because `exit 0` ends a STEP, not the job, so a step that
+      # merely returns early would still let the rollout steps run.
       - name: Preflight — is there a release to canary?
         id: preflight
-        env:
-          EVENT: ${{ github.event_name }}
-          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
         run: |
           set -euo pipefail
           bun --version
@@ -146,11 +189,16 @@ jobs:
           cd ~/securevoice-ai
           test -f scripts/deploy.mjs || { echo "::error::scripts/deploy.mjs missing on the runner"; exit 1; }
 
-          if [ "$EVENT" != "workflow_dispatch" ] && [ "$RUN_CONCLUSION" != "success" ]; then
-            echo "::notice::the deploy concluded '${RUN_CONCLUSION}' — nothing to canary."
-            echo "run=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
+          # There is NO conclusion check here, and there does not need to be
+          # one. The deploy dispatches this workflow as its LAST step, so a
+          # deploy that failed at any point — before staging, after staging,
+          # at the health check — never dispatches it at all. The guarantee is
+          # STRUCTURAL: the dispatcher only runs on the success path.
+          #
+          # It used to be a `workflow_run` trigger with an explicit
+          # `github.event.workflow_run.conclusion` check, and that check
+          # could not cover the release path, which had no `workflow_run` to
+          # read a conclusion from. See the note on the trigger above.
 
           MODE="$(bun scripts/deploy.mjs mode)"
           echo "stack mode: ${MODE}"

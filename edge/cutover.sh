@@ -36,6 +36,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 STACK_DIR="${STACK_DIR:-$HOME/securevoice-ai}"
 EDGE_DIR="${EDGE_DIR:-$HOME/edge}"
+# The directory the front-door compose mounts; keep it in step with switch.sh.
+FRAGMENTS="${EDGE_FRAGMENT_DIR:-$EDGE_DIR/nginx/edge.d}"
 ENV_FILE="$STACK_DIR/.env"
 
 # ── 0. the box must be on the code that has the split ──────────────────────
@@ -56,10 +58,10 @@ echo "    ok   the checkout has the edge split"
 say "the front door"
 [ -f "$EDGE_DIR/nginx/edge.conf" ] || { echo "    $EDGE_DIR/nginx/edge.conf is missing" >&2; exit 1; }
 [ -f "$EDGE_DIR/compose.yml" ] || { echo "    $EDGE_DIR/compose.yml is missing" >&2; exit 1; }
-ls "$EDGE_DIR/nginx/edge.d/"
+ls "$FRAGMENTS/"
 if docker run --rm \
 	-v "$EDGE_DIR/nginx/edge.conf:/etc/nginx/nginx.conf:ro" \
-	-v "$EDGE_DIR/nginx/edge.d:/etc/nginx/edge.d:ro" \
+	-v "$FRAGMENTS:/etc/nginx/edge.d:ro" \
 	nginx:1.27-alpine nginx -t >/dev/null 2>&1; then
 	echo "    ok   the front door's configuration is valid"
 else

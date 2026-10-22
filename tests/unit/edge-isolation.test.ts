@@ -394,6 +394,15 @@ describe("the deploy script reports the coupling instead of accommodating it", (
     expect(body).toContain("return { status: 1");
   });
 
+  test("the cutover validates the fragment directory compose will mount", () => {
+    // EDGE_FRAGMENT_DIR overrides the compose file's relative default.
+    // Validating the default while compose mounts the override certifies a
+    // table nobody will serve.
+    for (const rel of ["edge/switch.sh", "edge/cutover.sh"]) {
+      expect(read(rel)).toContain("EDGE_FRAGMENT_DIR:-");
+    }
+  });
+
   test("it compares a map target as an ADDRESS, not as a map entry", () => {
     // The map terminator is nginx syntax; docker reports published ports
     // without it. Comparing them raw made the isolate preflight refuse a

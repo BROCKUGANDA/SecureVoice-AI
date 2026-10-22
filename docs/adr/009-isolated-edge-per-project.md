@@ -68,15 +68,39 @@ repository, in its own Docker network. On a host that serves more than one
 product, a small L4 front door owns the public `:80`/`:443` and forwards each
 connection to the right edge by SNI.**
 
-**The front door is `nginx stream` + `ssl_preread`, and it is nothing else.**
-It does not terminate TLS, does not parse HTTP, does not read a header, URL,
-body or cookie, holds no certificate and no secret, and shares no Docker
-network with any product. It runs in the host's network namespace and reaches
-each edge over `127.0.0.1`.
+**The front door is `nginx stream` + `ssl_preread`, and it is almost nothing
+else.** On `:443` — where every cookie, credential and byte of case data
+travels — it is a **pure L4 forwarder**: it never terminates TLS, never
+decrypts, and never parses. It reads the SNI out of the ClientHello, which
+requires no key material, and forwards the connection to the edge that owns
+that name. It holds no certificate and no secret, and it shares no Docker
+network with any product; it runs in the host's network namespace and
+reaches each edge over `127.0.0.1`.
+
+**There is one bounded exception, and the bound is the point.** The `:80`
+listener is an HTTP listener, because a plaintext connection carries no SNI
+and a hostname cannot be read out of one without parsing HTTP. It forwards
+the request to the edge that owns the `Host` header and lets that edge
+answer — so each edge keeps its own ACME HTTP-01 challenge and its own
+HTTP-to-HTTPS redirect, with its own security headers, and the public
+behaviour of every name is unchanged. The alternative — keeping the process
+100% L4 by moving certificate issuance to TLS-ALPN-01 and generating the
+redirect here — would have changed the certificate lifecycle and the
+redirect's headers on a box serving live traffic. The bounded exception was
+the smaller change.
+
+This was found by running `nginx -t`, not by reasoning about it: `$host` is
+an HTTP-module variable and does not exist in the `stream` context, and the
+first version of this file used it there. The same check found a map entry
+written without the terminating semicolon that nginx's `map` syntax
+requires — a two-line file whose only symptom was a total outage of every
+public name on the box. Both are why `scripts/edge-validate.mjs` exists and
+why it runs in CI.
 
 The shared surface between two products is therefore **a hostname and a port**.
 A wrong entry in that table is a routing mistake. It is not a capability to
-read the other product's traffic, its logs, its containers or its certificates.
+read the other product's TLS traffic, its logs, its containers or its
+certificates.
 
 **A name that is in no table is refused, not routed.** The default in the
 table is a closed port on loopback, so an unrecognised SNI gets no service and

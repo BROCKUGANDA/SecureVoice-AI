@@ -33,28 +33,47 @@ the cutover runbook is in
               app / realtime / workers
 ```
 
-Before this, both products were served by **one** Caddy container that was
-hand-attached to **both** projects' Docker networks.
+Before this, all three products were served by **one** Caddy container that
+was hand-attached to **all** of their Docker networks.
 
 ---
 
 ## What the front door is, precisely
 
-It is an **L4 SNI router**. That is the entire description, and every
-property below follows from it.
+Two listeners, and they are deliberately not the same kind of thing.
 
 |                         |                                                                                         |
 | ----------------------- | --------------------------------------------------------------------------------------- |
 | Terminates TLS          | **No.** The edge owns the certificate.                                                  |
-| Parses HTTP             | **No.** No header, URL, body or cookie is ever read.                                    |
+| Parses the TLS path     | **No.** `ssl_preread` reads the SNI out of the ClientHello and nothing else.            |
+| Parses the `:80` path   | **Yes — and it has to.** A plaintext connection carries no SNI.                          |
 | Holds a secret          | **No.** No key, no token, no credential.                                                |
 | Shares a Docker network | **No.** It runs in the host's network namespace and reaches each edge over `127.0.0.1`. |
 | Has per-project state   | **No.** A project's whole contribution is two map files.                                |
 | Routes by               | SNI on `:443`, `Host` header on `:80`.                                                  |
 
+### The one bounded exception, and why it is bounded
+
+`:443` — where **every** cookie, credential and byte of case data travels — is
+a pure L4 forward. It is never terminated, never decrypted, never parsed.
+
+`:80` is plaintext, and a hostname cannot be read out of a plaintext
+connection without parsing HTTP. So the `:80` listener is an HTTP listener,
+and it does exactly two things: it forwards the request to the edge that owns
+the `Host`, and it lets that edge answer. The edge then does what it did
+before the split — it redirects to HTTPS **with its own security headers**,
+and it answers the ACME HTTP-01 challenge **with its own certificate**. The
+public behaviour of every name is unchanged.
+
+The alternative was to keep this process 100% L4: make the front door
+generate the HTTP-to-HTTPS redirect itself, and move certificate issuance to
+TLS-ALPN-01 so the challenge rides the SNI path. That would have changed the
+certificate lifecycle and the redirect's headers on a box serving live
+traffic. The bounded exception was the smaller change.
+
 The shared surface between two products is therefore **a name and a port**.
 A wrong entry in that table is a routing mistake. It is not a capability to
-read the other product's traffic, its logs, its containers or its
+read the other product's TLS traffic, its logs, its containers or its
 certificates.
 
 ### Fail-closed

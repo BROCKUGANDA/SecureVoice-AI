@@ -100,6 +100,40 @@ exactly the wrong place to discover a provider is slow.
 
 ---
 
+## Latency versus concurrency
+
+A budget met by one request at a time is not a budget met by a campaign. The
+gate for that is `tests/load/concurrency-ladder.test.ts`: it runs the platform's
+own hot-path operations — the admission gauge read, the admission decision, a
+durable queue claim, and a case transition with its hash-chained audit append —
+at 8, 32, 64, 128 and 224 offered workers in one process, and asserts two
+separate things. Each operation must stay inside an absolute p95 budget at every
+rung it is judged on. And p95 at the busiest rung must stay within a fixed
+multiple of p95 at the quietest, because a system can sit inside an absolute
+number while its queueing curve is already vertical.
+
+Measured on the last run (`evidence/load/concurrency.json`, one process, local
+Postgres, vendors absent): at 224 offered workers the admission decision holds
+p95 ~163 ms and a queue claim ~327 ms, both with zero errors, both under 3× the
+quiet-rung figure. The case-transition path grows ~10×, and that is the honest
+shape of it: every transition seals an audit row, and
+`src/lib/audit-chain.ts` lets only 5 of those run at once per process, on purpose,
+so the synchronous ingest path always has a pool connection left. A fixed-width
+resource amplifies by the queue it imposes; the gate states a wider ceiling for
+that path and names the knob (`DB_AUDIT_POOL_MAX`) rather than tuning the
+expectation down until it passes.
+
+Two limits belong in the same sentence as the numbers. The top rung is the WP-19
+_modelled_ campaign burst, offered through one process — a shape no single
+deployment runs, since the aggregate is spread over replicas each with its own
+pool and its own semaphore. And the reuse window on the admission gauge (see
+`src/lib/admission.ts`) is measured here against a local database where a `COUNT`
+costs milliseconds; its value on a remote session-mode pooler is proportional to
+the round trip, which this machine cannot demonstrate. That is a reasoned
+consequence, and it is labelled as one.
+
+---
+
 ## What to say on stage
 
 > "The badge is not a number we typed. It's p50 and p95 measured against declared

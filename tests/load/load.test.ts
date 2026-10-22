@@ -382,7 +382,7 @@ try {
     actual.length === DIAL_JOB_EXPECTED_COLUMNS.length &&
     DIAL_JOB_EXPECTED_COLUMNS.every((c) => actual.includes(c));
   migrationColumnsDetail = `table dial_job: expected ${DIAL_JOB_EXPECTED_COLUMNS.length} columns, found ${actual.length}: ${actual.join(", ")}`;
-  baselineGauge = await activeConversations();
+  baselineGauge = await activeConversations({ fresh: true });
 } catch (err) {
   dbReason = `unavailable: ${err instanceof Error ? err.message : String(err)}`;
   if (dbAvailable === false && bootstrap.note === "database unreachable") {
@@ -523,7 +523,7 @@ async function runScenario(args: {
   let jobsSkipped = 0;
   let processed = 0;
 
-  const baseline = await activeConversations();
+  const baseline = await activeConversations({ fresh: true });
   scaleAdmission.resetShedCounter();
 
   // ── ingest: case + durable queue row, before any call is placed ────────────
@@ -708,7 +708,7 @@ async function runScenario(args: {
     } finally {
       // Reading the gauge on every exit is what makes `peakGauge` the
       // platform's own view rather than the vendor's.
-      peakGauge = Math.max(peakGauge, await activeConversations());
+      peakGauge = Math.max(peakGauge, await activeConversations({ fresh: true }));
       processed++;
       if (processed % 25 === 0) {
         const own = await db.$queryRawUnsafe<{ n: number }[]>(
@@ -771,7 +771,7 @@ async function runScenario(args: {
     gateTimeouts,
     peakGauge,
     peakOwnInFlight,
-    endGauge: await activeConversations(),
+    endGauge: await activeConversations({ fresh: true }),
     baselineGauge: baseline,
     bandsSeen: [...bandsSeen].sort(),
     queueDepthSamples,

@@ -78,8 +78,10 @@ done
 
 # ── 3. the switch, immediately, with nothing in between ─────────────────────
 say "running the switch"
-cd "$STACK_DIR"
-sh "$STACK_DIR/edge/switch.sh"
+# The switch next to THIS script, not the one in the stack's checkout. The
+# two travel together, and the one in the checkout may be a version behind —
+# the cutover is the moment where a stale copy of the script matters most.
+sh "$(cd "$(dirname "$0")" && pwd)/switch.sh"
 rc=$?
 
 if [ "$rc" != "0" ]; then

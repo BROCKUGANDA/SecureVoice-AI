@@ -201,6 +201,12 @@ describe("the opening also discloses that the caller is an AI", () => {
     expect(r.guardrails).toContain("ai_identity_injected");
   });
 
+  test("Arabic process wording is not an identity", () => {
+    // `بآلية` (by an automated mechanism) is not the speaker saying it is an AI.
+    expect(namesAi("هذا القرار يتم بآلية آمنة ومعتمدة.", "ar")).toBe(false);
+    expect(namesAi("أنا مساعد أمان آلي يعمل بالذكاء الاصطناعي في مصرفك.", "ar")).toBe(true);
+  });
+
   test("a reply that already identifies the AI is left alone", () => {
     const r = auditAgentReply({
       reply: `${OPENING_DISCLOSURE_EN}. I am an automated AI assistant, not a human. May I confirm a transaction?`,

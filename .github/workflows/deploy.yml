@@ -98,6 +98,11 @@ permissions:
   # with a token that cannot read packages fails at the pull rather than at the
   # roll. Without this the release path fails on the way in, every time.
   packages: read
+  # The deploy HANDS THE RELEASE TO THE CANARY as its last step, and
+  # dispatching a workflow needs `actions: write`. Without it that step fails,
+  # and a release that is staged, proven healthy, and serving 0% of the
+  # requests is the failure this arrangement exists to prevent.
+  actions: write
 
 # Two deploys must never interleave: a half-applied migration followed by a
 # second `git pull` is how a schema ends up ahead of the code that reads it.
@@ -748,6 +753,48 @@ jobs:
 
           echo "::error::origin did not answer 200 within ${HEALTH_DEADLINE_SECONDS}s (last status: ${code:-no-response})"
           test "$code" = "200"
+
+      # ── Hand the release to the canary ──────────────────────────────────────
+      #
+      # The deploy is the ONE place that knows a release is staged, migrated
+      # and healthy, so it is the one place that hands it over.
+      #
+      # It used to be a `workflow_run` trigger on the Deploy workflow in
+      # canary.yml, and that reached the branch path and NOT the release path.
+      # `release.yml` dispatches this workflow with the tag it just published —
+      # `workflow_run` can name only ONE upstream workflow, and a release is
+      # not a CI run — and a run started by `workflow_dispatch` emits no
+      # `workflow_run` event of its own. So the release deploy staged the
+      # published image, proved it healthy, moved no traffic, and nothing
+      # widened it. Measured on 2026-10-22: the v0.2.50 release deploy
+      # (finished 09:28:42Z) and the v0.2.51 release deploy (finished
+      # 02:30:28Z) each produced NO canary, while every `workflow_run` deploy
+      # produced one 2-4 seconds after it finished. The v0.2.50 release
+      # appeared to work only because an unrelated branch deploy's canary
+      # happened to be widening the same colour — the luck is recorded in
+      # canary.yml's concurrency comment.
+      #
+      # Dispatching from here makes BOTH paths identical — a branch deploy and
+      # a release deploy reach the canary the same way — and there is exactly
+      # ONE canary per deploy, because there is exactly ONE dispatcher. Two
+      # dispatchers would mean two canaries, and the second would re-widen a
+      # release the first had already promoted.
+      #
+      # The canary run QUEUES rather than starting immediately: canary.yml
+      # shares this workflow's concurrency group (`deploy-vps`), so it begins
+      # only after this run has released it. That is what keeps a canary from
+      # interleaving with the roll that staged it.
+      #
+      # LOUD ON FAILURE. If the dispatch cannot be made, the release is staged
+      # and serving nothing, and that has to be visible on the deploy rather
+      # than discovered later by asking what production is running.
+      - name: Hand the release to the canary
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh workflow run canary.yml --ref main
+          echo "::notice::the canary was dispatched; it widens the staged release and promotes it."
 
       # A deploy that reports success while the app is unhealthy is worse than a
       # loud failure: it writes a green tick next to a broken origin. If the

@@ -162,10 +162,7 @@ export async function assertVendorUrlSaveable(
  */
 export async function assertVendorUrlDeliverable(
   url: string,
-): Promise<
-  | { ok: true; addresses: readonly string[] }
-  | { ok: false; reason: string }
-> {
+): Promise<{ ok: true; addresses: readonly string[] } | { ok: false; reason: string }> {
   const verdict = await validateOutboundUrl(url);
   return verdict.ok
     ? { ok: true, addresses: verdict.addresses }

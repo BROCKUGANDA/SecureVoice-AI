@@ -87,10 +87,7 @@ describe("FATF tipping-off", () => {
   });
 
   test("both TTS routes pass the request language into the speech gate", () => {
-    const stream = readFileSync(
-      join(process.cwd(), "src/app/api/tts/stream/route.ts"),
-      "utf8",
-    );
+    const stream = readFileSync(join(process.cwd(), "src/app/api/tts/stream/route.ts"), "utf8");
     const buffered = readFileSync(join(process.cwd(), "src/app/api/tts/route.ts"), "utf8");
     expect(stream).toContain("prepareSpeech(requestedText, { ...parsed.data.speech, lang })");
     expect(buffered).toContain("speech: { lang }");

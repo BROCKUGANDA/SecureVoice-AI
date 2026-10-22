@@ -19,12 +19,26 @@ export type CaseFileOptions = {
   skipComplianceWebhook?: boolean;
 };
 
+/**
+ * A case remains a confirmed-fraud case after the workflow moves it past
+ * CONFIRMED_FRAUD. Freezing the card and handing off are consequences of that
+ * verdict, not a return to uncertainty; requiring the exact state made the STR
+ * unavailable at the moment the bank most needs it.
+ */
+const STR_ELIGIBLE_STATES: ReadonlySet<string> = new Set([
+  "CONFIRMED_FRAUD",
+  "FREEZE_STAGED",
+  "ESCALATED",
+]);
+
 export class CaseNotConfirmedError extends Error {
   constructor(
     readonly caseRef: string,
     readonly state: string,
   ) {
-    super(`Case ${caseRef} is ${state}; an STR requires CONFIRMED_FRAUD`);
+    super(
+      `Case ${caseRef} is ${state}; an STR requires a confirmed-fraud state (CONFIRMED_FRAUD, FREEZE_STAGED or ESCALATED)`,
+    );
     this.name = "CaseNotConfirmedError";
   }
 }
@@ -105,7 +119,7 @@ export async function generateCaseFile(
     },
   });
   if (!row) throw new Error(`Case not found: ${caseIdOrRef}`);
-  if (opts.requireConfirmedFraud && row.state !== "CONFIRMED_FRAUD") {
+  if (opts.requireConfirmedFraud && !STR_ELIGIBLE_STATES.has(row.state)) {
     throw new CaseNotConfirmedError(row.caseRef, row.state);
   }
 
@@ -161,7 +175,7 @@ export async function generateCaseFile(
     where: { id: row.id },
     data: {
       evidenceCaseId,
-      ...(row.state === "CONFIRMED_FRAUD" ? { isEvidenceLocked: true } : {}),
+      ...(STR_ELIGIBLE_STATES.has(row.state) ? { isEvidenceLocked: true } : {}),
     },
   });
 

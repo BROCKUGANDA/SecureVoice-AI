@@ -207,6 +207,14 @@ describe("the opening also discloses that the caller is an AI", () => {
     expect(namesAi("أنا مساعد أمان آلي يعمل بالذكاء الاصطناعي في مصرفك.", "ar")).toBe(true);
   });
 
+  test("English AI topics are not self-identification", () => {
+    expect(namesAi("I am calling about an AI fraud alert.", "en")).toBe(false);
+    expect(namesAi("This is an automated payment reminder.", "en")).toBe(false);
+    expect(namesAi("I am an automated AI assistant, not a human.", "en")).toBe(true);
+    expect(namesAi("I am your bank's AI security assistant.", "en")).toBe(true);
+    expect(namesAi("This is an AI assistant.", "en")).toBe(true);
+  });
+
   test("a reply that already identifies the AI is left alone", () => {
     const r = auditAgentReply({
       reply: `${OPENING_DISCLOSURE_EN}. I am an automated AI assistant, not a human. May I confirm a transaction?`,

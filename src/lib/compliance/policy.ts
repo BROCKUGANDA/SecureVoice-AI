@@ -128,7 +128,10 @@ const AI_IDENTITY: Record<Lang, string> = {
  * prevent.
  */
 const AI_SELF_IDENTIFICATION: Record<Lang, RegExp> = {
-  en: /\b(i am|i'm|this is)\b[^.!?\n]{0,60}\b(AI|artificial intelligence|automated)\b/i,
+  // The AI term must follow the opener directly, and bare "automated" is not
+  // enough: "I am calling about an AI fraud alert" and "This is an automated
+  // payment reminder" describe a topic, not the speaker.
+  en: /\b(i am|i'm|this is)\s+(?:an?\s+|your bank's\s+|the bank's\s+)?(?:automated\s+)?(?:AI|artificial intelligence)(?=\s*(?:[.,!?]|$|\b(?:assistant|security|voice|system)\b))/i,
   // A role word is required after the opener. `هذا` + a process word such as
   // "القرار يتم بآلية" is not the speaker identifying itself; the old unanchored
   // `آلي` matched inside `بآلية`.

@@ -223,5 +223,5 @@ fail-closed default) · `edge/nginx/edge.d/securevoice.sni.map` and
 `tests/unit/edge-isolation.test.ts` (the name lists, the network, the
 fail-closed default, and the deploy script's two modes) ·
 `tests/unit/bluegreen-invariants.test.ts` (still exactly one place that
-recreates the edge) · `docs/VPS-RECOVERY.md` failure mode #3 (the cutover
+recreates the edge) · `docs/VPS-RECOVERY.md` failure mode #4 (the cutover
 runbook) · `edge/README.md` (the topology and the rejected alternatives).

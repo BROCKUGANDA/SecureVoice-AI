@@ -1,0 +1,23 @@
+# SecureVoice AI — the names this project answers for on TLS.
+#
+# One name per line:  <hostname>  <address:port>
+#
+# The address is where this project's Caddy publishes 443 on the HOST's
+# loopback, which is the value of CADDY_HTTPS_PORT in the host's .env. The
+# front door runs in the host's network namespace, so it reaches the edge
+# over 127.0.0.1 and nothing else — there is no Docker network shared with
+# any product.
+#
+# The NAMES in this file are checked against the Caddyfile's own site list by
+# tests/unit/edge-isolation.test.ts, so the front door and the edge cannot
+# disagree about what this project serves. The PORT is checked against the
+# running container by `bun scripts/deploy.mjs edge-status`.
+#
+# Format note: nginx's `map` reads each entry as `name value;`, so the value
+# is written as address:port with no scheme and no path — and the trailing
+# semicolon is REQUIRED. It is not a nicety: `nginx -t` refuses the whole
+# configuration without it, and the front door is what every public name on
+# this box depends on. That check runs in CI (see the "front door config"
+# step in .github/workflows/ci.yml) and on the box before the switch.
+securevoiceai.me 127.0.0.1:8443;
+www.securevoiceai.me 127.0.0.1:8443;

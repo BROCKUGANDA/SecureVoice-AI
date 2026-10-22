@@ -34,13 +34,14 @@
 # run whose conclusion was not `success`. Previously a push to main started a
 # deploy in parallel with CI, so a red build could still roll forward.
 #
-# The Caddyfile is byte-identical between this repo and the box: the shared
-# edge's extra hostnames (crucible.svalley.tech) live in an untracked
-# sites.d/*.caddy that the tracked Caddyfile imports, so a promoted change to
-# the Caddyfile pulls and deploys like any other file. It used to be the
-# opposite — a skip-worktree'd box-local copy, where every promoted Caddyfile
-# change made the pull refuse until an operator merged by hand. See
-# docs/VPS-RECOVERY.md failure mode #2 for that history.
+# The Caddyfile is byte-identical between this repo and the box, and it is the
+# WHOLE edge configuration: this project has its own edge, serving its own
+# hostnames, and it no longer imports a host-local directory that carried a
+# second product's site block. So a promoted change to the Caddyfile pulls and
+# deploys like any other file. It used to be the opposite — a skip-worktree'd
+# box-local copy, where every promoted Caddyfile change made the pull refuse
+# until an operator merged by hand. See docs/VPS-RECOVERY.md failure mode #2
+# for that history, and failure mode #3 for the shared edge that came after.
 # ---------------------------------------------------------------------------
 name: Deploy
 
@@ -375,11 +376,10 @@ jobs:
           cd ~/securevoice-ai
           git fetch origin main
           git checkout main
-          # The Caddyfile is NOT box-local anymore. Host-local sites live in
-          # untracked sites.d/*.caddy (imported by the tracked Caddyfile), so
-          # the tracked file is byte-identical everywhere and a promoted change
-          # to it pulls like any other file. The skip-worktree flag is retired
-          # — clear it in case an older deploy left it behind, because a
+          # The Caddyfile is NOT box-local. It is the whole edge configuration
+          # and it is byte-identical everywhere, so a promoted change to it
+          # pulls like any other file. The skip-worktree flag is retired —
+          # clear it in case an older deploy left it behind, because a
           # lingering flag would pretend local edits are clean (measured:
           # flag + diverged file = refused pull; flag + clean file = clean
           # pull). History: docs/VPS-RECOVERY.md, failure mode #2.
@@ -399,9 +399,10 @@ jobs:
           #
           # The files are MOVED, never deleted, and only for paths this range
           # actually writes. `git clean` is not the answer: the same checkout holds
-          # host-local state with no other copy (.env carries live secrets,
-          # sites.d/*.caddy is imported by the tracked Caddyfile), and a clean here
-          # would take production down to fix a pull.
+          # host-local state with no other copy (.env carries live secrets, and
+          # the retired sites.d/ directory still holds the other product's old
+          # site block until the edge cutover moves it), and a clean here would
+          # take production down to fix a pull.
           #
           # A collision on host-local state is a decision nobody should make at
           # 3am inside an automated roll, so it stops the deploy loudly instead of
@@ -413,7 +414,7 @@ jobs:
             [ -e "$path" ] || continue
             git ls-files --error-unmatch -- "$path" >/dev/null 2>&1 && continue
             case "$path" in
-              .env|.env.*|sites.d/*)
+              .env|.env.*|sites.d/*|edge.d/*)
                 echo "::error::$path is untracked on the box AND tracked by incoming main."
                 echo "::error::this is host-local state — reconcile it by hand, do not let a roll move it."
                 exit 1

@@ -1,0 +1,71 @@
+# The shared front door.
+#
+# ONE container, ONE job, in the host's network namespace.
+#
+# `network_mode: host` is not a shortcut — it is the isolation. The router
+# reaches each project's edge over the host's LOOPBACK, so it shares no
+# Docker network with any product, and no product can reach another product
+# through it. The alternative — a Docker network that every product's edge
+# joins — would give every product a network path to every other product's
+# container, which is precisely the coupling this whole arrangement exists
+# to remove.
+#
+# It is also why the per-project edges publish on loopback only: the public
+# :80 and :443 belong to THIS container, and an edge that still owned them
+# would shadow the front door.
+#
+# This file is box-level, and it is versioned anyway. The lesson from
+# docs/VPS-RECOVERY.md failure mode #2 is that box-level configuration which
+# is not in version control diverges from what everybody believes it is, and
+# the divergence is discovered during an incident. The file is small, stable,
+# and it includes the per-project tables rather than containing them, so
+# there is little here to drift.
+#
+# The per-project tables live in `nginx/edge.d/` — one pair of files per
+# project, each shipped by THAT project, each reviewed in THAT project's
+# repository. On the box they are collected into one directory, and this
+# config includes the whole directory.
+#
+#   EDGE_FRAGMENT_DIR   where the collected per-project tables live on the
+#                       host. Default /srv/edge/edge.d. For a local run
+#                       against this repository's own tables, point it at
+#                       ./nginx/edge.d.
+#
+# Bringing it up on a host:
+#
+#   mkdir -p /srv/edge/edge.d
+#   cp <this repo>/edge/nginx/edge.d/securevoice.*.map /srv/edge/edge.d/
+#   docker compose -f edge/compose.yml up -d
+#   docker compose -f edge/compose.yml exec router nginx -t   # validate
+#
+# nginx validates its configuration before it starts, so a malformed table
+# is a refusal, not a half-working front door.
+
+name: edge-router
+
+services:
+  router:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./nginx/edge.conf:/etc/nginx/nginx.conf:ro
+      # The collected per-project tables. Read-only: the front door never
+      # writes its own configuration.
+      - ${EDGE_FRAGMENT_DIR:-/srv/edge/edge.d}:/etc/nginx/edge.d:ro
+    healthcheck:
+      # The front door is healthy when it is still accepting connections on
+      # the public port. `nginx -t` validates the CONFIGURATION; it says
+      # nothing about whether the listener is up, and a router that is
+      # running but not listening is the exact failure this check exists to
+      # catch.
+      test: ["CMD-SHELL", "nginx -t && (nc -z 127.0.0.1 443 || nc -z 127.0.0.1 80)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

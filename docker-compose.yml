@@ -692,9 +692,26 @@ services:
     logging: *default-logging
     mem_limit: 256m
     ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp" # HTTP/3
+      # STANDALONE (the default): this container owns the public ports, which
+      # is what a single-project box wants and what a plain `docker compose up`
+      # has always done here.
+      #
+      # BEHIND THE SHARED FRONT DOOR (`edge/`): the box-level L4 router owns the
+      # public :80/:443 and forwards each TLS connection to this project's
+      # Caddy by SNI. In that mode the host's .env sets CADDY_BIND=127.0.0.1 and
+      # moves both ports off the privileged numbers, so this edge is reachable
+      # ONLY over the host's loopback and ONLY through the router.
+      #
+      # The default is unchanged on purpose: a mistake in either direction is
+      # loud — two processes fighting over :443, or an edge nothing can reach.
+      - "${CADDY_BIND:-0.0.0.0}:${CADDY_HTTP_PORT:-80}:80"
+      - "${CADDY_BIND:-0.0.0.0}:${CADDY_HTTPS_PORT:-443}:443"
+      # HTTP/3 is QUIC. It is published for the standalone case and is NOT
+      # reachable in router mode: an L4 SNI router cannot route QUIC by SNI
+      # and does not terminate it. Nothing live is lost — the production
+      # firewall never opened UDP 443 (terraform/versions.tf opens TCP 80 and
+      # 443 only), so HTTP/3 has never been reachable on that box.
+      - "${CADDY_BIND:-0.0.0.0}:${CADDY_HTTPS_PORT:-443}:443/udp"
     cap_add:
       - NET_BIND_SERVICE
     environment:
@@ -703,8 +720,8 @@ services:
       # Twilio media-stream URL — src/lib/site-origin.ts, src/worker/dial.ts),
       # and Caddy cannot take it as a site address without colliding with the
       # literal blocks in the Caddyfile ("ambiguous site definition",
-      # measured). Caddy serves the literal site list; host-local extras come
-      # from sites.d/ below.
+      # measured). Caddy serves the literal site list, and that list is the
+      # whole list — this edge serves this project and no other (ADR-009).
       ACME_EMAIL: ${ACME_EMAIL:-admin@example.com}
     # â”€â”€ The active colour, for a blue/green deploy â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     # `APP_UPSTREAM` is what the Caddyfile proxies to, and this file is the only
@@ -723,14 +740,19 @@ services:
         required: false
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      # Host-local extra site blocks, imported by the Caddyfile (see
-      # sites.d/README.md). Untracked — .gitignore keeps only the README — so
-      # a shared edge's extra hostnames live on the machine, never in a commit,
-      # and the tracked Caddyfile stays byte-identical everywhere. The import
-      # wildcard matching zero files is valid, so a fresh checkout starts clean.
-      - ./sites.d:/etc/caddy/sites.d:ro
       - caddy-data:/data      # certificates + ACME account
       - caddy-config:/config
+    networks:
+      # This project's network, and no other.
+      #
+      # Declared explicitly so that a `docker compose up` cannot attach this
+      # edge to a network it does not own. The shared edge WAS hand-attached to
+      # another project's compose network — it had to be, to reach that
+      # project's services by name — and every recreate dropped the
+      # attachment, which is how a traffic flip in this project took another
+      # project's product offline on 2026-10-21. There is no second network
+      # here now, and there is nothing to preserve.
+      - default
     depends_on:
       app:
         condition: service_healthy

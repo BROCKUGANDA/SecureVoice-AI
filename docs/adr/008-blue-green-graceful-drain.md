@@ -7,8 +7,8 @@ customer whose card is being drained. A fraud call is short but not instantaneou
 a container that dies mid-stream drops an audio socket the customer experiences as
 silence from the bank they were told to trust.
 
-The other half of the context is honesty about scale. This is one VPS behind one Caddy,
-shared with a second product on the same edge. A document that describes
+The other half of the context is honesty about scale. This is one VPS behind one Caddy.
+A document that describes
 active-active multi-region failover while that is true is describing a system nobody is
 operating.
 
@@ -101,8 +101,12 @@ against a live carrier before 100%.
 - Deploys take longer by design — up to the drain window per instance.
 - Colour state is host-local file state, so two operators running deploy at once is a
   race. (The skip-worktree'd edge config that used to block any pull touching
-  `Caddyfile` was retired 2026-10-12 — host-local sites moved to the untracked
-  `sites.d/*.caddy` the Caddyfile imports; see `docs/VPS-RECOVERY.md` failure mode #2.)
+  `Caddyfile` was retired 2026-10-12, and the host-local site directory that replaced
+  it was retired 2026-10-12, and the host-local site directory that replaced
+  it was retired 2026-10-22: the edge is now one project per edge, configured by a
+  tracked `Caddyfile` and a tracked front-door table. See
+  `docs/adr/009-isolated-edge-per-project.md` and `docs/VPS-RECOVERY.md` failure
+  modes #2 and #3.)
 - Blue/green holds two app containers during a deploy, and the memory ceiling for the
   box had to be measured for that overlap rather than for one instance.
 - **The canary split is per-request, so a single conversation can be split across two

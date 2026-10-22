@@ -1201,7 +1201,7 @@ function checkBoxImageConformance() {
 //      stripped — a stale comment is not a consumer, that is how
 //      NEXT_PUBLIC_SUPABASE_URL survived: its "reader" component was adapted
 //      away years ago and only the prose remained) or named by an infra
-//      consumer: compose, Dockerfiles, Caddyfile(s), sites.d/, the workflows,
+//      consumer: compose, Dockerfiles, Caddyfile(s), edge/, the workflows,
 //      mini-services/, or agent/*.yaml (the id_env contract scripts/agent-apply.ts
 //      resolves). Category (b) knobs stay legal; "named by nobody at all" fails.
 //
@@ -1426,7 +1426,7 @@ function checkEnvDocs() {
     }
     return out;
   };
-  for (const d of ["sites.d", ".github/workflows", "agent", "mini-services"]) {
+  for (const d of ["edge", ".github/workflows", "agent", "mini-services"]) {
     const abs = join(ROOT, d);
     if (existsSync(abs)) walkAny(abs, infraFiles);
   }
@@ -1452,7 +1452,7 @@ function checkEnvDocs() {
   if (unreadKeys.length) {
     fail(
       `.env.example keys read by nobody in src/, scripts/, compose, Dockerfiles, Caddyfiles,\n` +
-        `       sites.d/, the workflows, mini-services/ or agent/*.yaml (direction 2): ${unreadKeys.sort().join(", ")}\n` +
+        `       edge/, the workflows, mini-services/ or agent/*.yaml (direction 2): ${unreadKeys.sort().join(", ")}\n` +
         `       this is the knob-that-does-nothing class: an operator sets it, believes\n` +
         `       behaviour changed, and nothing changes. Delete the entry (with any getter\n` +
         `       that only exists for it), or wire it for real. A stale code comment does NOT\n` +

@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-Eight records of decisions that were actually made in this repository, each traceable
+Nine records of decisions that were actually made in this repository, each traceable
 to the code that implements it.
 
 ## Why these exist in this shape
@@ -36,6 +36,7 @@ Three rules, enforced the same way the rest of `docs/` is:
 | [006](006-better-auth-organizations.md) | Better Auth Organizations, no auth vendor          | Accepted             |
 | [007](007-pii-tokenization.md)          | PII tokenization vault and crypto-shredding        | Accepted             |
 | [008](008-blue-green-graceful-drain.md) | Blue/green on one box, graceful drain, Caddy       | Accepted (corrected) |
+| [009](009-isolated-edge-per-project.md) | One edge per project, behind a shared L4 door      | Accepted             |
 
 Two subjects that belong here and do not yet have a record, because the decision is
 still open: the retention tiers themselves (30/90/2555 days, and why the audit chain

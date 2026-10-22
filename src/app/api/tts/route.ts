@@ -189,7 +189,21 @@ async function synthesizeWithLadder(args: {
   try {
     const raced = await withinBudget(
       remainingMs(),
-      elevenTts({ text, voice, speed, lang, callerId, callRef, pace }, { keyOverride }),
+      elevenTts(
+        {
+          text,
+          voice,
+          speed,
+          lang,
+          callerId,
+          callRef,
+          pace,
+          // The buffered path runs the same speech gate as streaming; without
+          // the language it judges every non-English line against English rules.
+          speech: { lang },
+        },
+        { keyOverride },
+      ),
     );
     if (raced === BUDGET_EXHAUSTED) {
       failed.push({ rung: "elevenlabs", error: exhaustedLabel("elevenlabs") });

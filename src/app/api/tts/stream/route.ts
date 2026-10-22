@@ -98,7 +98,10 @@ export async function POST(req: NextRequest) {
   // Same gate as the buffered endpoint, ahead of quota spend and the upstream
   // call: this stream is what the browser plays, so it is a customer-facing
   // send path and not only a preview.
-  const gated = prepareSpeech(requestedText, parsed.data.speech);
+  // The language lives on the request, not inside the optional speech object.
+  // Omitting it made every non-English stream run the English tipping-off
+  // pattern and speak a prohibited sentence unchanged.
+  const gated = prepareSpeech(requestedText, { ...parsed.data.speech, lang });
   if (!gated.text) {
     return NextResponse.json(
       { error: "Text has no speakable content after compliance gate" },

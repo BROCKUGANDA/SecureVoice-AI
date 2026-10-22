@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { AI_IDENTITY_EN, OPENING_DISCLOSURE_EN, auditAgentReply } from "@/lib/compliance/policy";
 import { prepareSpeech } from "@/lib/compliance/speech-gate";
 import { isTippingOff, tippingOffReply } from "@/lib/compliance/tipping-off";
@@ -82,6 +84,20 @@ describe("FATF tipping-off", () => {
     expect(r.reply).toContain(tippingOffReply("en"));
     expect(r.reply.toLowerCase()).not.toContain("police");
     expect(r.reply.toLowerCase()).not.toContain("filed");
+  });
+
+  test("both TTS routes pass the request language into the speech gate", () => {
+    const stream = readFileSync(
+      join(process.cwd(), "src/app/api/tts/stream/route.ts"),
+      "utf8",
+    );
+    const buffered = readFileSync(join(process.cwd(), "src/app/api/tts/route.ts"), "utf8");
+    expect(stream).toContain("prepareSpeech(requestedText, { ...parsed.data.speech, lang })");
+    expect(buffered).toContain("speech: { lang }");
+    // The gate itself does the right thing once it is told the language.
+    const out = prepareSpeech("تم تقديم بلاغ إلى الشرطة.", { lang: "ar" });
+    expect(out.tippingOff).toBe(true);
+    expect(out.text).toContain("تم تقييد حسابك");
   });
 
   test("prepareSpeech replaces it at the send boundary, never returns silence", () => {

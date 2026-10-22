@@ -382,13 +382,14 @@ export async function streamSpeech(
 
   return new Promise((resolve) => {
     let settled = false;
-    const done = (bargeIn: boolean) => {
+    const done = (bargeIn: boolean, neural = true) => {
       if (settled) return;
       settled = true;
       cleanup();
-      // Reaching this resolve means vendor chunks were appended to the MediaSource,
-      // so the voice the visitor heard is the platform's neural voice.
-      resolve({ streamed: true, bargeIn, neural: true });
+      // `neural` is passed by the fallback paths: reaching this resolve is not
+      // proof that a vendor chunk was heard, which is exactly the claim the
+      // strict demo must not make when the buffered route failed too.
+      resolve({ streamed: true, bargeIn, neural });
     };
 
     mediaSource.addEventListener("sourceopen", async () => {
@@ -445,8 +446,8 @@ export async function streamSpeech(
           stopMicMonitor();
           // Strict mode still tries the buffered route — it is the same
           // ElevenLabs voice — but never the device voice.
-          await speakText(text, lang, role, rate, { strict: opts.strict });
-          done(false);
+          const outcome = await speakText(text, lang, role, rate, { strict: opts.strict });
+          done(false, outcome.neural);
           return;
         }
 
@@ -456,8 +457,9 @@ export async function streamSpeech(
         // playing stream on a timer
         audio.play().catch(() => {
           audio.pause();
-          done(false);
-          void speakText(text, lang, role, rate);
+          void speakText(text, lang, role, rate, { strict: opts.strict }).then((outcome) =>
+            done(false, outcome.neural),
+          );
         });
         for (;;) {
           const { done: finished, value } = await reader.read();
@@ -471,8 +473,8 @@ export async function streamSpeech(
         audio.onended = () => done(false);
       } catch {
         stopMicMonitor();
-        await speakText(text, lang, role, rate);
-        done(false);
+        const outcome = await speakText(text, lang, role, rate, { strict: opts.strict });
+        done(false, outcome.neural);
       }
     });
   });

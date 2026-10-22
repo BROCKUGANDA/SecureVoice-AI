@@ -1825,28 +1825,63 @@ async function edgeIsolate(options = {}) {
     process.exit(1);
   }
 
+  // The detach is reversible only while this process still knows what it took
+  // away, so every exit after the first disconnect re-attaches in reverse order
+  // before it leaves. The mode is written last: `isolated` is the state in which a
+  // later recreate refuses a foreign attachment, and writing it before the public
+  // path has been proven would mean a failed cutover prints an undo command that
+  // the mode it just set then fights.
+  const detached = [];
+  const reattach = () => {
+    for (const network of detached.reverse()) {
+      const back = spawnSync("docker", ["network", "connect", network, containerId("caddy")], {
+        encoding: "utf8",
+      });
+      console.log(
+        `  re-attached ${network}${back.status === 0 ? "" : ` — FAILED: ${(back.stderr ?? "").trim()}`}`,
+      );
+    }
+    detached.length = 0;
+  };
+
   for (const network of foreign) {
     const r = spawnSync("docker", ["network", "disconnect", network, containerId("caddy")], {
       encoding: "utf8",
     });
     if (r.status !== 0) {
       console.error(`\n  could not detach ${network}: ${(r.stderr ?? "").trim()}`);
+      if (detached.length) {
+        console.error(`  ${detached.length} network(s) were already detached. Putting them back.`);
+        reattach();
+      }
       process.exit(1);
     }
+    detached.push(network);
     console.log(`  detached caddy from ${network}`);
   }
-
-  writeState({ ...readState(), edge: "isolated" });
-  console.log("  mode              isolated — a later recreate will refuse a foreign attachment.");
 
   const broken = fragment.tls.filter((entry) => !publicNameAnswers(entry.name).ok);
   if (broken.length) {
     console.error(
-      `\n  WARNING: ${broken.map((b) => b.name).join(", ")} stopped answering after the detach.\n` +
-        `  Undo: \`docker network connect <network> <caddy>\` for each detached network above.`,
+      `\n  ${broken.map((b) => b.name).join(", ")} stopped answering after the detach. Putting the edge back.`,
     );
+    reattach();
+    const stillBroken = fragment.tls.filter((entry) => !publicNameAnswers(entry.name).ok);
+    if (stillBroken.length) {
+      console.error(
+        `  the edge is NOT back: ${stillBroken.map((b) => b.name).join(", ")} still do not answer.\n` +
+          `  Re-attach by hand and inspect ${containerId("caddy")} — nothing was written to the state file.`,
+      );
+    } else {
+      console.error(
+        `  the public path answers again, and no state was written — the box is still in edge mode \`${edgeMode()}\`.`,
+      );
+    }
     process.exit(1);
   }
+
+  writeState({ ...readState(), edge: "isolated" });
+  console.log("  mode              isolated — a later recreate will refuse a foreign attachment.");
   console.log("  public path       still answering. the cutover is done.");
 }
 

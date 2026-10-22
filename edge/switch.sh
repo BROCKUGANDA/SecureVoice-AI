@@ -64,7 +64,13 @@ note_problem() {
 
 say "checking the preconditions"
 
-for f in "$EDGE_DIR/nginx/edge.conf" "$EDGE_DIR/compose.yml" "$EDGE_DIR/nginx/edge.d"; do
+# The directory the front-door compose will actually MOUNT. Its default is
+# relative to the compose file; EDGE_FRAGMENT_DIR overrides it on a box where
+# the tables are collected elsewhere. Validating a different directory than
+# the one that will be served certifies a table nobody runs.
+FRAGMENTS="${EDGE_FRAGMENT_DIR:-$EDGE_DIR/nginx/edge.d}"
+
+for f in "$EDGE_DIR/nginx/edge.conf" "$EDGE_DIR/compose.yml" "$FRAGMENTS"; do
 	[ -e "$f" ] || note_problem "$f is missing"
 done
 
@@ -166,7 +172,7 @@ fi
 # front door's logs had nothing to say about it.
 #
 # A validation that passes on an empty table is not a validation.
-fragments="$EDGE_DIR/nginx/edge.d"
+fragments="$FRAGMENTS"
 if [ ! -d "$fragments" ]; then
 	note_problem "$fragments does not exist — the front door would start with an empty routing table"
 else

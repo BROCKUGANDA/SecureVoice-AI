@@ -107,14 +107,15 @@ function readState() {
 }
 
 /**
- * The networks caddy is attached to that this compose file does NOT declare.
+ * The Docker networks this edge is attached to that this compose file does NOT
+ * own.
  *
- * Caddy is this box's shared edge: it fronts this project AND other projects
- * that live on the same host, and it reaches those by service name, which only
- * works from inside their compose networks. Those attachments are made by
- * hand, because they belong to another project's compose file and not to this
- * one — and `docker compose up` rebuilds a container from its compose
- * definition, so every recreate DROPS them.
+ * Caddy used to be this box's shared edge: it fronted this project AND other
+ * projects that live on the same host, and it reached those by service name,
+ * which only resolves from inside their compose networks. Those attachments
+ * were made by hand, because they belonged to another project's compose file
+ * and not to this one — and `docker compose up` rebuilds a container from its
+ * compose definition, so every recreate DROPPED them.
  *
  * That is not a theoretical loss. On 2026-10-21 a traffic flip recreated
  * caddy, the attachment to the other project's network was silently dropped,
@@ -122,11 +123,18 @@ function readState() {
  * containers reported themselves healthy. The failure looked like an outage
  * in the other project and had nothing to do with it.
  *
- * So the attachment is preserved across a recreate: the extra networks are
- * read before caddy is rebuilt and reconnected afterwards. It is deliberately
- * generic — this file never learns the other project's name.
+ * The first fix PRESERVED those attachments across a recreate. It worked, and
+ * it was the wrong shape: it kept a cross-project capability alive and made
+ * this deploy script responsible for another project's reachability. The edge
+ * is now per project (ADR-009) — one Caddy, one Caddyfile, one Docker
+ * network, one product — so there is nothing left to preserve and nothing
+ * left to reconnect.
+ *
+ * What replaces the workaround is an INVARIANT rather than a mitigation: an
+ * edge attached to a network it does not own is a configuration error, and it
+ * is DETECTED instead of accommodated.
  */
-function extraCaddyNetworks() {
+function foreignCaddyNetworks() {
   const r = spawnSync(
     "docker",
     [
@@ -138,9 +146,10 @@ function extraCaddyNetworks() {
     { encoding: "utf8" },
   );
   if (r.status !== 0) return [];
-  // The networks this compose file owns are named after the project. Everything
-  // else caddy is attached to belongs to another project on this box, and is
-  // the thing a recreate would drop.
+  // The networks this compose file owns are named after the project. Anything
+  // else caddy is attached to belongs to another project on this host — in the
+  // retired arrangement it is a cross-project capability, and in the target
+  // one it is a configuration error.
   const ours = new Set([`${projectName()}_default`]);
   return (r.stdout ?? "")
     .split("\n")
@@ -160,26 +169,78 @@ function reattachCaddyNetworks(networks) {
 }
 
 /**
- * Recreate caddy, keeping the network attachments this compose file does not
- * own.
+ * The edge's isolation mode.
  *
- * EVERY recreate of caddy goes through here. That is the point: the loss is
- * silent and the damage lands on a project that has nothing to do with this
- * one, so a second recreate path that "forgot" to preserve the attachments
- * would reproduce the 2026-10-21 outage in a different command. The emergency
- * revert (`revertToPlain`) is the worst place for that to hide — it is the
- * path taken when an adoption has already failed, and it recreates caddy on
- * the way out.
+ *   "shared"   — the retired arrangement. This Caddy also served another
+ *                project and was hand-attached to that project's network, so
+ *                the foreign attachments are PRESERVED across a recreate —
+ *                dropping them is the 2026-10-21 outage — and the operator is
+ *                told, every time, that the edge should be split.
+ *   "isolated" — the arrangement ADR-009 asks for: this edge serves this
+ *                project only, on this project's network only. A foreign
+ *                attachment is then a hard error and the recreate is REFUSED,
+ *                because preserving it would quietly re-create the coupling
+ *                this mode exists to end.
+ *
+ * The default is "shared" so a box that has not been cut over yet keeps
+ * deploying. A deploy script that starts failing on a production box is a
+ * worse outcome than a deprecated arrangement that still works, and the
+ * warning in `recreateCaddy` is what drives the cutover. `edge-isolate` is
+ * what flips the mode, and it only does so after the front door is answering.
+ */
+function edgeMode() {
+  return readState().edge === "isolated" ? "isolated" : "shared";
+}
+
+/**
+ * Recreate caddy.
+ *
+ * EVERY recreate of caddy goes through here — the traffic flip AND the
+ * emergency revert. That has not changed: the loss of a network attachment is
+ * silent, and the damage lands on a project that has nothing to do with this
+ * one, so a second recreate path that "forgot" would reproduce the 2026-10-21
+ * outage from a different command. The emergency revert is the worst place
+ * for that to hide, because it is taken when an adoption has already failed.
+ *
+ * What changed is what the recreate does about a FOREIGN attachment: in the
+ * target state that is an error, and in the current state it is a warned-about
+ * legacy condition.
  */
 function recreateCaddy(options = {}) {
-  // Read BEFORE the recreate: afterwards the container is the compose file's
-  // own, and the attachments are already gone.
-  const extraNetworks = extraCaddyNetworks();
-  if (extraNetworks.length > 0) {
-    console.log(`  caddy also serves ${extraNetworks.join(", ")} — preserving those attachments`);
+  const foreign = foreignCaddyNetworks();
+  const isolated = edgeMode() === "isolated";
+
+  if (isolated && foreign.length > 0) {
+    console.error(
+      `\n  refusing to recreate caddy: it is attached to networks this project does not own:\n` +
+        foreign.map((n) => `    · ${n}`).join("\n") +
+        `\n\n  an isolated edge sits on this project's network and no other (ADR-009).\n` +
+        `  detach them first:\n` +
+        foreign
+          .map((n) => `    docker network disconnect ${n} ${containerId("caddy")}`)
+          .join("\n") +
+        `\n  or run \`bun scripts/deploy.mjs edge-isolate\` to cut the edge over properly.`,
+    );
+    process.exit(1);
   }
+
+  // "shared" (retired): preserve the foreign attachments, because dropping
+  // them is what took another project's product offline on 2026-10-21, and
+  // say so — the fix is an edge of its own. Read BEFORE the recreate:
+  // afterwards the container is the compose file's own and the attachments
+  // are already gone.
+  if (!isolated && foreign.length > 0) {
+    console.log(
+      `\n  caddy is still attached to ${foreign.join(", ")} — a network this project does not own.\n` +
+        `  those attachments are preserved across this recreate, because dropping them took another\n` +
+        `  project's product offline on 2026-10-21. The fix is an edge of its own:\n` +
+        `  \`bun scripts/deploy.mjs edge-status\` shows the state, \`edge-isolate\` cuts it over.`,
+    );
+  }
+
   const r = compose(["up", "-d", "--no-deps", "caddy"], options);
-  reattachCaddyNetworks(extraNetworks);
+
+  if (!isolated) reattachCaddyNetworks(foreign);
   return r;
 }
 
@@ -1514,6 +1575,316 @@ async function auto(image, opts) {
   console.log(`\n  ✓ auto release complete: app-${readState().active} is serving ${releaseImage}`);
 }
 
+// ── the edge's isolation state ─────────────────────────────────────────────────────
+//
+// Three questions, one command, and none of them is answerable from the
+// compose file alone: which networks is the edge actually on, where is it
+// actually reachable from, and is the front door actually routing it.
+
+/**
+ * The host bindings this edge publishes, read from the running container.
+ *
+ * Read from DOCKER rather than from the compose file, because the question is
+ * "where can this edge be reached from", and the answer that matters is the
+ * one the RUNNING container is publishing — not the one the file would
+ * produce for a different set of environment variables.
+ */
+function caddyPublishedPorts() {
+  const id = containerId("caddy");
+  if (!id) return [];
+  const r = spawnSync("docker", ["inspect", "--format", "{{json .NetworkSettings.Ports}}", id], {
+    encoding: "utf8",
+  });
+  if (r.status !== 0) return [];
+  try {
+    const parsed = JSON.parse(r.stdout ?? "{}");
+    const out = [];
+    for (const [port, bindings] of Object.entries(parsed ?? {})) {
+      for (const b of bindings ?? []) {
+        out.push({ port, host: b.HostIp ?? "0.0.0.0", hostPort: b.HostPort ?? "" });
+      }
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * This project's fragment of the shared front door's routing table.
+ *
+ * `edge/nginx/edge.d/*.sni.map` is the TLS table, keyed by SNI;
+ * `*.host.map` is the plain-HTTP table, keyed by the Host header. Each
+ * project ships its own pair and the front door includes the whole directory,
+ * so a new name is a change in the project that owns it — not an edit to
+ * somebody else's edge.
+ */
+function edgeFragment() {
+  const dir = resolve(ROOT, "edge/nginx/edge.d");
+  const read = (file) => {
+    const path = resolve(dir, file);
+    if (!existsSync(path)) return [];
+    return readFileSync(path, "utf8")
+      .split("\n")
+      .map((line) => line.replace(/#.*$/, "").trim())
+      .filter(Boolean)
+      .map((line) => {
+        const [name, ...rest] = line.split(/\s+/);
+        return { name, target: rest.join(" ") };
+      })
+      .filter((e) => e.name && e.target);
+  };
+  return { tls: read("securevoice.sni.map"), http: read("securevoice.host.map") };
+}
+
+/**
+ * Does the PUBLIC path answer for this name?
+ *
+ * The point of the check is the CHAIN, not the name. If this edge publishes
+ * only loopback and the public name still answers, then the answer came
+ * through the front door — which is the condition under which detaching the
+ * foreign networks is safe, because the traffic no longer depends on this
+ * container's Docker attachments.
+ */
+function publicNameAnswers(name) {
+  const r = spawnSync(
+    "curl",
+    [
+      "-fsS",
+      "-o",
+      "/dev/null",
+      "--max-time",
+      "10",
+      "-w",
+      "%{http_code}",
+      `https://${name}/healthz`,
+    ],
+    { encoding: "utf8" },
+  );
+  const code = (r.stdout ?? "").trim();
+  return { code, ok: r.status === 0 && code === "200" };
+}
+
+/**
+ * Report the edge's isolation state. READ-ONLY — it changes nothing, so it is
+ * safe to run at any time, including during an incident.
+ */
+async function edgeStatus() {
+  const mode = edgeMode();
+  const foreign = foreignCaddyNetworks();
+  const ports = caddyPublishedPorts();
+  const fragment = edgeFragment();
+
+  console.log(`\n  edge mode         ${mode}`);
+  if (mode === "shared") {
+    console.log(
+      `                   (retired arrangement — this edge also serves another project.\n` +
+        `                    \`bun scripts/deploy.mjs edge-isolate --yes\` cuts it over.)`,
+    );
+  }
+
+  console.log(
+    `  caddy networks    ${
+      foreign.length
+        ? `${foreign.join(", ")}  ← FOREIGN, not this project's`
+        : "this project's network only"
+    }`,
+  );
+  console.log(
+    `  caddy publishes   ${
+      ports.length
+        ? ports.map((p) => `${p.host}:${p.hostPort}→${p.port}`).join(", ")
+        : "(caddy is not running)"
+    }`,
+  );
+  console.log(
+    `  front door table  ${
+      fragment.tls.map((f) => `${f.name} → ${f.target}`).join(", ") || "(no fragment found)"
+    }`,
+  );
+
+  const publicBindings = ports.filter((p) => p.host !== "127.0.0.1" && p.host !== "::1");
+  if (foreign.length) {
+    console.log(
+      `\n  verdict           SHARED EDGE — this container can reach another project's containers,\n` +
+        `                    and this project's deploy is another project's outage risk.`,
+    );
+  } else if (publicBindings.length) {
+    console.log(
+      `\n  verdict           ISOLATED — one project, one network.\n` +
+        `                    It is still published on the public ports, so it is the standalone edge\n` +
+        `                    and the front door is not in front of it.`,
+    );
+  } else {
+    console.log(
+      `\n  verdict           ISOLATED — one project, one network, behind the front door.`,
+    );
+  }
+}
+
+/**
+ * Cut the edge over to the isolated arrangement.
+ *
+ * ── What it does, in order ───────────────────────────────────────────────────────
+ *
+ *   1. Checks the preconditions and REFUSES if any of them fails.
+ *   2. Detaches the edge from the networks it does not own.
+ *   3. Flips the mode to "isolated", so a later recreate REFUSES to preserve
+ *      a foreign attachment instead of quietly re-creating the coupling.
+ *   4. Re-checks that this project still answers on the public path.
+ *
+ * ── Why the preconditions are the whole safety of this command ───────────────────
+ *
+ * Detaching the foreign networks is the point, and it is also the only
+ * irreversible step. It is safe exactly when the public traffic for this
+ * project no longer flows THROUGH this container's Docker attachments — which
+ * is true when this edge publishes only loopback and the front door is routing
+ * to it. So:
+ *
+ *   · this edge must publish ONLY loopback — if it still owns :443, the public
+ *     path may be answering from this container directly and the probe below
+ *     would prove nothing;
+ *   · the front door's table must name the addresses this edge actually
+ *     publishes — otherwise the probe is answered by something else;
+ *   · every public name must answer — otherwise the front door is not routing
+ *     this project at all.
+ *
+ * WHAT THIS CANNOT CHECK: the other project's half. The command verifies that
+ * THIS project is served by the front door; it cannot verify that the OTHER
+ * project has its own edge behind the same front door, because that project
+ * and its table are not this repository's business. That is why `--yes` is
+ * required: the operator is asserting that the other half is done.
+ */
+async function edgeIsolate(options = {}) {
+  const foreign = foreignCaddyNetworks();
+  const ports = caddyPublishedPorts();
+  const fragment = edgeFragment();
+
+  console.log(`\n  edge mode         ${edgeMode()}`);
+
+  if (foreign.length === 0) {
+    console.log("  foreign networks  none — the edge is already on this project's network only.");
+    if (edgeMode() !== "isolated") {
+      writeState({ ...readState(), edge: "isolated" });
+      console.log("  mode             flipped to isolated.");
+    }
+    return;
+  }
+
+  const problems = [];
+
+  const publicBindings = ports.filter((p) => p.host !== "127.0.0.1" && p.host !== "::1");
+  if (publicBindings.length > 0) {
+    problems.push(
+      `this edge still publishes the public ports (${publicBindings
+        .map((p) => `${p.host}:${p.hostPort}`)
+        .join(", ")}).\n` +
+        `       the front door cannot be in front of it, so the probe below would prove nothing.\n` +
+        `       set CADDY_BIND=127.0.0.1, CADDY_HTTP_PORT and CADDY_HTTPS_PORT in the host's .env,\n` +
+        `       then recreate the edge so the new bindings take effect:\n` +
+        `         docker compose up -d --no-deps caddy\n` +
+        `       and bring the front door up.`,
+    );
+  }
+
+  const published = new Set(ports.map((p) => `${p.host}:${p.hostPort}`));
+  for (const entry of fragment.tls) {
+    if (!published.has(entry.target)) {
+      problems.push(
+        `the front door routes ${entry.name} to ${entry.target}, and this edge does not publish\n` +
+          `       that address (it publishes: ${[...published].join(", ") || "nothing"}).`,
+      );
+    }
+  }
+
+  for (const entry of fragment.tls) {
+    const probe = publicNameAnswers(entry.name);
+    if (!probe.ok) {
+      problems.push(
+        `${entry.name} does not answer on the public path (got ${probe.code || "nothing"}).\n` +
+          `       the front door is not routing this project yet, so there is nothing to fall back to.`,
+      );
+    }
+  }
+
+  if (problems.length) {
+    console.error(`\n  refusing to cut the edge over:\n`);
+    for (const p of problems) console.error(`    · ${p}\n`);
+    console.error(
+      `  docs/VPS-RECOVERY.md, failure mode #3, is the runbook. Nothing has been changed.`,
+    );
+    process.exit(1);
+  }
+
+  if (!options.yes) {
+    console.log(
+      `\n  preconditions OK. This will detach the edge from: ${foreign.join(", ")}\n` +
+        `  and it is IRREVERSIBLE from here — the other project must already have its own edge\n` +
+        `  behind the front door. Re-run with --yes when that is true.`,
+    );
+    process.exit(1);
+  }
+
+  // The detach is reversible only while this process still knows what it took
+  // away, so every exit after the first disconnect re-attaches in reverse order
+  // before it leaves. The mode is written last: `isolated` is the state in which a
+  // later recreate refuses a foreign attachment, and writing it before the public
+  // path has been proven would mean a failed cutover prints an undo command that
+  // the mode it just set then fights.
+  const detached = [];
+  const reattach = () => {
+    for (const network of detached.reverse()) {
+      const back = spawnSync("docker", ["network", "connect", network, containerId("caddy")], {
+        encoding: "utf8",
+      });
+      console.log(
+        `  re-attached ${network}${back.status === 0 ? "" : ` — FAILED: ${(back.stderr ?? "").trim()}`}`,
+      );
+    }
+    detached.length = 0;
+  };
+
+  for (const network of foreign) {
+    const r = spawnSync("docker", ["network", "disconnect", network, containerId("caddy")], {
+      encoding: "utf8",
+    });
+    if (r.status !== 0) {
+      console.error(`\n  could not detach ${network}: ${(r.stderr ?? "").trim()}`);
+      if (detached.length) {
+        console.error(`  ${detached.length} network(s) were already detached. Putting them back.`);
+        reattach();
+      }
+      process.exit(1);
+    }
+    detached.push(network);
+    console.log(`  detached caddy from ${network}`);
+  }
+
+  const broken = fragment.tls.filter((entry) => !publicNameAnswers(entry.name).ok);
+  if (broken.length) {
+    console.error(
+      `\n  ${broken.map((b) => b.name).join(", ")} stopped answering after the detach. Putting the edge back.`,
+    );
+    reattach();
+    const stillBroken = fragment.tls.filter((entry) => !publicNameAnswers(entry.name).ok);
+    if (stillBroken.length) {
+      console.error(
+        `  the edge is NOT back: ${stillBroken.map((b) => b.name).join(", ")} still do not answer.\n` +
+          `  Re-attach by hand and inspect ${containerId("caddy")} — nothing was written to the state file.`,
+      );
+    } else {
+      console.error(
+        `  the public path answers again, and no state was written — the box is still in edge mode \`${edgeMode()}\`.`,
+      );
+    }
+    process.exit(1);
+  }
+
+  writeState({ ...readState(), edge: "isolated" });
+  console.log("  mode              isolated — a later recreate will refuse a foreign attachment.");
+  console.log("  public path       still answering. the cutover is done.");
+}
+
 function argValue(rest, flag) {
   const i = rest.indexOf(flag);
   return i >= 0 ? rest[i + 1] : undefined;
@@ -1544,6 +1915,17 @@ switch (cmd) {
   }
   case "status":
     await status();
+    break;
+  case "edge-status":
+    // READ-ONLY. Reports which networks the edge is on, where it is
+    // reachable from, and what the front door's table says about it.
+    await edgeStatus();
+    break;
+  case "edge-isolate":
+    // Cuts the edge over to the isolated arrangement (ADR-009). Checks its
+    // preconditions and refuses if any of them fails; `--yes` is the operator
+    // asserting that the OTHER project's half of the cutover is done.
+    await edgeIsolate({ yes: rest.includes("--yes") });
     break;
   case "mode":
     // One machine-readable word on stdout, so CI can branch on it without
@@ -1599,7 +1981,7 @@ switch (cmd) {
   }
   default:
     console.error(
-      "usage: bun scripts/deploy.mjs <deploy --image REF [--canary N] | auto [--image REF] [--start-percent N --mid-percent N --soak-seconds N] | stage --image REF | rollback | promote | canary --percent N [--to COLOUR] | probe [--colour COLOUR] | adopt | mode | staged-colour | status>",
+      "usage: bun scripts/deploy.mjs <deploy --image REF [--canary N] | auto [--image REF] [--start-percent N --mid-percent N --soak-seconds N] | stage --image REF | rollback | promote | canary --percent N [--to COLOUR] | probe [--colour COLOUR] | adopt | mode | staged-colour | status | edge-status | edge-isolate --yes>",
     );
     process.exit(1);
 }

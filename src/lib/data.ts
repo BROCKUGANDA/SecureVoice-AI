@@ -60,17 +60,17 @@ export const KPIS = [
 
 export const VOICES = [
   {
-    id: "marcus",
-    name: "Marcus",
+    id: "en-uk",
+    name: "EN-UK",
     lang: "English",
-    desc: "Mature, professional male. Calm authority under stress.",
+    desc: "Calm, steady register for fraud calls.",
     params: "stability 0.70 · similarity 0.75 · style 0.30",
   },
   {
-    id: "fatima",
-    name: "Fatima",
+    id: "ar-gulf",
+    name: "AR-Gulf",
     lang: "العربية الفصحى",
-    desc: "Clear, reassuring female. Modern Standard Arabic, Gulf-tuned.",
+    desc: "Clear, steady Modern Standard Arabic, Gulf-tuned.",
     params: "stability 0.70 · similarity 0.75 · style 0.30",
   },
 ];

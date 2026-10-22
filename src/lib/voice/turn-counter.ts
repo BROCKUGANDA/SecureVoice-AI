@@ -59,6 +59,19 @@ import { randomUUID } from "node:crypto";
 const STREAKS = new Map<string, { count: number; lastSeenAt: number }>();
 
 /**
+ * Every conversation this process has issued, whether or not it ever had an
+ * unclear turn.
+ *
+ * `STREAKS` cannot answer "is this the first turn?" because a clear turn
+ * deletes its entry by design. Without this separate ledger, a client's echoed
+ * `convId` would look unrecognised after every clear answer, the server would
+ * mint a new conversation each turn, and an opening disclosure would be
+ * injected on turn five. Only the conversation identity is recorded here —
+ * never the customer's words.
+ */
+const CONVS = new Map<string, number>();
+
+/**
  * Per-SOURCE budgets, the anti-rotation ceiling.
  *
  * Counted across every conversation that source has opened, so `MAX_SOURCE_UNCLEAR`
@@ -92,6 +105,9 @@ function sweep(now: number): void {
   for (const [key, entry] of SOURCES) {
     if (now - entry.lastSeenAt > IDLE_MS) SOURCES.delete(key);
   }
+  for (const [key, lastSeenAt] of CONVS) {
+    if (now - lastSeenAt > IDLE_MS) CONVS.delete(key);
+  }
   // A hard ceiling as well as the idle rule. Idle eviction alone bounds the map
   // only if the source ever goes quiet, and the cheap defence against a caller
   // minting conversations back to back is to refuse to remember them all. The
@@ -103,9 +119,15 @@ function sweep(now: number): void {
   for (const [map, cap] of [
     [STREAKS, MAX_TRACKED],
     [SOURCES, MAX_TRACKED],
+    [CONVS, MAX_TRACKED],
   ] as const) {
     if (map.size <= cap) continue;
-    const oldest = [...map.entries()].sort((a, b) => a[1].lastSeenAt - b[1].lastSeenAt);
+    // `CONVS` stores a bare timestamp; the other two store records.
+    const oldest = [...map.entries()].sort((a, b) => {
+      const aAt = typeof a[1] === "number" ? a[1] : a[1].lastSeenAt;
+      const bAt = typeof b[1] === "number" ? b[1] : b[1].lastSeenAt;
+      return aAt - bAt;
+    });
     for (let i = 0; i < oldest.length - cap; i++) {
       const key = oldest[i]?.[0];
       if (key !== undefined) map.delete(key);
@@ -116,6 +138,8 @@ function sweep(now: number): void {
 export type TurnVerdict = {
   /** The identifier the CLIENT must echo on its next turn. */
   convId: string;
+  /** True when this request opened a conversation the server had not seen. */
+  first: boolean;
   /** Consecutive unclear turns in this conversation, including this one. */
   streak: number;
   /** True once either ceiling is reached — escalate to a human. */
@@ -158,10 +182,10 @@ export function noteTurn(
 ): TurnVerdict {
   sweep(now);
 
-  const convId =
-    input.presentedConvId && STREAKS.has(input.presentedConvId)
-      ? input.presentedConvId
-      : mintConvId();
+  const known = input.presentedConvId != null && CONVS.has(input.presentedConvId);
+  const convId = known ? input.presentedConvId! : mintConvId();
+  CONVS.set(convId, now);
+  const first = !known;
 
   if (!input.unclear) {
     // A clear turn clears BOTH ledgers. Leaving the source budget standing would
@@ -169,7 +193,7 @@ export function noteTurn(
     // that address afterwards.
     STREAKS.delete(convId);
     SOURCES.delete(input.source);
-    return { convId, streak: 0, capped: false };
+    return { convId, first, streak: 0, capped: false };
   }
 
   const prev = STREAKS.get(convId);
@@ -184,7 +208,7 @@ export function noteTurn(
     streak >= envInt("MAX_UNCLEAR_TURNS", 4) ||
     sourceCount >= envInt("MAX_UNCLEAR_TURNS_PER_SOURCE", 12);
 
-  return { convId, streak, capped };
+  return { convId, first, streak, capped };
 }
 
 /** Current streak for a conversation, without recording a turn. */
@@ -201,11 +225,13 @@ export function unclearStreak(convId: string, now = Date.now()): number {
 /** Forget a conversation — on hangup, so a reused token cannot inherit a streak. */
 export function resetCallTurns(convId: string): void {
   STREAKS.delete(convId);
+  CONVS.delete(convId);
 }
 
 /** Test seam. */
 export function _resetTurnCounter(): void {
   STREAKS.clear();
   SOURCES.clear();
+  CONVS.clear();
   sinceSweep = 0;
 }

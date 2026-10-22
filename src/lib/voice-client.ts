@@ -73,18 +73,26 @@ export function prefetchSpeech(
   voice: string,
   lang?: CallLang,
   role: VoiceRole = "agent",
+  strict = false,
 ): void {
-  fetchSpeech(text, voice, lang, role).catch(() => {});
+  fetchSpeech(text, voice, lang, role, strict).catch(() => {});
 }
 
-/** Fetch (or reuse) the neural-voice audio for the given text. */
+/**
+ * Fetch (or reuse) the neural-voice audio for the given text.
+ *
+ * `strict` is the demo/scenario contract: only ElevenLabs may answer. It is
+ * part of the cache key so an auto-mode synthesis (which may be PlayHT or the
+ * emergency cue) can never be replayed as if it were the strict agent voice.
+ */
 export function fetchSpeech(
   text: string,
   voice: string,
   lang?: CallLang,
   role: VoiceRole = "agent",
+  strict = false,
 ): Promise<Speech> {
-  const key = `${voice}::${lang ?? ""}::${role}::${text}`;
+  const key = `${voice}::${lang ?? ""}::${role}::${strict ? "strict" : "auto"}::${text}`;
   const hit = AUDIO_CACHE.get(key);
   if (hit) return Promise.resolve(hit);
 
@@ -95,7 +103,13 @@ export function fetchSpeech(
     const res = await fetch("/api/tts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, voice, role, ...(lang ? { lang } : {}) }),
+      body: JSON.stringify({
+        text,
+        voice,
+        role,
+        ...(lang ? { lang } : {}),
+        ...(strict ? { strict: true } : {}),
+      }),
     });
     // Carrying the status into the message is what lets speakText tell a spent
     // demo budget (429) from a refused anonymous call (401) from a vendor outage.
@@ -121,12 +135,25 @@ export function fetchSpeechUrl(
   voice: string,
   lang?: CallLang,
   role: VoiceRole = "agent",
+  strict = false,
 ): Promise<string> {
-  return fetchSpeech(text, voice, lang, role).then((s) => (s.degraded ? DEGRADED : s.url));
+  return fetchSpeech(text, voice, lang, role, strict).then((s) => (s.degraded ? DEGRADED : s.url));
 }
 
 /* ————— single active audio channel ————— */
 let currentAudio: HTMLAudioElement | null = null;
+/**
+ * Resolves the browser-TTS promise when `stopVoice()` cancels an utterance.
+ * `speechSynthesis.cancel()` does not reliably fire `onend`, so without this a
+ * caller awaiting completion would wait forever after a language switch.
+ */
+let pendingUtteranceFinish: (() => void) | null = null;
+
+function finishPendingUtterance(): void {
+  const finish = pendingUtteranceFinish;
+  pendingUtteranceFinish = null;
+  finish?.();
+}
 
 export function stopVoice(): void {
   if (currentAudio) {
@@ -139,9 +166,19 @@ export function stopVoice(): void {
   try {
     window.speechSynthesis?.cancel();
   } catch {}
+  finishPendingUtterance();
 }
 
-/** Play a cached speech URL. Resolves when playback starts. */
+/**
+ * Play a cached speech URL.
+ *
+ * Resolves when playback FINISHES (or is stopped), not when it starts. The
+ * previous contract resolved at `play()`, and the demo clock treated that as
+ * "the agent has finished speaking": it advanced to the next scenario beat and
+ * called `stopVoice()` while the line was still audible, cutting the agent off
+ * mid-sentence on every fallback path. A caller that only needs "audio is now
+ * playing" should not await this function.
+ */
 export async function playUrl(url: string, rate = 1): Promise<void> {
   stopVoice();
   const a = new Audio(url);
@@ -151,37 +188,78 @@ export async function playUrl(url: string, rate = 1): Promise<void> {
     (a as HTMLAudioElement & { preservesPitch?: boolean }).preservesPitch = true;
   } catch {}
   currentAudio = a;
-  await a.play().catch(() => {});
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      a.removeEventListener("ended", done);
+      a.removeEventListener("error", done);
+      a.removeEventListener("pause", done);
+      if (currentAudio === a) currentAudio = null;
+      resolve();
+    };
+    a.addEventListener("ended", done);
+    a.addEventListener("error", done);
+    // `stopVoice()` pauses the element; without the pause listener the await
+    // would hang on a superseded or unmounted line.
+    a.addEventListener("pause", done);
+    void a.play().catch(done);
+  });
 }
 
-/** Best-effort browser TTS fallback. */
-export function browserSpeak(text: string, lang: CallLang, rate = 1): void {
-  try {
-    const synth = window.speechSynthesis;
-    if (!synth) return;
-    synth.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    // map every supported call language — falling ur/fr/sw back to an en-US
-    // voice renders unintelligible gibberish
-    u.lang =
-      lang === "ar"
-        ? "ar-SA"
-        : lang === "hi"
-          ? "hi-IN"
-          : lang === "ur"
-            ? "ur-PK"
-            : lang === "fr"
-              ? "fr-FR"
-              : lang === "sw"
-                ? "sw-KE"
-                : "en-US";
-    u.rate = rate;
-    const v = synth.getVoices().find((x) => x.lang.startsWith(u.lang.slice(0, 2)));
-    if (v) u.voice = v;
-    synth.speak(u);
-  } catch {
-    /* not supported — silent */
-  }
+/**
+ * Best-effort browser TTS fallback. Resolves when the utterance ends, errors,
+ * is cancelled, or exceeds a length-derived ceiling (a speech engine that
+ * never fires `onend` must not freeze the caller's clock forever).
+ */
+export function browserSpeak(text: string, lang: CallLang, rate = 1): Promise<void> {
+  return new Promise<void>((resolve) => {
+    try {
+      const synth = window.speechSynthesis;
+      if (!synth) {
+        resolve();
+        return;
+      }
+      synth.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      // map every supported call language — falling ur/fr/sw back to an en-US
+      // voice renders unintelligible gibberish
+      u.lang =
+        lang === "ar"
+          ? "ar-SA"
+          : lang === "hi"
+            ? "hi-IN"
+            : lang === "ur"
+              ? "ur-PK"
+              : lang === "fr"
+                ? "fr-FR"
+                : lang === "sw"
+                  ? "sw-KE"
+                  : "en-US";
+      u.rate = rate;
+      const v = synth.getVoices().find((x) => x.lang.startsWith(u.lang.slice(0, 2)));
+      if (v) u.voice = v;
+      let settled = false;
+      function done() {
+        if (settled) return;
+        settled = true;
+        clearTimeout(ceiling);
+        u.onend = null;
+        u.onerror = null;
+        if (pendingUtteranceFinish === done) pendingUtteranceFinish = null;
+        resolve();
+      }
+      // ~700 ms per word covers a 0.5× rate with margin.
+      const ceiling = setTimeout(done, Math.max(4_000, text.split(/\s+/).length * 700));
+      u.onend = done;
+      u.onerror = done;
+      pendingUtteranceFinish = done;
+      synth.speak(u);
+    } catch {
+      resolve();
+    }
+  });
 }
 
 /**
@@ -208,6 +286,16 @@ export const VOICE_FALLBACK_COPY: Record<VoiceFallback, string> = {
   failed: "Could not reach the voice service — using your device's voice.",
 };
 
+/**
+ * Strict-mode copy. The device voice is NOT played in this mode, so the
+ * fallback text above would be false. The demo says what actually happened: the
+ * ElevenLabs agent voice is unavailable and no other voice was substituted.
+ */
+export const STRICT_VOICE_UNAVAILABLE = {
+  en: "ElevenLabs agent voice unavailable — no other voice was substituted.",
+  ar: "صوت وكيل ElevenLabs غير متاح — لم يُستخدم صوت بديل.",
+} as const;
+
 function classify(err: unknown): VoiceFallback {
   const msg = err instanceof Error ? err.message : String(err ?? "");
   if (/429/.test(msg)) return "rate_limited";
@@ -221,22 +309,25 @@ export async function speakText(
   lang: CallLang,
   role: VoiceRole,
   rate = 1,
+  opts: { strict?: boolean } = {},
 ): Promise<SpeechOutcome> {
   let url: string;
   try {
     // `voice` is the language, on purpose: the server resolves language+role to
     // the voice the live call would use. Passing a slug here is what let the demo
     // drift away from the product once already.
-    url = await fetchSpeechUrl(text, lang, lang, role);
+    url = await fetchSpeechUrl(text, lang, lang, role, opts.strict === true);
   } catch (err) {
-    browserSpeak(text, lang, rate);
+    if (opts.strict) return { neural: false, reason: classify(err) };
+    await browserSpeak(text, lang, rate);
     return { neural: false, reason: classify(err) };
   }
   if (url === DEGRADED) {
     // The server could not synthesise and sent the hold-cue tone instead. Right on
-    // a live fraud call; in a demo the visitor hears their own device voice and is
-    // told why.
-    browserSpeak(text, lang, rate);
+    // a live fraud call; in a strict demo, a tone is not the agent voice and is
+    // not played at all.
+    if (opts.strict) return { neural: false, reason: "degraded" };
+    await browserSpeak(text, lang, rate);
     return { neural: false, reason: "degraded" };
   }
   await playUrl(url, rate);
@@ -258,12 +349,13 @@ export async function streamSpeech(
   lang: CallLang,
   role: VoiceRole,
   rate = 1,
+  opts: { bargeIn?: boolean; strict?: boolean } = {},
 ): Promise<{ streamed: boolean; bargeIn: boolean; neural: boolean; reason?: string }> {
   if (typeof MediaSource === "undefined" || !MediaSource.isTypeSupported("audio/mpeg")) {
     // `neural` is reported rather than assumed because the copy beside this player
     // claims a neural voice: when the vendor path is skipped, the visitor is hearing
     // their own device's speech engine and is entitled to be told.
-    const outcome = await speakText(text, lang, role, rate);
+    const outcome = await speakText(text, lang, role, rate, { strict: opts.strict });
     return { streamed: false, bargeIn: false, neural: outcome.neural, reason: outcome.reason };
   }
 
@@ -271,7 +363,7 @@ export async function streamSpeech(
   try {
     mediaSource = new MediaSource();
   } catch {
-    const outcome = await speakText(text, lang, role, rate);
+    const outcome = await speakText(text, lang, role, rate, { strict: opts.strict });
     return { streamed: false, bargeIn: false, neural: outcome.neural, reason: outcome.reason };
   }
 
@@ -290,13 +382,15 @@ export async function streamSpeech(
 
   return new Promise((resolve) => {
     let settled = false;
-    const done = (bargeIn: boolean) => {
+    let playedVendorAudio = false;
+    const done = (bargeIn: boolean, neural = true) => {
       if (settled) return;
       settled = true;
       cleanup();
-      // Reaching this resolve means vendor chunks were appended to the MediaSource,
-      // so the voice the visitor heard is the platform's neural voice.
-      resolve({ streamed: true, bargeIn, neural: true });
+      // `neural` is passed by the fallback paths: reaching this resolve is not
+      // proof that a vendor chunk was heard, which is exactly the claim the
+      // strict demo must not make when the buffered route failed too.
+      resolve({ streamed: true, bargeIn, neural });
     };
 
     mediaSource.addEventListener("sourceopen", async () => {
@@ -322,26 +416,48 @@ export async function streamSpeech(
             /* buffer full or closed — drop chunk, keep playing */
           }
         };
+        audio.addEventListener(
+          "playing",
+          () => {
+            playedVendorAudio = true;
+          },
+          { once: true },
+        );
 
-        // barge-in monitor: echo-cancelled mic + sustained-speech gate — the
-        // agent's own speaker bleed must NOT trigger a self-cutoff
-        startMicMonitor(() => {
-          audio.pause();
-          try {
-            mediaSource.endOfStream();
-          } catch {}
-          done(true);
-        });
+        // Barge-in monitor: echo-cancelled mic + sustained-speech gate — the
+        // agent's own speaker bleed must NOT trigger a self-cutoff. A TYPED
+        // turn opts out: there is no caller speech to interrupt, and opening
+        // the mic would both prompt for permission and give speaker bleed a
+        // way to cut an otherwise uninterrupted reply.
+        if (opts.bargeIn !== false) {
+          startMicMonitor(() => {
+            audio.pause();
+            try {
+              mediaSource.endOfStream();
+            } catch {}
+            done(true);
+          });
+        }
 
         const res = await fetch("/api/tts/stream", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text, voice: lang, lang, role }),
+          body: JSON.stringify({
+            text,
+            voice: lang,
+            lang,
+            role,
+            ...(opts.strict ? { strict: true } : {}),
+          }),
         });
         if (!res.ok || !res.body) {
           stopMicMonitor();
-          await speakText(text, lang, role, rate);
-          done(false);
+          // Strict mode still tries the buffered route — it is the same
+          // ElevenLabs voice — but never the device voice.
+          const outcome = await speakText(text, lang, role, rate, { strict: opts.strict });
+          // The fallback's failure does not erase audio the visitor already
+          // heard; only claim unavailable when no vendor chunk actually played.
+          done(false, playedVendorAudio || outcome.neural);
           return;
         }
 
@@ -351,8 +467,9 @@ export async function streamSpeech(
         // playing stream on a timer
         audio.play().catch(() => {
           audio.pause();
-          done(false);
-          void speakText(text, lang, role, rate);
+          void speakText(text, lang, role, rate, { strict: opts.strict }).then((outcome) =>
+            done(false, playedVendorAudio || outcome.neural),
+          );
         });
         for (;;) {
           const { done: finished, value } = await reader.read();
@@ -366,8 +483,8 @@ export async function streamSpeech(
         audio.onended = () => done(false);
       } catch {
         stopMicMonitor();
-        await speakText(text, lang, role, rate);
-        done(false);
+        const outcome = await speakText(text, lang, role, rate, { strict: opts.strict });
+        done(false, playedVendorAudio || outcome.neural);
       }
     });
   });

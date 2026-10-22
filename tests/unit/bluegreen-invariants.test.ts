@@ -292,16 +292,16 @@ describe("the deploy script", () => {
     expect(deployScript).toContain("already live on app-");
   });
 
-  test("every recreate of caddy preserves the networks this compose file does not own", () => {
-    // Caddy is this box's SHARED edge: it fronts this project AND the other
-    // projects on the same host, and it reaches those by service name, which
-    // only resolves from inside their compose networks. Those attachments are
-    // made by hand, because they belong to another project's compose file —
-    // and `docker compose up` rebuilds a container from THIS compose
-    // definition, so every recreate drops them.
+  test("every recreate of caddy goes through one helper, and there is only one", () => {
+    // Caddy used to be this box's SHARED edge: it fronted this project AND
+    // the other product on the same host, and it reached that product by
+    // service name, which only resolves from inside that product's compose
+    // network. Those attachments were made by hand, because they belonged to
+    // another project's compose file — and `docker compose up` rebuilds a
+    // container from THIS compose definition, so every recreate dropped them.
     //
-    // The loss is silent and the damage lands on a project that has nothing to
-    // do with this one: on 2026-10-21 a traffic flip recreated caddy, the
+    // The loss is silent and the damage lands on a project that has nothing
+    // to do with this one: on 2026-10-21 a traffic flip recreated caddy, the
     // attachment was dropped, and the other project answered 502 for every
     // request while all of its own containers reported themselves healthy.
     //
@@ -310,6 +310,12 @@ describe("the deploy script", () => {
     // it. A second recreate path that "forgot" would reproduce the same
     // outage from a different command, and the emergency revert is the worst
     // place for that to hide: it is taken when an adoption has already failed.
+    //
+    // WHAT THE HELPER DOES WITH A FOREIGN ATTACHMENT CHANGED. It used to
+    // preserve one, which kept a cross-project capability alive. It now
+    // REPORTS one, and — once the edge has been cut over — REFUSES to
+    // recreate rather than preserving it. The full arrangement is asserted
+    // in tests/unit/edge-isolation.test.ts.
     const rawRecreates = deployScript.match(/compose\(\["up", "-d", "--no-deps", "caddy"\]/g) ?? [];
     expect(rawRecreates).toHaveLength(1);
 
@@ -325,20 +331,20 @@ describe("the deploy script", () => {
     expect(helperAt).toBeGreaterThan(-1);
     const helper = deployScript.slice(helperAt, deployScript.indexOf("\n}\n", helperAt));
 
-    const readAt = helper.indexOf("extraCaddyNetworks()");
+    const readAt = helper.indexOf("foreignCaddyNetworks()");
     const recreateAt = helper.indexOf('compose(["up", "-d", "--no-deps", "caddy"]');
-    const reattachAt = helper.indexOf("reattachCaddyNetworks(extraNetworks)");
+    const reattachAt = helper.indexOf("reattachCaddyNetworks(foreign)");
 
     expect(readAt).toBeGreaterThan(-1);
     expect(recreateAt).toBeGreaterThan(readAt);
     expect(reattachAt).toBeGreaterThan(recreateAt);
   });
 
-  test("preserves the networks of OTHER projects only, and never names one", () => {
+  test("the foreign networks are identified by OWNERSHIP, and never by name", () => {
     // The project's own network is recreated by compose, so preserving it
-    // would be noise at best and an error at worst. The filter is by OWNERSHIP
-    // (anything that is not this project's default network), which is what
-    // makes it cover a project that does not exist yet.
+    // would be noise at best and an error at worst. The filter is by
+    // OWNERSHIP (anything that is not this project's default network), which
+    // is what makes it cover a project that does not exist yet.
     expect(deployScript).toContain("`${projectName()}_default`");
     expect(deployScript).toContain("ours.has(name)");
 

@@ -49,6 +49,7 @@
     "test:coverage:unit": "bun scripts/coverage.mjs unit --fast",
     "deploy": "bun scripts/deploy.mjs",
     "deploy:status": "bun scripts/deploy.mjs status",
+    "edge:validate": "bun scripts/edge-validate.mjs",
     "db:seed:audio": "bun scripts/seed-demo-audio.mjs",
     "voice:assets": "bun scripts/build-voice-assets.mjs",
     "icons": "bun scripts/build-icons.mjs",

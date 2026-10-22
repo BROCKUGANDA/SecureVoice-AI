@@ -74,13 +74,13 @@ have marked it early.**
 
 ## 7. Infrastructure
 
-| #   | Question            | Answer                                                                                                                                                          |
-| --- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 7.1 | Deployment model    | Containerised, single ingress behind a reverse proxy. The origin is reachable only from the proxy; every external surface terminates TLS at the edge.           |
-| 7.2 | Secrets management  | Environment/secret store only. No secrets in source, images or repositories; `.env` is never tracked and excluded from build context.                           |
-| 7.3 | Backup and recovery | Nightly database dumps retained 14 days, off-host copy recommended. **Recovery-time objective is untested — target Q1 for a documented and rehearsed restore.** |
-| 7.4 | Disaster recovery   | **Not yet documented as a tested plan — target Q1.** Single-region today; multi-region is roadmap, triggered by a second-country or residency requirement.      |
-| 7.5 | Patch management    | Base images pinned per release, dependency alerts on every push, deployment is a `git pull` + rebuild.                                                          |
+| #   | Question            | Answer                                                                                                                                                                                                                                                                                                                                                                  |
+| --- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 7.1 | Deployment model    | Containerised, single ingress behind a reverse proxy. The origin is reachable only from the proxy; every external surface terminates TLS at the edge. On a host serving more than one product, each product has its own edge and a shared L4 front door routes by SNI — no shared process, no shared Docker network (`docs/adr/009-isolated-edge-per-project.md`).      |
+| 7.2 | Secrets management  | Environment/secret store only. No secrets in source, images or repositories; `.env` is never tracked and excluded from build context.                                                                                                                                                                                                                                   |
+| 7.3 | Backup and recovery | Nightly database dumps retained 14 days, off-host copy recommended. **Recovery-time objective is untested — target Q1 for a documented and rehearsed restore.** The Terraform snapshot volume backs up the host disk, not the datastore, and is off by default: where PII-bearing backups live is a legal decision, not a boolean (`docs/INTERIM-EU-COMPLIANCE.md` R3). |
+| 7.4 | Disaster recovery   | **Not yet a tested plan — target Q1.** Single-region and single-AZ today. The three-zone target, the order of operations, and the move to UAE-region hosting are written down in `docs/INFRASTRUCTURE.md` ("From one box to three zones") and `docs/INTERIM-EU-COMPLIANCE.md` §5. The edge split that the three zones depend on is done.                                |
+| 7.5 | Patch management    | Base images pinned per release, dependency alerts on every push, deployment is a `git pull` + rebuild.                                                                                                                                                                                                                                                                  |
 
 ## 8. Sub-processors
 

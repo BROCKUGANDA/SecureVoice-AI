@@ -33,6 +33,40 @@ test("regulatory evidence export is tenant-scoped", async () => {
   expect(platform.intervention_id).toBe(owned.intervention_id);
 });
 
+test("a confirmed case remains STR-eligible after freeze and escalation", async () => {
+  const ref = `SV-F-STR-${Date.now().toString(36).toUpperCase()}`;
+  await db.case.create({
+    data: {
+      caseRef: ref,
+      orgId: ORG_A,
+      state: "FREEZE_STAGED",
+      transcriptRedacted: "redacted transcript",
+    },
+  });
+  try {
+    const pkg = await generateCaseFile(ref, ORG_A, { requireConfirmedFraud: true });
+    expect(pkg.case_state).toBe("FREEZE_STAGED");
+    expect(pkg.ai_transcript).toBe("redacted transcript");
+  } finally {
+    await db.auditLog.deleteMany({ where: { callRef: ref } });
+    await db.case.deleteMany({ where: { caseRef: ref } });
+  }
+});
+
+test("an unconfirmed case is still refused for an STR", async () => {
+  const ref = `SV-F-STR-NO-${Date.now().toString(36).toUpperCase()}`;
+  await db.case.create({
+    data: { caseRef: ref, orgId: ORG_A, state: "UNCERTAIN" },
+  });
+  try {
+    await expect(generateCaseFile(ref, ORG_A, { requireConfirmedFraud: true })).rejects.toThrow(
+      "confirmed-fraud state",
+    );
+  } finally {
+    await db.case.deleteMany({ where: { caseRef: ref } });
+  }
+});
+
 afterAll(async () => {
   await db.auditLog.deleteMany({ where: { callRef: REF_A } });
   await db.case.deleteMany({ where: { caseRef: REF_A } });

@@ -611,7 +611,11 @@ per-category powers) and its evaluation criteria — but the enforcement is ours
 ## Deployment
 
 The production deployment is a **VPS** running the compose stack, with **Caddy as the only
-published port** (TLS, per-site blocks, log redaction) on a shared edge. The pipeline is
+published port** (TLS, per-site blocks, log redaction). On a host that serves more than one
+product, each product has **its own edge** and a small **L4 front door** routes each
+connection to the right one by SNI — the front door terminates no TLS, parses no HTTP, and
+shares no Docker network with any product ([`docs/adr/009-isolated-edge-per-project.md`](docs/adr/009-isolated-edge-per-project.md),
+[`edge/README.md`](edge/README.md)). The pipeline is
 fully automated, and every stage is gated on the one before it:
 
 ```
@@ -647,9 +651,10 @@ Because CI shares the host with production, the smoke test runs under its **own 
 project** (`securevoice-ci`) on its **own host ports** (`18080`/`18443`), and asserts after
 every run that production still has its full set of containers and a healthy origin. A CI
 job therefore cannot replace or delete the live stack — see `docker-compose.ci.yml`. The
-The VPS checkout's edge configuration is the repo's `Caddyfile` unmodified — the shared
-proxy's extra hostnames live in an untracked `sites.d/*.caddy` the Caddyfile imports —
-so a deploy pull updates it like any other file, with no host-local state to trip over.
+VPS checkout's edge configuration is the repo's `Caddyfile` unmodified, and it is the WHOLE
+edge configuration: every hostname this product answers for is a literal in that reviewed
+file, so a deploy pull updates it like any other file, with no host-local state to trip over
+and no configuration that can differ between availability zones.
 
 The platform agent's own configuration is **not** deployed by CI — it is applied
 declaratively by `bun run agent:apply` (deep-diffed against the YAML), so agent prompt and

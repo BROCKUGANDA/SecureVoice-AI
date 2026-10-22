@@ -21,7 +21,7 @@ import { env } from "@/lib/config";
  *   3. `SITE_ADDRESS` — the deployment's canonical hostname, promoted to https.
  *      This is the one that quietly publishes a `*.sslip.io` stand-in; see
  *      `siteOriginIsPlaceholder` below. (Caddy does not read this variable —
- *      its site list is literal, see `Caddyfile` / `sites.d/`.)
+ *      its site list is literal, and it is the whole list: see `Caddyfile`.)
  *   4. `env.appBaseUrl` — the dev fallback (`http://localhost:3000`), so a local
  *      build emits a parseable file instead of throwing.
  *

@@ -24,10 +24,10 @@
 #      ("ambiguous site definition: securevoiceai.me", measured with `caddy
 #      validate` against caddy:2-alpine, 2026-10-12), and before that it forced
 #      the production box into a hand-diverged copy of this whole file. The
-#      list at the bottom is literal; host-local extra sites arrive through the
-#      untracked `import sites.d/*.caddy` below it, which cannot collide.
-#      Plaintext development still lives in a SEPARATE file (Caddyfile.dev),
-#      deliberately NOT a compose service.
+#      list at the bottom is literal, and it is the WHOLE list: this edge
+#      serves this project and nothing else (ADR-009). Plaintext development
+#      still lives in a SEPARATE file (Caddyfile.dev), deliberately NOT a
+#      compose service.
 #   2. Snippets `(name) { … }` must be DEFINED BEFORE any block that `import`s
 #      them, or Caddy fails with "File to import not found".
 #   3. There is NO `log { redact { … } }` in Caddy 2. Redaction is
@@ -79,6 +79,8 @@
 	# src/proxy.ts trusts X-Forwarded-For only when it sees this marker, so a forged
 	# header on a direct-to-origin request cannot buy extra rate-limit budget.
 	header_up X-SecureVoice-Proxy "1"
+	# Caddy is the trust boundary; overwrite the spoofable client-supplied header.
+	header_up CF-Connecting-IP {remote_host}
 
 	# DO NOT add `header_up Connection {>Connection}` here. Measured, not guessed:
 	# with that line the websocket upgrade dies with
@@ -123,7 +125,7 @@
 #     the 503 the contract below needs, and inside `handle_response` it has no
 #     documented status to take at all.
 #   · `public/` is baked into the APP image; this container mounts only
-#     `./Caddyfile` and `./sites.d` (docker-compose.yml), so a file there is
+#     `./Caddyfile` (docker-compose.yml), so a file there is
 #     unreadable during exactly the outage it exists to describe. A bind mount
 #     would fix that and add a second artifact that can drift from the edge
 #     serving it — and the edge is the thing that has to be right alone.
@@ -595,15 +597,57 @@ localhost {
 # not a new exposure — but if the record is switched back to orange, this block
 # MUST acquire a static origin certificate or it returns to the 526 above.
 #
-# HOST-LOCAL SITES. This file is byte-identical on every machine — the shared
-# production box also fronts crucible.svalley.tech (another project), and that
-# site block does NOT live here: it is an untracked `sites.d/crucible.caddy` on
-# that box, pulled in by the `import sites.d/*.caddy` at the bottom. Adding a
-# host is one untracked file, and commits to THIS file deploy themselves. That
-# replaced the old arrangement — per-site blocks inline here in a skip-worktree'd
-# box copy, which made every promoted change to this file refuse to pull until
-# an operator SSH'd in and merged by hand. docs/VPS-RECOVERY.md carries the
-# history (failure mode #2).
+# ONE EDGE, ONE PROJECT. This file is byte-identical on every machine, and it
+# is the WHOLE edge configuration — there is no host-local directory imported
+# below, and no second project's hostname anywhere in it.
+#
+# It used to be otherwise. The shared production box also fronted a SECOND
+# product, and that site's block lived on the box as an untracked
+# `sites.d/<host>.caddy` pulled in by an `import sites.d/*.caddy` at the bottom
+# of this file. Caddy reached that other project BY SERVICE NAME, which only
+# resolves from inside the other project's Docker network, so the shared edge
+# had to be hand-attached to a network this compose file does not own — and
+# every `docker compose up` drops those attachments.
+#
+# The other product's name is deliberately NOT in this file. It is not this
+# project's to publish, and an edge that can serve a name it does not own is
+# the thing being removed. The history is in
+# docs/adr/009-isolated-edge-per-project.md.
+#
+# That is not a tidiness complaint; it was an outage. On 2026-10-21 a traffic
+# flip recreated caddy, the attachment was dropped, and the other project
+# answered 502 for every request while every one of its own containers reported
+# themselves healthy. One project's deploy took down another project's
+# product. scripts/deploy.mjs grew a workaround (preserve the foreign
+# attachments across a recreate) and that workaround is the wrong shape: it
+# keeps a cross-project capability alive instead of removing it.
+#
+# The three reasons the shared edge had to go, in the order they mattered:
+#
+#   1. BLAST RADIUS. One edge, one process, one config file, two products. A
+#      Caddyfile bug, a cert expiry, a bad upgrade or a traffic flip in EITHER
+#      project takes down BOTH. The 2026-10-21 incident is the measured
+#      instance of exactly that.
+#   2. TRUST BOUNDARY. A shared Caddy can reach another project's containers
+#      by name, so a compromise or a misconfiguration on this side is a
+#      capability against that side. Compliance regimes do not accept "the two
+#      tenants share an edge process" as isolation.
+#   3. THREE AZ. The target topology is three availability zones, and every
+#      zone must serve the SAME hostname list from the SAME config. A
+#      host-local, untracked site file guarantees the three zones drift, and a
+#      drift between zones is a certificate/SNI failure that only one zone
+#      has.
+#
+# So each project gets its own Caddy, with its own Caddyfile, in its own
+# repository, in its own Docker network. On a box that hosts more than one
+# product, a small L4 front door (nginx `stream` + `ssl_preread`, see `edge/`)
+# owns the public :80/:443 and forwards each TLS connection to the right
+# project's Caddy by SNI. It parses no HTTP, holds no certificates, reads no
+# request bodies and has no Docker network in common with anybody — the
+# shared surface is reduced to a name-to-port table.
+#
+# docs/adr/009-isolated-edge-per-project.md is the decision record, and
+# docs/VPS-RECOVERY.md carries the cutover runbook.
 # ---- HTTP (port 80): the redirect, and it carries the headers ------------------------
 #
 # WHY THIS BLOCK EXISTS. Caddy generates its automatic HTTP->HTTPS redirect at
@@ -644,17 +688,43 @@ securevoiceai.me, www.securevoiceai.me {
 	import site
 }
 
-# ---- host-local sites ---------------------------------------------------------------
+# ---- end of the site list ------------------------------------------------------------
 #
-# A wildcard import matching ZERO files is valid (measured, caddy:2-alpine) — no
-# placeholder is needed, so a fresh checkout expands this to nothing. Files here
-# are machine-local and untracked (.gitignore keeps only sites.d/README.md): the
-# shared box's extra hostnames, one `<host>.caddy` each, a complete
-# `host { import site }` block. The `(site)` snippet above is defined in this
-# parent file and IS importable from here — snippets are global once defined
-# (measured). Relative imports resolve against THIS file's directory, so in the
-# container this is `/etc/caddy/sites.d/*.caddy` (mounted by docker-compose.yml).
+# This is the end of it, and that is the point.
 #
-# Editing one needs a process restart — `admin off` means there is no reload
-# endpoint: `docker compose up -d --force-recreate caddy`.
-import sites.d/*.caddy
+# There is no `import sites.d/*.caddy` here any more, and the absence is
+# load-bearing. The wildcard import was the mechanism by which a SECOND
+# product's site block entered THIS edge: the block was untracked, so it was
+# invisible to review, to `git diff`, to the audit trail — and it was pulled in
+# by a file that is committed and reviewed, so nothing about the tracked
+# Caddyfile said that the effective configuration was bigger than the file.
+#
+# Three properties the tracked file now has that it did not have before:
+#
+#   · The effective edge configuration is REVIEWABLE. Every hostname this edge
+#     answers for is a literal in this file, so a change to what the company
+#     serves is a change a reviewer can see. That is a control, not a
+#     convenience: an auditor asking "which names does this edge answer for?"
+#     gets an answer from a tracked file instead of a directory listing on a
+#     host.
+#   · The effective edge configuration is IDENTICAL in every availability zone.
+#     Three zones that each load a host-local directory are three zones that
+#     drift, and the drift shows up as one zone serving a name the others do
+#     not — a TLS/SNI failure that only one of the three has.
+#   · Adding a hostname is a REVIEWED CHANGE to this file, in this repository,
+#     on the branch that is promoted like any other change. It used to be a
+#     file written on a production host by hand, which is the arrangement that
+#     made every promoted change to this file refuse to pull until an operator
+#     merged by hand (docs/VPS-RECOVERY.md, failure mode #2).
+#
+# The site's own routing — the snippets, the healthz probe, the maintenance
+# page, the log redaction — is unchanged by this. What changed is the blast
+# radius: the failure of this edge is this project's failure.
+#
+# For the hostname list the shared front door routes here, see
+# `edge/nginx/edge.d/securevoice.sni.map` and its `.host.map` sibling. The
+# two are checked against this file by tests/unit/edge-isolation.test.ts, so
+# the front door and the edge cannot disagree about a name.
+#
+# Editing this file needs a process restart — `admin off` means there is no
+# reload endpoint: `docker compose up -d --force-recreate caddy`.

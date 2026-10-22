@@ -18,7 +18,7 @@
  * independent.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { fetchSpeech, fetchSpeechUrl } from "@/lib/voice-client";
+import { fetchSpeech, fetchSpeechUrl, playUrl, stopVoice } from "@/lib/voice-client";
 
 const realFetch = globalThis.fetch;
 const realCreate = URL.createObjectURL;
@@ -257,5 +257,62 @@ describe("fetchSpeech — the server's degradation mark reaches the caller", () 
     expect(first.degraded).toBe(true);
     expect(second.degraded).toBe(true);
     expect(second.url).toBe(first.url);
+  });
+});
+
+describe("playUrl — resolves when playback FINISHES, not when it starts", () => {
+  const realAudio = globalThis.Audio;
+  const instances: FakeAudio[] = [];
+
+  class FakeAudio extends EventTarget {
+    currentTime = 0;
+    playbackRate = 1;
+    preservesPitch = true;
+    constructor(public src: string) {
+      super();
+      instances.push(this);
+    }
+    play(): Promise<void> {
+      return Promise.resolve();
+    }
+    pause(): void {
+      this.dispatchEvent(new Event("pause"));
+    }
+  }
+
+  beforeEach(() => {
+    instances.length = 0;
+    // @ts-expect-error — a minimal Audio stand-in for the contract under test.
+    globalThis.Audio = FakeAudio;
+  });
+  afterEach(() => {
+    stopVoice();
+    globalThis.Audio = realAudio;
+  });
+
+  test("a started-but-not-finished line does not resolve the promise", async () => {
+    let finished = false;
+    const playing = playUrl("blob:test").then(() => {
+      finished = true;
+    });
+    // `play()` resolved, which is exactly where the old contract returned.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(finished).toBe(false);
+
+    instances[0]!.dispatchEvent(new Event("ended"));
+    await playing;
+    expect(finished).toBe(true);
+  });
+
+  test("stopVoice releases a caller awaiting the line", async () => {
+    let finished = false;
+    const playing = playUrl("blob:test").then(() => {
+      finished = true;
+    });
+    stopVoice();
+    await playing;
+    expect(finished).toBe(true);
+    expect(instances[0]!.currentTime).toBe(0);
   });
 });

@@ -24,7 +24,7 @@ mixed under the screen capture.
 | 04  | Command Center                       | Live intervention feed       | Recent interventions with risk score and language, delivery state per leg, the audit chain behind each case. Pushed over SSE, not polled.                                         |
 | 05  | The voice agent                      | Guided simulation, full call | A signed risk signal (AED 2,500, new device, high-risk location) becomes an outbound call in seconds. The agent discloses, verifies, freezes — phase by phase.                    |
 | 06  | Compliance                           | Security page                | Every call opens with a disclosure; PIN/OTP/password requests are refused server-side, not by asking the model nicely; PII is redacted before persistence.                        |
-| 07  | Multilingual                         | Same simulation, Arabic      | The customer's language is the agent's language — Arabic routes to a different voice identity (Fatima, Gulf Arabic), same disclosure, same guardrails, bilingual transcript.      |
+| 07  | Multilingual                         | Same simulation, Arabic      | The customer's language is the agent's language — Arabic routes to a different voice identity (the AR-Gulf locale), same disclosure, same guardrails, bilingual transcript.       |
 | 08  | Evidence                             | Compliance dashboard         | Every action is a row in an immutable audit log: sha256 over the canonical serialisation, chained to the row before it. Editing any field breaks the link from that point onward. |
 | 09  | Outcome                              | Title card                   | Freeze staged inside the case deadline — in the customer's own language, with a chain that proves itself afterwards.                                                              |
 
@@ -60,7 +60,7 @@ of truth the pipeline speaks):
 > nicely. And personal data is redacted before it reaches the database.
 >
 > **07** — The customer's language is the agent's language. Switching the call
-> to Arabic routes to a different voice identity — Fatima, Gulf Arabic — same
+> to Arabic routes to a different voice identity — the AR-Gulf locale — same
 > disclosure, same guardrails, a bilingual transcript on screen. Each language
 > carries its own voice, so it never sounds translated.
 >

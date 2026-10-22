@@ -17,12 +17,17 @@ rollback is a second traffic flip rather than a cold rebuild.
         │
         ├─ start app-green  ──── healthcheck /api/readyz ──── ✔
         │
-        ├─ flip APP_UPSTREAM: app-blue → app-green, reload caddy
+        ├─ flip APP_UPSTREAM: app-blue → app-green, recreate caddy
         │
         ├─ probe THROUGH caddy ─────────────────────────── ✔
         │
         └─ soak. then `promote` stops app-blue.
                                   any failure ⇒ rollback to a still-warm app-blue
+
+("Recreate", not "reload": `admin off` means there is no reload endpoint. The
+operation is `docker compose up -d --no-deps caddy`, and `scripts/deploy.mjs`
+does it in exactly one place — the traffic flip and the emergency revert both
+go through `recreateCaddy`.)
 ```
 
 ### Usage
@@ -32,6 +37,7 @@ bun scripts/deploy.mjs deploy --image ghcr.io/<org>/securevoice-ai:v0.4.0
 bun scripts/deploy.mjs status      # active colour, both containers, caddy probe
 bun scripts/deploy.mjs rollback    # flip back to the previous colour
 bun scripts/deploy.mjs promote     # stop the previous colour after a soak
+bun scripts/deploy.mjs edge-status # which networks the edge is on, and who it serves
 ```
 
 or `bun run deploy` / `bun run deploy:status`.
@@ -51,6 +57,60 @@ a hand-edit racing the script is the failure mode worth designing out.
 The `app:3000` default keeps a plain `docker compose up` working unchanged on a
 single-colour stack, so this is opt-in.
 
+### Edge topology
+
+**One edge per product.** This project's Caddy serves this project's
+hostnames, on this project's Docker network, and nothing else. On a host that
+serves more than one product, a small **L4 front door** (`edge/`) owns the
+public `:80`/`:443` and forwards each connection to the right edge by SNI.
+
+```
+   public :443 ──▶ front door (nginx stream, ssl_preread)
+                      │  SNI=securevoiceai.me
+                      ▼
+                  this project's Caddy ──▶ app / realtime / workers
+```
+
+The front door terminates no TLS, parses no HTTP, holds no certificate and
+shares no Docker network with any product. The shared surface between two
+products is a hostname and a port. The decision, the rejected alternatives and
+the consequences are in
+[`docs/adr/009-isolated-edge-per-project.md`](adr/009-isolated-edge-per-project.md);
+the topology is in [`edge/README.md`](../edge/README.md).
+
+```bash
+bun scripts/deploy.mjs edge-status     # which networks, which ports, which names
+bun scripts/deploy.mjs edge-isolate --yes   # cut over (refuses unless the front door is up)
+```
+
+### From one box to three zones
+
+**Today:** one instance, one availability zone, one region, one Postgres
+volume, one edge. A dead box is an outage, and the RTO is however long a
+rebuild takes. `docs/SECURITY-QUESTIONNAIRE.md` §7.4 says so in one line, and
+`docs/INTERIM-EU-COMPLIANCE.md` R2 says what it costs.
+
+**Target:** three availability zones, each with its own instance, its own
+database replica and its own edge, behind a load balancer, with a failover
+that is tested rather than described.
+
+The order matters, because the order is chosen so that no step is a single
+point of failure that has to be moved later:
+
+1. **Split the edge** — done, `docs/adr/009`. One product's failure stops
+   being another product's failure. Works on one box.
+2. **Add two more zones**, each with its own edge behind its own front-door
+   instance. The zones are identical because the edge configuration is
+   _tracked_ — the whole point of step 1.
+3. **Put a load balancer in front of the three edges.** This also closes the
+   origin-exposure gap: the Cloudflare record is DNS-only, so the origin IP
+   is currently reachable directly with no WAF or DDoS scrubbing in front
+   (`docs/INTERIM-EU-COMPLIANCE.md` R1).
+4. **Move the zones into the UAE** for sovereignty. By then it is a provider
+   change on a topology that is already redundant.
+
+Doing step 4 first moves a single point of failure and calls it sovereignty.
+
 ### What it does NOT protect you from
 
 **A bad database migration.** Code rolls back; a dropped column does not. Migrate
@@ -62,8 +122,9 @@ against the new schema. `scripts/deploy.mjs` deliberately does not run migration
 | File                           | Role                                                                  |
 | ------------------------------ | --------------------------------------------------------------------- |
 | `docker-compose.bluegreen.yml` | the two colour slots; healthcheck is `/api/readyz`, not `/api/health` |
-| `scripts/deploy.mjs`           | the switch, health gating, rollback, promote                          |
+| `scripts/deploy.mjs`           | the switch, health gating, rollback, promote, edge isolation          |
 | `Caddyfile`                    | `{$APP_UPSTREAM}` instead of a hardcoded service name                 |
+| `edge/`                        | the shared L4 front door and this project's routing table             |
 
 ## Terraform
 

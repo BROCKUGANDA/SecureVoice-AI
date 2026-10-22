@@ -23,6 +23,8 @@
 	header_up X-Forwarded-Proto {scheme}
 	header_up Host {host}
 	header_up X-SecureVoice-Proxy "1"
+	# Caddy is the trust boundary; overwrite the spoofable client-supplied header.
+	header_up CF-Connecting-IP {remote_host}
 
 	# No `header_up Connection` — it breaks the websocket upgrade (400 instead of
 	# 101). See the same note in the production Caddyfile.

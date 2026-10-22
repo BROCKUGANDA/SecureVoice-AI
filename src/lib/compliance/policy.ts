@@ -10,8 +10,9 @@ import "server-only";
  * What this module enforces (and why):
  *
  *  1. OPENING_DISCLOSURE — the agent's FIRST response in every conversation
- *     MUST contain the bank's identity, the recording notice, and the
- *     "I will never ask for your PIN, password, or OTP" promise. Without
+ *     MUST contain the bank's identity, the recording notice, the statement
+ *     that the caller is an automated AI assistant rather than a human, and
+ *     the "I will never ask for your PIN, password, or OTP" promise. Without
  *     this, PUP §impersonation-and-deception risk + CBUAE Consumer Protection
  *     Standard §5 fail.
  *
@@ -62,6 +63,7 @@ import "server-only";
 
 import { transcript as redactText } from "@/lib/redact";
 import { asksForCredential } from "@/lib/compliance/credential-ask";
+import { isTippingOff, tippingOffReply } from "@/lib/compliance/tipping-off";
 // The SPOKEN set, not the interface palette. This module guards what the agent
 // says on a call, and a call runs in six languages while the screen behind it
 // renders two. It used to import `Lang` from `@/lib/store`, which was safe only
@@ -74,6 +76,88 @@ export const OPENING_DISCLOSURE_HI = "इस कॉल को आपकी स�
 export const OPENING_DISCLOSURE_UR = "یہ کال آپ کی حفاظت کے لیے ریکارڈ ہو رہی ہے";
 export const OPENING_DISCLOSURE_FR = "Cet appel est enregistré pour vous protéger";
 export const OPENING_DISCLOSURE_SW = "Simu hii inarekodiwa kwa usalama wako";
+
+/**
+ * The AI-identification half of the opening.
+ *
+ * The recording notice alone does not disclose what the customer is speaking
+ * to. ElevenLabs' PUP requires the caller be told they are talking to an AI,
+ * and CBUAE's impersonation risk turns on the same fact: a voice that never
+ * says it is a machine is asking a customer to infer it. A model rephrasing
+ * "Hello, I am your bank's AI security assistant…" into "I am calling about a
+ * pending transaction…" keeps the recording sentence and silently drops the
+ * half that matters, so this is checked by code rather than requested in a
+ * prompt.
+ */
+export const AI_IDENTITY_EN = "I am an automated AI assistant, not a human";
+export const AI_IDENTITY_AR = "أنا مساعد آلي يعمل بالذكاء الاصطناعي، ولست إنساناً";
+export const AI_IDENTITY_HI = "मैं एक स्वचालित AI सहायक हूँ, इंसान नहीं";
+export const AI_IDENTITY_UR = "میں ایک خودکار AI اسسٹنٹ ہوں، انسان نہیں";
+export const AI_IDENTITY_FR = "Je suis un assistant IA automatisé, pas un humain";
+export const AI_IDENTITY_SW = "Mimi ni msaidizi wa AI wa kiotomatiki, si binadamu";
+
+const OPENING_DISCLOSURE: Record<Lang, string> = {
+  en: OPENING_DISCLOSURE_EN,
+  ar: OPENING_DISCLOSURE_AR,
+  hi: OPENING_DISCLOSURE_HI,
+  ur: OPENING_DISCLOSURE_UR,
+  fr: OPENING_DISCLOSURE_FR,
+  sw: OPENING_DISCLOSURE_SW,
+};
+
+const AI_IDENTITY: Record<Lang, string> = {
+  en: AI_IDENTITY_EN,
+  ar: AI_IDENTITY_AR,
+  hi: AI_IDENTITY_HI,
+  ur: AI_IDENTITY_UR,
+  fr: AI_IDENTITY_FR,
+  sw: AI_IDENTITY_SW,
+};
+
+/**
+ * Whether the speaker IDENTIFIES ITSELF as an AI, in the language the customer
+ * hears.
+ *
+ * The anchor is deliberate. A bare "AI" term is satisfied by "our AI flagged
+ * this transaction, I am calling about…" — a sentence that mentions AI and
+ * still lets the customer infer a human caller. Each pattern therefore needs a
+ * first-person or deictic opener ("I am", "this is", "أنا", "je suis", "mimi
+ * ni") within one sentence of the AI term. Over-injection is the safe failure:
+ * a valid disclosure phrased as "you are speaking with an AI" is repaired with
+ * one extra sentence, while an under-injection is the deception this exists to
+ * prevent.
+ */
+const AI_SELF_IDENTIFICATION: Record<Lang, RegExp> = {
+  // The AI term must follow the opener directly, and bare "automated" is not
+  // enough: "I am calling about an AI fraud alert" and "This is an automated
+  // payment reminder" describe a topic, not the speaker.
+  en: /\b(i am|i'm|this is)\s+(?:an?\s+|your bank's\s+|the bank's\s+)?(?:automated\s+)?(?:AI|artificial intelligence)(?=\s*(?:[.,!?]|$|\b(?:assistant|security|voice|system)\b))/i,
+  // A role word is required after the opener. `هذا` + a process word such as
+  // "القرار يتم بآلية" is not the speaker identifying itself; the old unanchored
+  // `آلي` matched inside `بآلية`.
+  ar: /(?:أنا|انا|هذا|هذه)\s+(?:مساعد|نظام|وكيل|بوت|روبوت)[^.!?\n]{0,40}(?:الذكاء الاصطناعي|ذكاء اصطناعي|آلي)/,
+  // Hindi danda and Urdu full stop are sentence boundaries too; without them a
+  // later sentence's AI mention reads as the speaker's identity.
+  hi: /(मैं|यह)[^.!?।\n]{0,60}(\bAI\b|कृत्रिम बुद्धिमत्ता|स्वचालित)/,
+  ur: /(میں|یہ)[^.!?۔\n]{0,60}(\bAI\b|اے آئی|مصنوعی ذہانت|خودکار)/,
+  fr: /\b(je suis|j'étais|voici)\b[^.!?\n]{0,60}\b(IA|intelligence artificielle|automatisé)\b/i,
+  sw: /\b(mimi ni|huyu ni)\b[^.!?\n]{0,60}\b(AI|akili bandia|kiotomatiki|otomatiki)\b/i,
+};
+
+/** True when `text` tells the customer the speaker is an AI. */
+export function namesAi(text: string, lang: Lang): boolean {
+  return AI_SELF_IDENTIFICATION[lang].test(text);
+}
+
+/**
+ * Put the AI identification immediately after the recording notice, keeping the
+ * notice first and never duplicating it.
+ */
+function injectAiIdentity(reply: string, disclosure: string, identity: string): string {
+  const at = reply.indexOf(disclosure) + disclosure.length;
+  const tail = reply.slice(at).replace(/^[\s.!?]+/, "");
+  return `${reply.slice(0, at)}. ${identity}.${tail ? ` ${tail}` : ""}`;
+}
 
 /**
  * Validate an outbound agent reply against PUP/PDPL rules. Returns the redacted
@@ -103,33 +187,41 @@ export function auditAgentReply(args: {
     };
   }
 
-  // 2. Opening disclosure must be present in the first agent turn.
+  // 2. FATF tipping-off: a reply that tells the customer a report has been or
+  //    will be filed is replaced, not softened. This runs before the opening
+  //    block so an opening that trips it still receives the disclosure.
+  let refused = false;
+  if (isTippingOff(args.reply, args.lang)) {
+    args.reply = tippingOffReply(args.lang);
+    guardrails.push("refused:tipping_off");
+    refused = true;
+  }
+
+  // 3. Opening disclosure must be present in the first agent turn: the
+  //    recording notice AND the statement that this is an AI, not a human.
+  //    Both are repaired in place rather than rejected, because a live call
+  //    cannot stop to argue with a model that dropped a sentence.
   if (args.isOpening) {
-    const disclosure =
-      args.lang === "ar"
-        ? OPENING_DISCLOSURE_AR
-        : args.lang === "hi"
-          ? OPENING_DISCLOSURE_HI
-          : args.lang === "ur"
-            ? OPENING_DISCLOSURE_UR
-            : args.lang === "fr"
-              ? OPENING_DISCLOSURE_FR
-              : args.lang === "sw"
-                ? OPENING_DISCLOSURE_SW
-                : OPENING_DISCLOSURE_EN;
+    const disclosure = OPENING_DISCLOSURE[args.lang];
+    const identity = AI_IDENTITY[args.lang];
     if (!args.reply.includes(disclosure)) {
-      // Compliance violation — fix in place rather than reject.
       args.reply = `${disclosure}. ${args.reply}`;
       guardrails.push("disclosure_injected");
     } else {
       guardrails.push("disclosure_present");
     }
+    if (!namesAi(args.reply, args.lang)) {
+      args.reply = injectAiIdentity(args.reply, disclosure, identity);
+      guardrails.push("ai_identity_injected");
+    } else {
+      guardrails.push("ai_identity_present");
+    }
   }
 
-  // 3. PII redaction before persistence.
+  // 4. PII redaction before persistence.
   const safe = redactText(args.reply);
   if (safe !== args.reply) guardrails.push("pii_redacted");
-  return { reply: safe, guardrails };
+  return { reply: safe, guardrails, ...(refused ? { refused: true as const } : {}) };
 }
 
 const SAFE_REFUSAL: Record<"en" | "ar" | "hi" | "ur" | "fr" | "sw", string> = {

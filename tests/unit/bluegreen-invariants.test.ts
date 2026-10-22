@@ -282,4 +282,59 @@ describe("the deploy script", () => {
   test("the rollback path refuses a no-op rollback", () => {
     expect(deployScript).toContain("already live on app-");
   });
+
+  test("every recreate of caddy preserves the networks this compose file does not own", () => {
+    // Caddy is this box's SHARED edge: it fronts this project AND the other
+    // projects on the same host, and it reaches those by service name, which
+    // only resolves from inside their compose networks. Those attachments are
+    // made by hand, because they belong to another project's compose file —
+    // and `docker compose up` rebuilds a container from THIS compose
+    // definition, so every recreate drops them.
+    //
+    // The loss is silent and the damage lands on a project that has nothing to
+    // do with this one: on 2026-10-21 a traffic flip recreated caddy, the
+    // attachment was dropped, and the other project answered 502 for every
+    // request while all of its own containers reported themselves healthy.
+    //
+    // So there must be exactly ONE place that recreates caddy, and every
+    // caller — the traffic flip AND the emergency revert — must go through
+    // it. A second recreate path that "forgot" would reproduce the same
+    // outage from a different command, and the emergency revert is the worst
+    // place for that to hide: it is taken when an adoption has already failed.
+    const rawRecreates = deployScript.match(/compose\(\["up", "-d", "--no-deps", "caddy"\]/g) ?? [];
+    expect(rawRecreates).toHaveLength(1);
+
+    expect(deployScript).toContain("recreateCaddy({ capture: true, env: { IMAGE: image } })");
+    expect(deployScript).toContain("recreateCaddy({ allowFail: true })");
+  });
+
+  test("the caddy recreate reads the foreign networks BEFORE and reattaches them AFTER", () => {
+    // The order is the whole mechanism. Read them after the recreate and the
+    // container is the compose file's own — the attachments are already gone
+    // and there is nothing left to reattach.
+    const helperAt = deployScript.indexOf("function recreateCaddy(");
+    expect(helperAt).toBeGreaterThan(-1);
+    const helper = deployScript.slice(helperAt, deployScript.indexOf("\n}\n", helperAt));
+
+    const readAt = helper.indexOf("extraCaddyNetworks()");
+    const recreateAt = helper.indexOf('compose(["up", "-d", "--no-deps", "caddy"]');
+    const reattachAt = helper.indexOf("reattachCaddyNetworks(extraNetworks)");
+
+    expect(readAt).toBeGreaterThan(-1);
+    expect(recreateAt).toBeGreaterThan(readAt);
+    expect(reattachAt).toBeGreaterThan(recreateAt);
+  });
+
+  test("preserves the networks of OTHER projects only, and never names one", () => {
+    // The project's own network is recreated by compose, so preserving it
+    // would be noise at best and an error at worst. The filter is by OWNERSHIP
+    // (anything that is not this project's default network), which is what
+    // makes it cover a project that does not exist yet.
+    expect(deployScript).toContain("`${projectName()}_default`");
+    expect(deployScript).toContain("ours.has(name)");
+
+    // The file must never learn the other project's name. If it did, the next
+    // project on the box would be a code change away from the same outage.
+    expect(deployScript).not.toContain("crucible");
+  });
 });

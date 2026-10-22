@@ -826,6 +826,7 @@ async function armAndDial(
     cardLast4: signal.ref_last4 ?? null,
     signalKind: signal.signal_kind ?? null,
     callCategory: signal.call_category ?? null,
+    callbackUrl: signal.callback_url ?? null,
     verificationToken,
     // The handler's own arrival instant, taken before the first await — this is what
     // `signal_received_to_ringing` measures from. `acceptedAt` in the response and the

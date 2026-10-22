@@ -229,7 +229,7 @@ export const REALTIME_EVENTS: readonly RealtimeEventSpec[] = [
     shape: "flat",
     producer: {
       file: "src/app/api/v1/interventions/route.ts",
-      line: 1201,
+      line: 1202,
       literal: `type: "case.queued"`,
     },
     consumer:

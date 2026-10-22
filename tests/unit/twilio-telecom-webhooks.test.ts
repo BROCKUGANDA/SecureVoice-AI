@@ -298,6 +298,33 @@ describe("twilio inbound voice", () => {
     }
   });
 
+  test("the decoy line holds the caller and never resolves a tenant", async () => {
+    const priorHoneypot = process.env.TWILIO_HONEYPOT_NUMBER;
+    const priorRedis = process.env.REDIS_URL;
+    process.env.TWILIO_HONEYPOT_NUMBER = "+15005550111";
+    process.env.REDIS_URL = "";
+    try {
+      const params = { To: "+15005550111", From: PHONE, CallSid: "CA-HONEY" };
+      const res = await inbound(params, sign(INBOUND_URL, params));
+      expect(res.status).toBe(200);
+      const xml = await res.text();
+      expect(xml).toContain("<Pause");
+      expect(xml).toContain("<Hangup/>");
+      expect(xml).not.toContain("<Dial");
+      // The decoy branch must not touch the tenant lookup, the outbox or case state.
+      expect(events).toHaveLength(0);
+      expect(
+        audits.some((a) => a.intent === "honeypot_scammer_number_recorded"),
+        "the caller hash must reach the audit chain",
+      ).toBe(true);
+    } finally {
+      if (priorHoneypot === undefined) delete process.env.TWILIO_HONEYPOT_NUMBER;
+      else process.env.TWILIO_HONEYPOT_NUMBER = priorHoneypot;
+      if (priorRedis === undefined) delete process.env.REDIS_URL;
+      else process.env.REDIS_URL = priorRedis;
+    }
+  });
+
   test("a number nobody owns is answered as nobody's", async () => {
     orgByNumber = null;
     const params = { To: "+15005550099", From: PHONE, CallSid: "CA9" };

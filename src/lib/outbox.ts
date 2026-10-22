@@ -158,6 +158,17 @@ export async function enqueueOutbox(
   // not — never both, because delivering an institution's verdict to two
   // destinations means one of them can be stale without anyone knowing.
   let targetUrl = input.targetUrl ?? null;
+  if (!targetUrl && input.caseRef) {
+    // A bank that supplied a per-intervention callback at ingest expects THIS
+    // case's outcomes there, not only in the tenant-wide endpoint. The URL was
+    // HTTPS/SSRF-checked on the way in; `deliver` re-checks it immediately
+    // before every POST because DNS can answer differently later.
+    const row = await tx.case.findUnique({
+      where: { caseRef: input.caseRef },
+      select: { callbackUrl: true },
+    });
+    targetUrl = row?.callbackUrl?.trim() || null;
+  }
   if (!targetUrl) {
     const resolved = await resolveVendorEndpoint(input.orgId, { requireSecret: false });
     targetUrl = resolved.ok ? resolved.endpoint.url : bankEventUrl();

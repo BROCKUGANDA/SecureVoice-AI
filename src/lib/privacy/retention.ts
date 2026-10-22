@@ -911,6 +911,9 @@ async function applyTierAction(
         reason: "retention:transcripts",
         requestedBy: "retention-sweeper",
         legalBasis: `retention:${report.dryRun ? "dry-run" : "applied"}`,
+        // The selector above only returns this row once the five-year evidence
+        // hold has elapsed. The manual-erasure path does not pass this flag.
+        evidenceHoldElapsed: true,
       });
       if (!result.alreadyErased) report.payloadsShredded += 1;
       return !result.alreadyErased;

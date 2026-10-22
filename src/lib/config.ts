@@ -172,6 +172,16 @@ export const env = {
   get twilioFromNumber(): string | undefined {
     return process.env.TWILIO_FROM_NUMBER;
   },
+  /**
+   * Optional decoy line. When set, an inbound call whose `To` equals this
+   * number is held by the voice honeypot instead of being resolved to a tenant.
+   * Empty is the safe default: no production behaviour changes until an
+   * operator deliberately provisions the trap.
+   */
+  get twilioHoneypotNumber(): string | undefined {
+    const value = process.env.TWILIO_HONEYPOT_NUMBER?.trim();
+    return value || undefined;
+  },
 
   /* Auth / Webhooks */
   get authSecret(): string | undefined {

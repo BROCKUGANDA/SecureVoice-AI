@@ -63,6 +63,7 @@ import "server-only";
 
 import { transcript as redactText } from "@/lib/redact";
 import { asksForCredential } from "@/lib/compliance/credential-ask";
+import { isTippingOff, tippingOffReply } from "@/lib/compliance/tipping-off";
 // The SPOKEN set, not the interface palette. This module guards what the agent
 // says on a call, and a call runs in six languages while the screen behind it
 // renders two. It used to import `Lang` from `@/lib/store`, which was safe only
@@ -178,7 +179,17 @@ export function auditAgentReply(args: {
     };
   }
 
-  // 2. Opening disclosure must be present in the first agent turn: the
+  // 2. FATF tipping-off: a reply that tells the customer a report has been or
+  //    will be filed is replaced, not softened. This runs before the opening
+  //    block so an opening that trips it still receives the disclosure.
+  let refused = false;
+  if (isTippingOff(args.reply, args.lang)) {
+    args.reply = tippingOffReply(args.lang);
+    guardrails.push("refused:tipping_off");
+    refused = true;
+  }
+
+  // 3. Opening disclosure must be present in the first agent turn: the
   //    recording notice AND the statement that this is an AI, not a human.
   //    Both are repaired in place rather than rejected, because a live call
   //    cannot stop to argue with a model that dropped a sentence.
@@ -199,10 +210,10 @@ export function auditAgentReply(args: {
     }
   }
 
-  // 3. PII redaction before persistence.
+  // 4. PII redaction before persistence.
   const safe = redactText(args.reply);
   if (safe !== args.reply) guardrails.push("pii_redacted");
-  return { reply: safe, guardrails };
+  return { reply: safe, guardrails, ...(refused ? { refused: true as const } : {}) };
 }
 
 const SAFE_REFUSAL: Record<"en" | "ar" | "hi" | "ur" | "fr" | "sw", string> = {

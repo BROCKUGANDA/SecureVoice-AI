@@ -27,6 +27,7 @@ import { verdictFor, describeHits, type VishingVerdict } from "./vishing";
 import { hasSafetyExit } from "./safety-exit";
 import { speaksToken } from "@/lib/verification-token";
 import { renderNumbersAsSpeech } from "./spoken-numbers";
+import { isTippingOff, tippingOffReply } from "./tipping-off";
 
 /** Spoken answers are short by rule; a rambling agent cannot be interrupted
  *  politely and burns the caller's patience on a fraud call. */
@@ -99,6 +100,13 @@ export type SpeechGateResult = {
    * differently.
    */
   tokenLeak?: boolean;
+  /**
+   * True when the source told the customer a report had been or would be filed
+   * (FATF tipping-off) and was replaced with the approved restriction line.
+   * The text is never empty for this reason: silence on a live call is worse
+   * than the safe sentence.
+   */
+  tippingOff?: boolean;
 };
 
 type TermRule = { from: RegExp; to: string };
@@ -422,6 +430,20 @@ export function prepareSpeech(input: string, ctx: SpeechContext = {}): SpeechGat
   // transports must not turn into a billable request or a moment of dead air.
   if (!/[\p{L}\p{N}]/u.test(spoken)) {
     return { text: "", redactions: [], substitutions: [], truncated: false, vishing: CLEAN };
+  }
+
+  // FATF tipping-off, checked on the spoken form before the optional rewrites.
+  // The safe line is OURS, so it is returned directly instead of being routed
+  // through redaction or a tenant's Shariah substitutions.
+  if (isTippingOff(spoken, ctx.lang)) {
+    return {
+      text: tippingOffReply(ctx.lang),
+      redactions: [],
+      substitutions: [],
+      truncated: false,
+      vishing: CLEAN,
+      tippingOff: true,
+    };
   }
 
   // THE vishing refusal. Deliberately after normalisation and before the

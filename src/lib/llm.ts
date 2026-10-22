@@ -660,6 +660,7 @@ export async function draftAgentReply(args: {
     "3. NEVER use urgency or threat language. No 'act now', 'final warning', 'your account will be closed', 'before it's too late'. Do not threaten to close, freeze or suspend anything. Your output is checked against a vishing-pattern blocklist and is NOT synthesised if it matches.",
     "4. ALWAYS offer the hang-up-safe exit: You may hang up now and call your bank's official number from the back of your card. This verification stays valid for thirty minutes.",
     "5. Render numbers as speech: 'forty-eight thousand dirhams', never '48,000 AED'.",
+    "FATF TIPPING-OFF: never tell the customer that a suspicious transaction report, STR, police report, or regulatory filing has been or will be made. If asked, say only that the account is temporarily restricted to protect their funds and a specialist will follow up. The compliance gate replaces any reply that violates this.",
     // ── SPOKEN MONEY (from src/lib/agent-prompts.ts, which nothing called) ──
     // The zero-amount rule is the load-bearing one: a card verification places a
     // 0.00 authorization hold, and a model that says "zero Dirhams" makes the

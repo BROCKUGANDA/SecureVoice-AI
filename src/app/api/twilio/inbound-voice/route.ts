@@ -12,6 +12,7 @@ import { findOrgByVoiceNumber, getTransferNumber } from "@/lib/institution";
 import { escapeXml, twilioSignedUrl, verifyTwilioSignature } from "@/lib/twilio";
 import { INBOUND_CALLBACK_ACK, type OutreachLang } from "@/lib/outreach-copy";
 import { recordTelecomEvent } from "@/lib/telecom-outbox";
+import { recordScammerNumber } from "@/lib/abuse/honeypot";
 import { logError, logWarn } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
@@ -127,6 +128,24 @@ export async function POST(req: NextRequest) {
   const caller = (params.From ?? "").trim();
   const E164 = /^\+[1-9]\d{6,14}$/;
   if (!E164.test(dialed) || !E164.test(caller)) return hangup();
+
+  // The decoy line. It is checked BEFORE any tenant lookup, by design: a trap
+  // that resolves a tenant could leak which institution owns the number. The
+  // caller is held for a minute and hashed into the scammer list; nothing is
+  // bridged and no case is touched.
+  const honeypot = env.twilioHoneypotNumber;
+  if (honeypot && dialed === honeypot) {
+    await recordScammerNumber(caller);
+    return twiml(
+      `<Say language="en-GB">Hello, this is the bank verification line. Please wait while we connect you to an agent.</Say>` +
+        `<Pause length="10"/>` +
+        `<Say language="en-GB">Our agents are busy. Please hold.</Say>` +
+        `<Pause length="20"/>` +
+        `<Say language="en-GB">You are caller number four in the queue.</Say>` +
+        `<Pause length="30"/>` +
+        `<Hangup/>`,
+    );
+  }
 
   let org;
   try {

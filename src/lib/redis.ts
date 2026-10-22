@@ -93,6 +93,23 @@ export function sharedMeterConfigured(): boolean {
 }
 
 /**
+ * The shared Redis client, or null when no durable store is configured.
+ *
+ * The meter's own connection is reused so a second subsystem cannot create a
+ * second pool against the same budget, and so a Redis outage has one declared
+ * degradation path rather than two. Callers must treat `null` as "degrade to
+ * local state", never as "allow anyway".
+ */
+export async function sharedRedisClient(): Promise<Redis | null> {
+  if (!process.env.REDIS_URL) return null;
+  try {
+    return await established();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * A production Redis connection must be encrypted (`rediss://`).
  *
  * The meter carries only budget counters — no PII — so the harm of a plaintext

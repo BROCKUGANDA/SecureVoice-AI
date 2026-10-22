@@ -660,6 +660,14 @@ export type ErasureOptions = {
   requestedBy?: string;
   /** Optional policy reference, e.g. "UAE PDPL Art. 27". Recorded verbatim. */
   legalBasis?: string;
+  /**
+   * Set ONLY by the retention sweeper after its selector has applied the
+   * five-year evidence hold. A manual erasure must not set it: the default
+   * refusal is what keeps a locked case out of a DSR path. Without this the
+   * transcript tier selected locked rows after the hold and then threw on every
+   * run, leaving the payload unshredded for the rest of the case-record window.
+   */
+  evidenceHoldElapsed?: boolean;
 };
 
 export type ErasureResult = {
@@ -743,7 +751,7 @@ export async function eraseCase(
 ): Promise<ErasureResult> {
   const row = await db.case.findUnique({ where: { caseRef } });
   if (!row) throw new CaseNotFoundError(caseRef);
-  if (row.isEvidenceLocked) {
+  if (row.isEvidenceLocked && !opts.evidenceHoldElapsed) {
     throw new Error(
       "This data is subject to an active law-enforcement investigation and cannot be deleted under Article 23 of PDPL.",
     );

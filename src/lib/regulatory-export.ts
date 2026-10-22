@@ -4,11 +4,39 @@ import crypto from "node:crypto";
 import { db } from "@/lib/db";
 import { append as auditAppend } from "@/lib/audit-chain";
 
+export type CaseFileOptions = {
+  /**
+   * Refuse unless the case is CONFIRMED_FRAUD. The STR path sets this; the
+   * general regulator export does not, because an operator may need the audit
+   * record of a case that never reached a verdict.
+   */
+  requireConfirmedFraud?: boolean;
+  /**
+   * Skip the deployment-wide compliance webhook. The STR path sends its own
+   * FIU package; posting both would deliver the same case to two destinations
+   * with no idempotency key between them.
+   */
+  skipComplianceWebhook?: boolean;
+};
+
+export class CaseNotConfirmedError extends Error {
+  constructor(
+    readonly caseRef: string,
+    readonly state: string,
+  ) {
+    super(`Case ${caseRef} is ${state}; an STR requires CONFIRMED_FRAUD`);
+    this.name = "CaseNotConfirmedError";
+  }
+}
+
 export type RegulatoryEvidencePackage = {
   case_id: string;
   intervention_id: string;
   institution: string | null;
+  case_state: string;
+  fraud_type: string | null;
   incident_timestamp: string | null;
+  evidence_limitations: string[];
   risk_score: number | null;
   transaction_details: {
     amount: number | null;
@@ -47,7 +75,11 @@ export function signHMAC(body: string, secret: string): string {
  * any tenant admin could read another tenant's transcript by guessing a case
  * ref.
  */
-export async function generateCaseFile(caseIdOrRef: string, orgId: string | null = null) {
+export async function generateCaseFile(
+  caseIdOrRef: string,
+  orgId: string | null = null,
+  opts: CaseFileOptions = {},
+) {
   const row = await db.case.findFirst({
     where: {
       AND: [{ OR: [{ id: caseIdOrRef }, { caseRef: caseIdOrRef }] }, ...(orgId ? [{ orgId }] : [])],
@@ -57,17 +89,25 @@ export async function generateCaseFile(caseIdOrRef: string, orgId: string | null
       caseRef: true,
       orgId: true,
       state: true,
+      signalKind: true,
+      callCategory: true,
+      outcome: true,
+      customerResponse: true,
       riskScore: true,
       amountMinor: true,
       currency: true,
       merchant: true,
       transcriptRedacted: true,
       createdAt: true,
+      signalReceivedAt: true,
       isEvidenceLocked: true,
       evidenceCaseId: true,
     },
   });
   if (!row) throw new Error(`Case not found: ${caseIdOrRef}`);
+  if (opts.requireConfirmedFraud && row.state !== "CONFIRMED_FRAUD") {
+    throw new CaseNotConfirmedError(row.caseRef, row.state);
+  }
 
   const org = row.orgId
     ? await db.organization.findUnique({
@@ -82,14 +122,28 @@ export async function generateCaseFile(caseIdOrRef: string, orgId: string | null
     case_id: evidenceCaseId,
     intervention_id: row.id,
     institution: org?.name ?? null,
-    incident_timestamp: row.createdAt.toISOString(),
+    case_state: row.state,
+    fraud_type: row.signalKind ?? row.callCategory ?? null,
+    // The signal's arrival is the closest instant this platform holds to the
+    // transaction event; `createdAt` is the database write and sits behind the
+    // policy gates. Never label it as the transaction's own timestamp.
+    incident_timestamp: (row.signalReceivedAt ?? row.createdAt).toISOString(),
+    // Audio is not stored by this deployment, and a null URL in a compliance
+    // package is read as "attachment missing", not "no recording exists". Say
+    // which it is; never invent a URL.
+    evidence_limitations: [
+      "audio_not_stored",
+      ...(row.transcriptRedacted ? [] : ["transcript_unavailable"]),
+    ],
     risk_score: row.riskScore ?? null,
     transaction_details: {
       amount: row.amountMinor == null ? null : row.amountMinor / 100,
       currency: row.currency ?? null,
       merchant: row.merchant ?? null,
     },
-    customer_response: row.state === "CONFIRMED_FRAUD" ? "fraud_confirmed" : row.state,
+    customer_response:
+      row.customerResponse ??
+      (row.state === "CONFIRMED_FRAUD" ? "fraud_confirmed" : (row.outcome ?? row.state)),
     ai_transcript: row.transcriptRedacted ?? null,
     audio_evidence_url: null,
     authz_action_taken: row.state === "CONFIRMED_FRAUD" ? "soft_freeze_24h" : "none",
@@ -99,18 +153,23 @@ export async function generateCaseFile(caseIdOrRef: string, orgId: string | null
       .digest("hex"),
   };
 
-  // Lock/retain (idempotent).
+  // Lock/retain (idempotent). Only a confirmed-fraud case earns the five-year
+  // hold; a routine operational export of an unconfirmed case must not turn a
+  // customer's record into a law-enforcement artefact. An already-locked case
+  // stays locked — this write never clears the flag.
   await db.case.update({
     where: { id: row.id },
     data: {
-      isEvidenceLocked: true,
       evidenceCaseId,
+      ...(row.state === "CONFIRMED_FRAUD" ? { isEvidenceLocked: true } : {}),
     },
   });
 
-  // Push to bank compliance system if configured.
+  // Push to bank compliance system if configured. The STR path skips this: it
+  // has its own FIU destination and a second, unsigned-for-that-receiver copy
+  // would be a duplicate delivery, not a backup.
   const complianceUrl = process.env.BANK_COMPLIANCE_WEBHOOK_URL;
-  if (complianceUrl) {
+  if (complianceUrl && !opts.skipComplianceWebhook) {
     const secret = process.env.BANK_WEBHOOK_SECRET ?? "";
     // Serialised ONCE, and that exact string is both signed and sent. Signing a
     // re-serialisation is the rule-4 violation this avoids: the digest then

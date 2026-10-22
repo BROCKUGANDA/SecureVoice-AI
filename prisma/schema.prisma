@@ -477,6 +477,11 @@ model Case {
   amountMinor           Int?
   currency              String?
   consentRecordId       String?
+  /// Per-intervention outcome callback supplied by the bank at ingest.
+  /// Validated for HTTPS + SSRF before it is stored, re-validated at delivery,
+  /// and used as the outbox target for this case. Null falls back to the
+  /// tenant's vendorWebhookUrl / the deployment-wide BANK_WEBHOOK_URL.
+  callbackUrl           String?
   freezeStaged          Boolean   @default(false)
   /// Out-of-band verification word for this case (src/lib/verification-token.ts).
   ///

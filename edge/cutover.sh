@@ -27,6 +27,13 @@
 set -euo pipefail
 say() { echo "==> $*"; }
 
+# The directory this script lives in, captured BEFORE anything changes the
+# working directory. The script changes it twice — to the stack to pull the
+# code, and to the front door's directory — so resolving it later finds the
+# wrong directory, and the switch that this script is about to run is the one
+# thing that must not be looked for in the wrong place.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 STACK_DIR="${STACK_DIR:-$HOME/securevoice-ai}"
 EDGE_DIR="${EDGE_DIR:-$HOME/edge}"
 ENV_FILE="$STACK_DIR/.env"
@@ -81,7 +88,7 @@ say "running the switch"
 # The switch next to THIS script, not the one in the stack's checkout. The
 # two travel together, and the one in the checkout may be a version behind —
 # the cutover is the moment where a stale copy of the script matters most.
-sh "$(cd "$(dirname "$0")" && pwd)/switch.sh"
+sh "$SCRIPT_DIR/switch.sh"
 rc=$?
 
 if [ "$rc" != "0" ]; then

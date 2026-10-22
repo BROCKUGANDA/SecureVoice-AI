@@ -91,6 +91,28 @@ require_edge() {
 		note_problem "$name does not answer on 127.0.0.1:$port (got $code)"
 	fi
 }
+
+# Will the edge publish this port on the loopback, once it is recreated?
+#
+# `docker compose config` renders the LONG form of a port mapping — `host_ip`,
+# `target`, `published` — so the short syntax this compose file is written in
+# (`127.0.0.1:8443:443`) does not survive into the output. A check that
+# greps for the short syntax therefore never matches, and the precondition it
+# guards is never satisfied: the switch refuses, and reports that the edge
+# would not publish the port it is about to publish. The check has to look
+# for what compose actually prints.
+#
+# Both renderings are accepted, so the check does not depend on the compose
+# version's output format.
+edge_publishes() {
+	local port="$1" cfg
+	cfg="$(cd "$STACK_DIR" && docker compose config 2>/dev/null || true)"
+	printf '%s' "$cfg" | grep -q "127\.0\.0\.1:$port:443" && return 0
+	printf '%s' "$cfg" |
+		grep -A3 'host_ip: 127\.0\.0\.1' |
+		grep -q "published: \"$port\"" && return 0
+	return 1
+}
 require_edge crucible.svalley.tech 8444
 require_edge astrolabe.svalley.tech 8445
 
@@ -106,8 +128,7 @@ require_edge astrolabe.svalley.tech 8445
 # nothing behind them — which is the failure the check was always meant to catch.
 if [ "$(probe_edge securevoiceai.me 8443)" = "200" ]; then
 	echo "    ok   our edge already answers on 127.0.0.1:8443"
-elif (cd "$STACK_DIR" && docker compose config 2>/dev/null) |
-	grep -Eq '127\.0\.0\.1:8443:443'; then
+elif edge_publishes 8443; then
 	code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 15 https://securevoiceai.me/ 2>/dev/null)"
 	[ -n "$code" ] || code=000
 	if [ "$code" = "200" ]; then
@@ -127,6 +148,34 @@ if docker run --rm \
 	echo "    ok   the front door's configuration is valid"
 else
 	note_problem "the front door's configuration does not validate"
+fi
+
+# The routing table must be NON-EMPTY, and must name every hostname the
+# switch is about to route.
+#
+# This check exists because of a real failure: the front door's compose file
+# pointed at a fragment directory that did not exist, docker created an empty
+# one, and nginx's `include` matching ZERO files is perfectly valid — so the
+# front door started, the configuration validated, and the routing table was
+# EMPTY. Every name was then refused by the fail-closed default, and the
+# front door's logs had nothing to say about it.
+#
+# A validation that passes on an empty table is not a validation.
+fragments="$EDGE_DIR/nginx/edge.d"
+if [ ! -d "$fragments" ]; then
+	note_problem "$fragments does not exist — the front door would start with an empty routing table"
+else
+	routed="$(cat "$fragments"/*.sni.map 2>/dev/null | grep -vc '^[[:space:]]*\(#.*\)\?$')"
+	if [ "${routed:-0}" -eq 0 ]; then
+		note_problem "the routing table is EMPTY — the front door would refuse every name"
+	else
+		echo "    ok   the routing table has $routed entries"
+		for name in securevoiceai.me crucible.svalley.tech astrolabe.svalley.tech; do
+			if ! grep -q "^$name " "$fragments"/*.sni.map 2>/dev/null; then
+				note_problem "$name is not in the routing table — the front door would refuse it"
+			fi
+		done
+	fi
 fi
 
 # The shared edge must still be the thing holding the public ports, or this

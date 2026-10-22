@@ -76,8 +76,11 @@ done
 # the normal pre-cutover state.
 probe_edge() {
 	local name="$1" port="$2" code
+	# `|| true`: curl exits non-zero when the connection is refused, and under
+	# `set -e` an assignment from a failing substitution exits the script
+	# instead of recording the 000 the caller is meant to see.
 	code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 15 \
-		--resolve "$name:$port:127.0.0.1" "https://$name:$port/" 2>/dev/null)"
+		--resolve "$name:$port:127.0.0.1" "https://$name:$port/" 2>/dev/null || true)"
 	[ -n "$code" ] || code=000
 	printf '%s' "$code"
 }
@@ -108,9 +111,11 @@ edge_publishes() {
 	local port="$1" cfg
 	cfg="$(cd "$STACK_DIR" && docker compose config 2>/dev/null || true)"
 	printf '%s' "$cfg" | grep -q "127\.0\.0\.1:$port:443" && return 0
+	# Compose may print `published: "8443"` or `published: 8443` depending on
+	# the version; both are the same mapping.
 	printf '%s' "$cfg" |
 		grep -A3 'host_ip: 127\.0\.0\.1' |
-		grep -q "published: \"$port\"" && return 0
+		grep -Eq "published: \"?$port\"?" && return 0
 	return 1
 }
 require_edge crucible.svalley.tech 8444
@@ -200,15 +205,45 @@ fi
 PREV_COMMIT="$(git -C "$STACK_DIR" rev-parse HEAD)"
 say "the box is on $PREV_COMMIT"
 
+# Put the box back the way it was, and say what is still down. `set +e` on
+# purpose: every line here has to be attempted, because a rollback that stops
+# at its second step leaves the public ports with nothing behind them.
+rollback() {
+	set +e
+	fail "the public path did not come up. Rolling back."
+	say "stopping the front door"
+	( cd "$EDGE_DIR" && docker compose -f compose.yml down >/dev/null 2>&1 )
+	say "putting the shared edge back on the public ports"
+	git -C "$STACK_DIR" checkout "$PREV_COMMIT" -- Caddyfile docker-compose.yml
+	# Delete the loopback bindings in place. The previous grep-chain could end
+	# with an empty .env.bak and still move it over .env.
+	for key in CADDY_BIND CADDY_HTTP_PORT CADDY_HTTPS_PORT; do
+		sed -i "/^$key=/d" "$STACK_DIR/.env"
+	done
+	( cd "$STACK_DIR" && docker compose up -d --no-deps caddy )
+	sleep 3
+	for name in securevoiceai.me www.securevoiceai.me crucible.svalley.tech astrolabe.svalley.tech; do
+		code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 20 "https://$name/" 2>/dev/null || echo 000)"
+		echo "    after rollback: $name -> $code"
+	done
+	fail "the switch was rolled back. The box is back on $PREV_COMMIT."
+	fail "the front door is DOWN: names owned by the other edges remain unreachable until the switch succeeds."
+}
+
 # ── 2. the SecureVoice edge moves to the loopback ───────────────────────────
 say "recreating the SecureVoice edge on the loopback (this releases :80 and :443)"
-cd "$STACK_DIR"
-docker compose up -d --no-deps caddy
+if ! ( cd "$STACK_DIR" && docker compose up -d --no-deps caddy ); then
+	fail "could not recreate the SecureVoice edge on the loopback. The public ports have not moved."
+	exit 1
+fi
 
 # ── 3. the front door takes the public ports ─────────────────────────────────
 say "starting the front door"
-cd "$EDGE_DIR"
-docker compose -f compose.yml up -d
+if ! ( cd "$EDGE_DIR" && docker compose -f compose.yml up -d ); then
+	fail "the front door did not start after the edge released the public ports."
+	rollback
+	exit 1
+fi
 sleep 2
 
 # ── 4. verify, or roll back ──────────────────────────────────────────────────
@@ -221,25 +256,7 @@ for name in securevoiceai.me www.securevoiceai.me crucible.svalley.tech astrolab
 done
 
 if [ "$failed" != "0" ]; then
-	fail "the public path did not come up. Rolling back."
-	say "stopping the front door"
-	cd "$EDGE_DIR" && docker compose -f compose.yml down >/dev/null 2>&1 || true
-	say "putting the shared edge back on the public ports"
-	cd "$STACK_DIR"
-	git checkout "$PREV_COMMIT" -- Caddyfile docker-compose.yml
-	rm -f .env.bak
-	# The public bindings are the pre-split ones.
-	grep -v '^CADDY_BIND=' .env > .env.bak 2>/dev/null || true
-	grep -v '^CADDY_HTTP_PORT=' .env.bak > .env 2>/dev/null || true
-	grep -v '^CADDY_HTTPS_PORT=' .env > .env.bak 2>/dev/null || true
-	mv .env.bak .env 2>/dev/null || true
-	docker compose up -d --no-deps caddy
-	sleep 3
-	for name in securevoiceai.me crucible.svalley.tech astrolabe.svalley.tech; do
-		code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 20 "https://$name/" || echo 000)"
-		echo "    after rollback: $name -> $code"
-	done
-	fail "the switch was rolled back. The box is back on $PREV_COMMIT."
+	rollback
 	exit 1
 fi
 

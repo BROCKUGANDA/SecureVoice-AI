@@ -106,6 +106,13 @@ function withoutComments(src: string): string {
  * door is what every public name on the box depends on. The semicolon is
  * stripped here so the target can be compared as an address, and a separate
  * test asserts that it was there.
+ *
+ * A line with no name is not a map entry at all, so it is dropped rather
+ * than carried as an undefined name. The drop changes nothing in practice:
+ * a non-empty line always yields a first field, and the `.filter(Boolean)`
+ * below already removed the only lines that could produce one. It is there
+ * because `noUncheckedIndexedAccess` cannot see that, and an honest type
+ * beats a non-null assertion.
  */
 function mapEntries(src: string): Array<{ name: string; target: string }> {
   return src
@@ -115,7 +122,8 @@ function mapEntries(src: string): Array<{ name: string; target: string }> {
     .map((line) => {
       const [name, ...rest] = line.split(/\s+/);
       return { name, target: rest.join(" ").replace(/;$/, "") };
-    });
+    })
+    .filter((entry): entry is { name: string; target: string } => entry.name !== undefined);
 }
 
 const caddySites = siteAddresses(caddyfile);
@@ -297,7 +305,11 @@ describe("the edge's Docker network is this project's and only this project's", 
     // depends on nothing but the edge being able to reach the origin.
     const published = compose.services.caddy.ports as string[];
     for (const mapping of published) {
-      const [, containerPort] = mapping.split(":").slice(-2);
+      // A published mapping is `host:container[/proto]`, so the container port
+      // is the last field. The default is the point: a mapping with no port
+      // at all is not a port, and the assertion below says so — rather than
+      // the typechecker refusing the file.
+      const [, containerPort = ""] = mapping.split(":").slice(-2);
       expect(["80", "443"]).toContain(containerPort.replace("/udp", ""));
     }
     expect(compose.services.app.ports).toBeUndefined();

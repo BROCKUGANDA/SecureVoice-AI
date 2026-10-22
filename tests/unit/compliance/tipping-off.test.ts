@@ -20,6 +20,31 @@ describe("FATF tipping-off", () => {
     }
   });
 
+  test("notified the police is a filing, not merely report-to-police", () => {
+    expect(isTippingOff("We have notified the police.", "en")).toBe(true);
+    expect(isTippingOff("I have informed the regulator.", "en")).toBe(true);
+  });
+
+  test("a negated filing is not a tipping-off disclosure", () => {
+    expect(isTippingOff("I will not file a report.", "en")).toBe(false);
+    expect(isTippingOff("We never report this to the police.", "en")).toBe(false);
+    const r = auditAgentReply({
+      reply: "I will not file a report.",
+      intent: "deny_fraud",
+      isOpening: false,
+      lang: "en",
+    });
+    expect(r.refused).toBeUndefined();
+    expect(r.reply).toBe("I will not file a report.");
+  });
+
+  test("French 'police' meaning an insurance policy is not a filing", () => {
+    expect(isTippingOff("Souhaitez-vous déclarer un sinistre sur votre police ?", "fr")).toBe(
+      false,
+    );
+    expect(isTippingOff("Je vais signaler cela à la police.", "fr")).toBe(true);
+  });
+
   test("the approved safety copy does not trip the guard", () => {
     for (const text of [
       "I have flagged this transaction as fraud and placed a temporary restriction on your card.",

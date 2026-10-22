@@ -71,19 +71,53 @@ done
 # Every edge must be serving its own name, on its own loopback port. An edge
 # that is up but not serving is the case that produces a black-holed name
 # after the switch.
-check_edge() {
+# Answers for `name` on its own loopback port, and says nothing either way: the
+# caller decides whether a miss is a problem, because for our own edge a miss is
+# the normal pre-cutover state.
+probe_edge() {
 	local name="$1" port="$2" code
 	code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 15 \
-		--resolve "$name:$port:127.0.0.1" "https://$name:$port/" || echo 000)"
+		--resolve "$name:$port:127.0.0.1" "https://$name:$port/" 2>/dev/null)"
+	[ -n "$code" ] || code=000
+	printf '%s' "$code"
+}
+
+require_edge() {
+	local name="$1" port="$2" code
+	code="$(probe_edge "$name" "$port")"
 	if [ "$code" = "200" ]; then
 		echo "    ok   $name on 127.0.0.1:$port -> $code"
 	else
 		note_problem "$name does not answer on 127.0.0.1:$port (got $code)"
 	fi
 }
-check_edge securevoiceai.me 8443
-check_edge crucible.svalley.tech 8444
-check_edge astrolabe.svalley.tech 8445
+require_edge crucible.svalley.tech 8444
+require_edge astrolabe.svalley.tech 8445
+
+# Our own edge is the one name whose loopback binding THIS script creates, so it
+# cannot be checked the same way. Demanding that securevoiceai.me already answer on
+# 127.0.0.1:8443 is a circular precondition: nothing listens there until step 2
+# recreates this project's edge, and step 2 runs only if every check has passed. The
+# script could therefore never reach its own first action, on any box, ever.
+#
+# The non-circular question is the one that predicts step 2: is the compose we are
+# about to bring up actually going to publish the loopback port the front door's
+# table points at? If it is not, step 2 would take the public ports and leave
+# nothing behind them — which is the failure the check was always meant to catch.
+if [ "$(probe_edge securevoiceai.me 8443)" = "200" ]; then
+	echo "    ok   our edge already answers on 127.0.0.1:8443"
+elif (cd "$STACK_DIR" && docker compose config 2>/dev/null) |
+	grep -Eq '127\.0\.0\.1:8443:443'; then
+	code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 15 https://securevoiceai.me/ 2>/dev/null)"
+	[ -n "$code" ] || code=000
+	if [ "$code" = "200" ]; then
+		echo "    ok   our edge holds the public port ($code) and is configured to publish 127.0.0.1:8443 on recreate"
+	else
+		note_problem "our edge answers neither on 127.0.0.1:8443 nor publicly (got $code) — there is nothing for the front door to route to"
+	fi
+else
+	note_problem "our edge would not publish 127.0.0.1:8443 after recreate. Set CADDY_BIND=127.0.0.1 and CADDY_HTTPS_PORT=8443 in $STACK_DIR/.env first; step 2 would otherwise release :80/:443 with nothing behind them."
+fi
 
 # The front door's own configuration, validated with the image it will run.
 if docker run --rm \

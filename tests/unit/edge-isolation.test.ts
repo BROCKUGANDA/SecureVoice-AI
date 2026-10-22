@@ -49,6 +49,7 @@ const read = (rel: string) =>
 const caddyfile = read("Caddyfile");
 const composeFile = read("docker-compose.yml");
 const deployScript = read("scripts/deploy.mjs");
+const ci = read(".github/workflows/ci.yml");
 const edgeConf = read("edge/nginx/edge.conf");
 const sniMap = read("edge/nginx/edge.d/securevoice.sni.map");
 const hostMap = read("edge/nginx/edge.d/securevoice.host.map");
@@ -99,7 +100,12 @@ function withoutComments(src: string): string {
 /**
  * The names a map file routes, as `name -> target` pairs.
  *
- * Comments and blank lines are dropped; a line is `name address:port`.
+ * Comments and blank lines are dropped; a line is `name address:port;`.
+ * The trailing semicolon is nginx's `map` syntax and it is REQUIRED — a
+ * missing one makes `nginx -t` refuse the whole configuration, and the front
+ * door is what every public name on the box depends on. The semicolon is
+ * stripped here so the target can be compared as an address, and a separate
+ * test asserts that it was there.
  */
 function mapEntries(src: string): Array<{ name: string; target: string }> {
   return src
@@ -108,7 +114,7 @@ function mapEntries(src: string): Array<{ name: string; target: string }> {
     .filter(Boolean)
     .map((line) => {
       const [name, ...rest] = line.split(/\s+/);
-      return { name, target: rest.join(" ") };
+      return { name, target: rest.join(" ").replace(/;$/, "") };
     });
 }
 
@@ -169,6 +175,26 @@ describe("the front door's table and the edge agree", () => {
     expect(hostEntries.map((e) => e.name)).not.toContain("localhost");
   });
 
+  test("every entry ends with the semicolon nginx's `map` requires", () => {
+    // Found the hard way: `nginx -t` refused the whole configuration with
+    // "unexpected end of file, expecting ; or }" because a map entry was
+    // written without its terminator. Nothing else caught it — the maps are
+    // not Caddyfile, and the edge's own `caddy validate` does not read them.
+    // The front door is what every public name on the box depends on, so a
+    // syntax error in a map is a total outage, and it is a total outage that
+    // no test in this repository would have seen.
+    for (const src of [sniMap, hostMap]) {
+      const entries = src
+        .split("\n")
+        .map((line) => line.replace(/#.*$/, "").trim())
+        .filter(Boolean);
+      expect(entries.length).toBeGreaterThan(0);
+      for (const entry of entries) {
+        expect(entry, `a map entry is not terminated: ${entry}`).toMatch(/;$/);
+      }
+    }
+  });
+
   test("every target is this edge's own loopback address", () => {
     // The front door runs in the host's network namespace and reaches the
     // edges over 127.0.0.1. A target on a routable address would mean the
@@ -190,13 +216,7 @@ describe("the front door's table and the edge agree", () => {
   });
 });
 
-describe("the front door is an L4 forwarder and nothing more", () => {
-  test("it has no HTTP context at all", () => {
-    // An `http {}` block means TLS termination, request inspection and a
-    // place for certificates to live that is not the product's repository.
-    expect(edgeConf).not.toMatch(/^\s*http\s*\{/m);
-  });
-
+describe("the front door is an L4 forwarder, and the TLS path stays that way", () => {
   test("it reads the SNI without decrypting anything", () => {
     const config = withoutComments(edgeConf);
     expect(config).toContain("ssl_preread on");
@@ -220,6 +240,40 @@ describe("the front door is an L4 forwarder and nothing more", () => {
     const edgeCompose = read("edge/compose.yml");
     expect(edgeCompose).toContain("network_mode: host");
     expect(edgeCompose).not.toMatch(/^\s+networks:/m);
+  });
+
+  test("CI validates the front door's configuration", () => {
+    // The front door is what every public hostname on the box is served
+    // through, and `caddy validate` does not read it. Without this step a
+    // syntax error in the front door's maps reaches production and takes
+    // every public name down — and no other gate in this repository would
+    // have seen it.
+    expect(ci).toContain("scripts/edge-validate.mjs");
+    expect(ci).toContain("Verify the shared front door's configuration");
+  });
+
+  test("the validator runs the image the front door actually runs", () => {
+    // A validator that checks a different nginx build than the one serving
+    // traffic is a validator that can be right about the wrong thing.
+    const edgeCompose = read("edge/compose.yml");
+    const image = edgeCompose.match(/image:\s*(\S+)/)?.[1];
+    expect(image).toBeTruthy();
+    expect(read("scripts/edge-validate.mjs")).toContain(`"${image}"`);
+  });
+
+  test("the plaintext path is a forwarder, and the TLS path is not an HTTP server", () => {
+    // The TLS path must stay L4: no TLS termination, no request inspection,
+    // no certificate. The plaintext path has to parse HTTP — a plaintext
+    // connection carries no SNI, so a hostname cannot be read out of one
+    // otherwise — and it forwards, nothing more.
+    const config = withoutComments(edgeConf);
+    expect(config).toMatch(/^\s*stream\s*\{/m);
+    expect(config).toMatch(/^\s*http\s*\{/m);
+    expect(config).toContain("ssl_preread on");
+    expect(config).not.toContain("ssl_certificate");
+    expect(config).not.toContain("proxy_protocol on");
+    // The plaintext listener forwards to the edge; it does not answer.
+    expect(config).toContain("proxy_pass http://$edge_http_backend;");
   });
 });
 

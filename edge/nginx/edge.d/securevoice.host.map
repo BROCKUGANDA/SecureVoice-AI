@@ -12,7 +12,8 @@
 #      because that is where the security headers that belong with it live.
 #
 # Same format and same rules as the `.sni.map` sibling: one name per line,
-# `address:port`, and the address is this edge's loopback publication of
-# port 80 (CADDY_HTTP_PORT in the host's .env).
-securevoiceai.me 127.0.0.1:8080
-www.securevoiceai.me 127.0.0.1:8080
+# `address:port;` — the trailing semicolon is required by nginx's `map` — and
+# the address is this edge's loopback publication of port 80 (CADDY_HTTP_PORT
+# in the host's .env).
+securevoiceai.me 127.0.0.1:8080;
+www.securevoiceai.me 127.0.0.1:8080;

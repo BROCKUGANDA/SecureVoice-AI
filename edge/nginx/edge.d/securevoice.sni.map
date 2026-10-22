@@ -13,7 +13,11 @@
 # disagree about what this project serves. The PORT is checked against the
 # running container by `bun scripts/deploy.mjs edge-status`.
 #
-# Format note: nginx's `map` reads the value as one token, so the address is
-# written as address:port with no scheme and no path.
-securevoiceai.me 127.0.0.1:8443
-www.securevoiceai.me 127.0.0.1:8443
+# Format note: nginx's `map` reads each entry as `name value;`, so the value
+# is written as address:port with no scheme and no path — and the trailing
+# semicolon is REQUIRED. It is not a nicety: `nginx -t` refuses the whole
+# configuration without it, and the front door is what every public name on
+# this box depends on. That check runs in CI (see the "front door config"
+# step in .github/workflows/ci.yml) and on the box before the switch.
+securevoiceai.me 127.0.0.1:8443;
+www.securevoiceai.me 127.0.0.1:8443;

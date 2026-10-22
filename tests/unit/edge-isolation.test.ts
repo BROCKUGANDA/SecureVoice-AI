@@ -366,6 +366,17 @@ describe("the deploy script reports the coupling instead of accommodating it", (
     expect(helper).toContain("edge-isolate");
   });
 
+  test("it compares a map target as an ADDRESS, not as a map entry", () => {
+    // The map terminator is nginx syntax; docker reports published ports
+    // without it. Comparing them raw made the isolate preflight refuse a
+    // precondition that was satisfied — measured on the box 2026-10-22 as
+    // `127.0.0.1:8443;` versus `127.0.0.1:8443`, with nothing changed.
+    const at = deployScript.indexOf("function edgeFragment(");
+    expect(at).toBeGreaterThan(-1);
+    const body = deployScript.slice(at, deployScript.indexOf("\n}\n", at));
+    expect(body).toContain('replace(/;$/, "")');
+  });
+
   test("the cutover is a command, and it checks before it acts", () => {
     expect(deployScript).toContain("edge-isolate");
     expect(deployScript).toContain("edge-status");

@@ -1630,7 +1630,9 @@ function edgeFragment() {
       .filter(Boolean)
       .map((line) => {
         const [name, ...rest] = line.split(/\s+/);
-        return { name, target: rest.join(" ") };
+        // nginx's `map` requires the trailing semicolon, docker's published
+        // ports do not carry one, and the isolate preflight compares the two.
+        return { name, target: rest.join(" ").replace(/;$/, "") };
       })
       .filter((e) => e.name && e.target);
   };

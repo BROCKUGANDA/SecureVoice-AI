@@ -159,13 +159,18 @@ function foreignCaddyNetworks() {
 }
 
 function reattachCaddyNetworks(networks) {
+  const failed = [];
   for (const network of networks) {
     const r = spawnSync("docker", ["network", "connect", network, containerId("caddy")], {
       encoding: "utf8",
     });
     if (r.status === 0) console.log(`  reattached caddy to ${network}`);
-    else console.log(`  could not reattach caddy to ${network}: ${(r.stderr ?? "").trim()}`);
+    else {
+      console.log(`  could not reattach caddy to ${network}: ${(r.stderr ?? "").trim()}`);
+      failed.push(network);
+    }
   }
+  return failed;
 }
 
 /**
@@ -221,7 +226,11 @@ function recreateCaddy(options = {}) {
           .join("\n") +
         `\n  or run \`bun scripts/deploy.mjs edge-isolate\` to cut the edge over properly.`,
     );
-    process.exit(1);
+    // NOT process.exit: the caller has already written the new upstream to the
+    // pointer file, and its failure path restores that file. Exiting here
+    // skipped the restore and left the recording disagreeing with the running
+    // Caddy — measured 2026-10-22 on the canary that hit this refusal.
+    return { status: 1, signal: null, stdout: "", stderr: "" };
   }
 
   // "shared" (retired): preserve the foreign attachments, because dropping
@@ -240,7 +249,20 @@ function recreateCaddy(options = {}) {
 
   const r = compose(["up", "-d", "--no-deps", "caddy"], options);
 
-  if (!isolated) reattachCaddyNetworks(foreign);
+  if (!isolated) {
+    const failed = reattachCaddyNetworks(foreign);
+    if (failed.length > 0) {
+      // The container is up but another project's network path is gone; a
+      // success status here would let the caller keep moving traffic while
+      // that project answers 502. Fail with the exact reconnect commands.
+      console.error(
+        `\n  caddy was recreated but is still DETACHED from ${failed.join(", ")} — a project on this box may be offline.\n` +
+          `  reconnect by hand:\n` +
+          failed.map((n) => `    docker network connect ${n} ${containerId("caddy")}`).join("\n"),
+      );
+      return { status: 1, signal: null, stdout: "", stderr: "" };
+    }
+  }
   return r;
 }
 
@@ -432,8 +454,16 @@ function upstreamList(active, canary, percent) {
  */
 function writeState(next) {
   mkdirSync(STATE_DIR, { recursive: true });
-  writeFileSync(STATE, JSON.stringify(next, null, 2));
-  const upstream = next.upstream ?? upstreamFor(next.active);
+  // `edge` records an OPERATOR decision (ADR-009), not a deploy fact. Several
+  // callers rebuild this object from a handful of fields, and that used to
+  // drop the field — silently returning a cut-over box to the shared mode the
+  // cutover ended. Only an explicit `edge` in `next` may change it.
+  const previous = readState();
+  const state = { ...next };
+  if (state.edge === undefined && previous.edge !== undefined) state.edge = previous.edge;
+  writeFileSync(STATE, JSON.stringify(state, null, 2));
+  // A fresh box has no colour yet; `app-undefined:3000` is not an upstream.
+  const upstream = state.upstream ?? (state.active ? upstreamFor(state.active) : `app:${APP_PORT}`);
   writeFileSync(
     ENV_ACTIVE,
     `# Written by scripts/deploy.mjs — do not hand-edit.\n` +
@@ -1813,7 +1843,7 @@ async function edgeIsolate(options = {}) {
     console.error(`\n  refusing to cut the edge over:\n`);
     for (const p of problems) console.error(`    · ${p}\n`);
     console.error(
-      `  docs/VPS-RECOVERY.md, failure mode #3, is the runbook. Nothing has been changed.`,
+      `  docs/VPS-RECOVERY.md, failure mode #4, is the runbook. Nothing has been changed.`,
     );
     process.exit(1);
   }

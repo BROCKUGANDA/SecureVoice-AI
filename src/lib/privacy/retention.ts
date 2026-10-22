@@ -92,10 +92,8 @@ export const DEFAULT_RETENTION_DAYS = {
  * This is a HOLD, not an erasure exemption forever: once the window has passed,
  * the normal audio/transcript/case-record tiers decide what happens next.
  */
-export const EVIDENCE_RETENTION_DAYS = (() => {
-  const raw = Number(process.env.PRIVACY_EVIDENCE_RETENTION_DAYS);
-  return Number.isInteger(raw) && raw > 0 ? raw : 5 * 365;
-})();
+export { EVIDENCE_RETENTION_DAYS } from "./evidence-hold";
+import { EVIDENCE_RETENTION_DAYS } from "./evidence-hold";
 
 /** An org that must hold no recording at all — deletion is immediate (0 days). */
 export const PILOT_AUDIO_DAYS = 0;

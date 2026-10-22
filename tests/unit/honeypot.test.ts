@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { NextRequest } from "next/server";
+import { _resetHoneypotForTest } from "@/lib/abuse/honeypot-blocklist";
 import {
-  _resetHoneypotForTest,
-  hashIdentifier,
-  hasScammerHash,
-} from "@/lib/abuse/honeypot-blocklist";
-import { isHoneypotBlocked, recordHoneypotHit, recordScammerNumber } from "@/lib/abuse/honeypot";
+  isHoneypotBlocked,
+  isScammerNumber,
+  recordHoneypotHit,
+  recordScammerNumber,
+} from "@/lib/abuse/honeypot";
 import { GET } from "@/app/api/internal/get-api-keys/route";
 
 function randomIp(): string {
@@ -45,7 +46,22 @@ describe("API honeypot", () => {
   test("the voice decoy stores a hash, never the number", async () => {
     const phone = "+971501234567";
     await recordScammerNumber(phone);
-    expect(hasScammerHash(hashIdentifier(phone))).toBe(true);
-    expect(hasScammerHash(phone)).toBe(false);
+    expect(await isScammerNumber(phone)).toBe(true);
+    expect(await isScammerNumber("+971500000000")).toBe(false);
+  });
+
+  test("a cross-site decoy request is witnessed, not used to ban the visitor", async () => {
+    const ip = randomIp();
+    const res = await GET(
+      new NextRequest("http://localhost/api/internal/get-api-keys", {
+        headers: {
+          "x-securevoice-client-ip": ip,
+          "sec-fetch-site": "cross-site",
+          "user-agent": "image-embed",
+        },
+      }),
+    );
+    expect(res.status).toBe(500);
+    expect(await isHoneypotBlocked(ip)).toBe(false);
   });
 });

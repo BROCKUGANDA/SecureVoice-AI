@@ -6,6 +6,7 @@ import { logWarn } from "@/lib/validation/safe-log";
 import {
   hashIdentifier,
   isHoneypotBlocked,
+  isScammerNumber,
   recordHoneypotBlock,
   recordScammerHash,
 } from "@/lib/abuse/honeypot-blocklist";
@@ -26,7 +27,7 @@ import {
  * database client into its pre-route bundle.
  */
 
-export { isHoneypotBlocked };
+export { isHoneypotBlocked, isScammerNumber };
 
 /** Record a decoy hit: block the source, append the audit row, alert the log. */
 export async function recordHoneypotHit(ip: string, detail: string): Promise<void> {

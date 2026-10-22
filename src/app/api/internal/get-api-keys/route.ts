@@ -27,10 +27,17 @@ function sourceIp(req: NextRequest): string {
 }
 
 async function trap(req: NextRequest): Promise<NextResponse> {
-  await recordHoneypotHit(
-    sourceIp(req),
-    `${req.method} ${req.nextUrl.pathname} ua=${req.headers.get("user-agent") ?? "unknown"}`,
-  );
+  // A cross-site <img> can issue this GET with no CORS preflight. Blocking the
+  // visitor's IP would let any page ban a victim; witness it without blocking.
+  const crossSite = req.headers.get("sec-fetch-site") === "cross-site";
+  if (!crossSite) {
+    await recordHoneypotHit(
+      sourceIp(req),
+      `${req.method} ${req.nextUrl.pathname} ua=${req.headers.get("user-agent") ?? "unknown"}`,
+    );
+  } else {
+    console.warn("[honeypot] cross-site decoy request witnessed without blocking");
+  }
   return NextResponse.json({ error: "Database connection failed" }, { status: 500 });
 }
 

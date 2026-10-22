@@ -46,7 +46,7 @@ Two listeners, and they are deliberately not the same kind of thing.
 | ----------------------- | --------------------------------------------------------------------------------------- |
 | Terminates TLS          | **No.** The edge owns the certificate.                                                  |
 | Parses the TLS path     | **No.** `ssl_preread` reads the SNI out of the ClientHello and nothing else.            |
-| Parses the `:80` path   | **Yes — and it has to.** A plaintext connection carries no SNI.                          |
+| Parses the `:80` path   | **Yes — and it has to.** A plaintext connection carries no SNI.                         |
 | Holds a secret          | **No.** No key, no token, no credential.                                                |
 | Shares a Docker network | **No.** It runs in the host's network namespace and reaches each edge over `127.0.0.1`. |
 | Has per-project state   | **No.** A project's whole contribution is two map files.                                |

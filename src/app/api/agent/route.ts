@@ -338,7 +338,7 @@ const REPLIES: Record<
   },
   greeting: {
     en: "This call is recorded to protect you. Hello — I am your bank's AI security assistant, calling about recent activity on your account. If you see a transaction you don't recognize, just say \"not mine\" and I will flag it and restrict your card pending human review. I will never ask for your PIN, password, or one-time passcode.",
-    ar: "هذه المكالمة مسجلة لحمايتك. مرحباً — أنا مساعد الأمان الذكي في مصرفك، أتصل بخصوص نشاط حديث على حسابك. إذا رأيت عملية لا تعرفها قل «ليست عمليتي» وسأبلّغ عنها وأقيّد بطاقتك مؤقتاً بانتظار مراجعة بشرية. ولن أطلب منك رمزاً سرياً أو كلمة مرور أو رمز تحقق أبداً.",
+    ar: "هذه المكالمة مسجلة لحمايتك. مرحباً — أنا مساعد أمان آلي يعمل بالذكاء الاصطناعي في مصرفك، ولست إنساناً، وأتصل بخصوص نشاط حديث على حسابك. إذا رأيت عملية لا تعرفها قل «ليست عمليتي» وسأبلّغ عنها وأقيّد بطاقتك مؤقتاً بانتظار مراجعة بشرية. ولن أطلب منك رمزاً سرياً أو كلمة مرور أو رمز تحقق أبداً.",
     hi: "यह कॉल आपकी सुरक्षा के लिए रिकॉर्ड हो रहा है। नमस्ते — मैं आपके बैंक का AI सुरक्षा सहायक हूँ, आपके खाते की हालिया गतिविधि के बारे में। यदि कोई लेनदेन अपरिचित लगे तो बस 'मेरा नहीं' कहें — मैं इसे चिह्नित करके मानव समीक्षा तक कार्ड पर अस्थायी प्रतिबंध लगा दूँगा। मैं कभी PIN, पासवर्ड या OTP नहीं पूछूँगा।",
     ur: "یہ کال آپ کی حفاظت کے لیے ریکارڈ ہو رہی ہے۔ ہیلو — میں آپ کے بینک کا اے آئی سیکیورٹی اسسٹنٹ ہوں، آپ کے اکاؤنٹ کی حالیہ سرگرمی کے بارے میں۔ اگر کوئی لین دین غیر مانوس لگے تو بس 'میرا نہیں' کہیں — میں اسے نشان زد کر کے انسانی جائزے تک کارڈ پر عارضی پابندی لگا دوں گا۔ میں کبھی آپ سے PIN، پاس ورڈ یا ون ٹائم کوڈ نہیں پوچھوں گا۔",
     fr: "Cet appel est enregistré pour vous protéger. Bonjour — je suis l'assistant de sécurité IA de votre banque, j'appelle au sujet d'une activité récente sur votre compte. Si vous voyez une transaction que vous ne reconnaissez pas, dites simplement « ce n'est pas la mienne » et je le signalerai et restreindrai temporairement votre carte en attendant un examen humain. Je ne vous demanderai jamais votre code PIN, mot de passe ou code à usage unique.",
@@ -526,7 +526,11 @@ export async function POST(req: NextRequest) {
   const audited = auditAgentReply({
     reply: drafted ?? scriptedWithExit,
     intent,
-    isOpening: intent === "greeting" || direction === "outbound",
+    // A greeting is not the only way a call opens: the browser demo's first
+    // turn is often "that transaction is not mine". The server knows which
+    // conversation it minted, so the first turn is an opening regardless of
+    // what the caller chose to say — see `turn.first` in turn-counter.ts.
+    isOpening: intent === "greeting" || direction === "outbound" || turn.first,
     lang,
   });
 

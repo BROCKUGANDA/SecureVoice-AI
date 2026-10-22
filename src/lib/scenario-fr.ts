@@ -24,7 +24,7 @@ export const FR_PACKS: Record<ScenarioKind, FrLine[]> = {
     // e02 · queue
     "Alerte validée et enrichie. File d'attente en priorité P1 — SLA de contact client : 60 secondes.",
     // e03 · dial
-    "Appel sortant passé au numéro enregistré +971 •• ••• 4567 (Ahmed Al-Rashid). Canal préchauffé, profil vocal français : Céline.",
+    "Appel sortant passé au numéro enregistré +971 •• ••• 4567 (Ahmed Al-Rashid). Canal préchauffé, profil vocal français (FR-FR).",
     // e04 · connected
     "Appel connecté en 1.2 s. Enregistrement activé. L'assistant est verrouillé sur le français dès la première réponse détectée.",
     // e05 · intro
@@ -62,7 +62,7 @@ export const FR_PACKS: Record<ScenarioKind, FrLine[]> = {
   atm: [
     "SIGNAL DE FRAUDE REÇU — carte •• 9034, retrait d'espèces de 8,000.00 dirhams au distributeur automatique de Corniche Street, Abou Dhabi. Score de risque 0.97 (critique). Profil de carte clonée : empreinte de lecture magnétique et 3e tentative en 10 minutes.",
     "Alerte validée et enrichie. File d'attente en priorité P1 — SLA de contact client : 60 secondes.",
-    "Appel sortant passé au numéro enregistré +971 •• ••• 7831 (Mariam Haddad). Canal préchauffé, profil vocal français : Céline. La carte est encore active — le retrait est en cours.",
+    "Appel sortant passé au numéro enregistré +971 •• ••• 7831 (Mariam Haddad). Canal préchauffé, profil vocal français (FR-FR). La carte est encore active — le retrait est en cours.",
     "Appel connecté en 1.1 s. Enregistrement activé. L'assistant est verrouillé sur le français dès la première réponse détectée.",
     (m) =>
       `Bonjour, je suis l'assistant de sécurité IA de votre banque ; j'appelle au sujet d'une activité récente sur votre compte. Cet appel est enregistré pour protéger votre compte. Est-ce bien ${m.customer} qui me parle ?`,
@@ -86,7 +86,7 @@ export const FR_PACKS: Record<ScenarioKind, FrLine[]> = {
   wire: [
     "SIGNAL DE FRAUDE REÇU — virement sortant de 48,000.00 dirhams vers le nouveau bénéficiaire M. TRADING LLC, en attente d'autorisation. Score de risque 0.99 (critique). Bénéficiaire signalé comme compte relais connu ; pattern d'ingénierie sociale sur les appels récents.",
     "Alerte validée et enrichie. File d'attente en priorité P1 — SLA de contact client : 60 secondes.",
-    "Appel sortant passé au numéro enregistré +971 •• ••• 2210 (Khalid Al-Mansoori). Canal préchauffé, profil vocal français : Céline. Le client est déjà sur une autre ligne — appel d'un escroc présumé.",
+    "Appel sortant passé au numéro enregistré +971 •• ••• 2210 (Khalid Al-Mansoori). Canal préchauffé, profil vocal français (FR-FR). Le client est déjà sur une autre ligne — appel d'un escroc présumé.",
     "Appel connecté en 1.0 s, interruption par alerte d'appel en cours. Enregistrement activé. L'assistant est verrouillé sur le français dès la première réponse détectée.",
     (m) =>
       `Bonjour, je suis l'assistant de sécurité IA de votre banque ; j'appelle au sujet d'une activité récente sur votre compte. Cet appel est enregistré pour protéger votre compte. Est-ce bien ${m.customer} qui me parle ?`,
@@ -113,7 +113,7 @@ export const FR_PACKS: Record<ScenarioKind, FrLine[]> = {
     // e02 · queue
     "Alerte validée et enrichie. File d'attente en priorité P1 — SLA de contact client : 60 secondes.",
     // e03 · dial
-    "Appel sortant passé au numéro enregistré +971 •• ••• 3390 (Fatima Al-Zaabi). Canal préchauffé, profil vocal français : Céline. Le paiement du sinistre est encore en attente — pas encore décaissé.",
+    "Appel sortant passé au numéro enregistré +971 •• ••• 3390 (Fatima Al-Zaabi). Canal préchauffé, profil vocal français (FR-FR). Le paiement du sinistre est encore en attente — pas encore décaissé.",
     // e04 · connected
     "Appel connecté en 1.1 s. Enregistrement activé. L'assistant est verrouillé sur le français dès la première réponse détectée.",
     // e05 · intro (insurer, not bank)
@@ -156,7 +156,7 @@ export const FR_PACKS: Record<ScenarioKind, FrLine[]> = {
     "Alerte validée et enrichie. File d'attente en priorité P1 — SLA de contact client : 60 secondes.",
     // e03 · dial
     (m) =>
-      `Appel sortant passé au numéro enregistré ${m.phone} (Omar Siddiqui). Canal préchauffé, profil vocal français : Céline.`,
+      `Appel sortant passé au numéro enregistré ${m.phone} (Omar Siddiqui). Canal préchauffé, profil vocal français (FR-FR).`,
     // e04 · answering machine
     "Appel connecté en 1.4 s — répondeur détecté (message d'accueil + bip). Détection de répondeur déclenchée : l'assistant n'engage pas de conversation avec une boîte vocale.",
     // e05 · generic voicemail message (no amount, merchant or case number)

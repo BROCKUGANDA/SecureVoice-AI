@@ -26,6 +26,7 @@ import { createHmac } from "node:crypto";
 import { mock } from "bun:test";
 import { NextRequest } from "next/server";
 import { blindIndexOf } from "@/lib/compliance/pii-vault";
+import { _resetHoneypotForTest } from "@/lib/abuse/honeypot-blocklist";
 
 const updates: Record<string, unknown>[] = [];
 const events: Record<string, unknown>[] = [];
@@ -223,6 +224,7 @@ describe("twilio inbound voice", () => {
     process.env.TWILIO_AUTH_TOKEN = TOKEN;
     process.env.TWILIO_WEBHOOK_BASE_URL = "https://securevoice.example.com";
     delete process.env.ELEVENLABS_INBOUND_SIP_URI;
+    _resetHoneypotForTest();
     updates.length = 0;
     events.length = 0;
     audits.length = 0;
@@ -295,6 +297,52 @@ describe("twilio inbound voice", () => {
     } finally {
       if (priorSecret === undefined) delete process.env.AUTH_SECRET;
       else process.env.AUTH_SECRET = priorSecret;
+    }
+  });
+
+  test("the decoy line holds the caller and never resolves a tenant", async () => {
+    const priorHoneypot = process.env.TWILIO_HONEYPOT_NUMBER;
+    const priorRedis = process.env.REDIS_URL;
+    process.env.TWILIO_HONEYPOT_NUMBER = "+15005550111";
+    process.env.REDIS_URL = "";
+    try {
+      // The trap only handles an UNASSIGNED number; make this one unassigned.
+      orgByNumber = null;
+      const params = { To: "+15005550111", From: PHONE, CallSid: "CA-HONEY" };
+      const res = await inbound(params, sign(INBOUND_URL, params));
+      expect(res.status).toBe(200);
+      const xml = await res.text();
+      expect(xml).toContain("<Pause");
+      expect(xml).toContain("<Hangup/>");
+      expect(xml).not.toContain("<Dial");
+      // The decoy branch must not touch the outbox or case state.
+      expect(events).toHaveLength(0);
+      expect(
+        audits.some((a) => a.intent === "honeypot_scammer_number_recorded"),
+        "the caller hash must reach the audit chain",
+      ).toBe(true);
+    } finally {
+      if (priorHoneypot === undefined) delete process.env.TWILIO_HONEYPOT_NUMBER;
+      else process.env.TWILIO_HONEYPOT_NUMBER = priorHoneypot;
+      if (priorRedis === undefined) delete process.env.REDIS_URL;
+      else process.env.REDIS_URL = priorRedis;
+    }
+  });
+
+  test("a trap configured on an assigned number does not divert that tenant's callers", async () => {
+    const priorHoneypot = process.env.TWILIO_HONEYPOT_NUMBER;
+    process.env.TWILIO_HONEYPOT_NUMBER = LINE;
+    try {
+      const params = { To: LINE, From: PHONE, CallSid: "CA-REAL" };
+      const res = await inbound(params, sign(INBOUND_URL, params));
+      expect(res.status).toBe(200);
+      const xml = await res.text();
+      expect(xml).not.toContain("<Pause");
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({ orgId: "org-a" });
+    } finally {
+      if (priorHoneypot === undefined) delete process.env.TWILIO_HONEYPOT_NUMBER;
+      else process.env.TWILIO_HONEYPOT_NUMBER = priorHoneypot;
     }
   });
 

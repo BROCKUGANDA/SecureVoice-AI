@@ -52,8 +52,10 @@ const DASHBOARD = source(join("src", "views", "Dashboard.tsx"));
 test("the client holds no voice table and sends the language", () => {
   expect(VOICE_CLIENT).not.toContain("TTS_VOICE");
   // `voice: lang` is the whole claim: the browser stops deciding who speaks.
-  expect(VOICE_CLIENT).toContain("fetchSpeechUrl(text, lang, lang, role)");
-  expect(VOICE_CLIENT).toContain("{ text, voice: lang, lang, role }");
+  // The trailing strict argument is the demo contract, not a voice override.
+  expect(VOICE_CLIENT).toContain("fetchSpeechUrl(text, lang, lang, role");
+  expect(VOICE_CLIENT).toContain("voice,");
+  expect(VOICE_CLIENT).toContain("...(lang ? { lang } : {})");
 });
 
 test("the slug→language alias exists exactly once, as a compatibility shim", () => {

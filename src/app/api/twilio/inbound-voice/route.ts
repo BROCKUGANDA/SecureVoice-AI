@@ -12,6 +12,7 @@ import { findOrgByVoiceNumber, getTransferNumber } from "@/lib/institution";
 import { escapeXml, twilioSignedUrl, verifyTwilioSignature } from "@/lib/twilio";
 import { INBOUND_CALLBACK_ACK, type OutreachLang } from "@/lib/outreach-copy";
 import { recordTelecomEvent } from "@/lib/telecom-outbox";
+import { isScammerNumber, recordScammerNumber } from "@/lib/abuse/honeypot";
 import { logError, logWarn } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
@@ -139,6 +140,30 @@ export async function POST(req: NextRequest) {
     // No TwiML that could bridge anything. The acknowledgement is the only safe
     // answer, and it names no institution because we do not know whose line this is.
     return speak("en");
+  }
+
+  // A caller already captured by the voice decoy is refused before it reaches a
+  // tenant's line. The decoy list is hashed; this is the only place that reads it.
+  if (await isScammerNumber(caller)) {
+    logWarn("[twilio-inbound-voice] captured decoy caller refused before tenant lookup");
+    return hangup();
+  }
+
+  // The decoy line. It is checked AFTER the tenant lookup and only when no real
+  // tenant owns the number: configuring the trap on an institution's live line
+  // must not divert that institution's customers into a hold loop.
+  const honeypot = env.twilioHoneypotNumber;
+  if (honeypot && dialed === honeypot && !org) {
+    await recordScammerNumber(caller);
+    return twiml(
+      `<Say language="en-GB">Hello, this is the bank verification line. Please wait while we connect you to an agent.</Say>` +
+        `<Pause length="10"/>` +
+        `<Say language="en-GB">Our agents are busy. Please hold.</Say>` +
+        `<Pause length="20"/>` +
+        `<Say language="en-GB">You are caller number four in the queue.</Say>` +
+        `<Pause length="30"/>` +
+        `<Hangup/>`,
+    );
   }
 
   if (!org) {

@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireOperator } from "@/lib/credits";
 import { generateSTREvidence } from "@/lib/compliance/fatf-export";
+import { CaseNotConfirmedError } from "@/lib/regulatory-export";
 
 export async function GET(req: NextRequest) {
   const guard = await requireOperator();
@@ -20,7 +21,13 @@ export async function GET(req: NextRequest) {
         "Cache-Control": "no-store",
       },
     });
-  } catch {
+  } catch (err) {
+    if (err instanceof CaseNotConfirmedError) {
+      return NextResponse.json(
+        { error: err.message, caseRef: err.caseRef, state: err.state },
+        { status: 409 },
+      );
+    }
     return NextResponse.json({ error: "Case not found" }, { status: 404 });
   }
 }

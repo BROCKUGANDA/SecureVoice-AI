@@ -34,6 +34,7 @@ const docsView = read("src/views/Docs.tsx");
 const faq = read("src/views/Faq.tsx");
 const schema = read("prisma/schema.prisma");
 const retention = read("src/lib/privacy/retention.ts");
+const evidenceHold = read("src/lib/privacy/evidence-hold.ts");
 const twilio = read("src/lib/twilio.ts");
 const submission = read("docs/SUBMISSION.md");
 const pilot = read("docs/PILOT-READINESS.md");
@@ -106,9 +107,11 @@ describe("published retention text must match the sweeper", () => {
   });
 
   test("the default hold is five years and is configurable", () => {
+    // The default moved into the shared hold module so the erasure path can
+    // re-check the same window; the gate follows the code.
     const m =
       /const raw = Number\(process\.env\.PRIVACY_EVIDENCE_RETENTION_DAYS\)[\s\S]{0,140}/.exec(
-        retention,
+        evidenceHold,
       );
     expect(m?.[0]).toMatch(/5 \* 365/);
     expect(read(".env.example")).toMatch(/PRIVACY_EVIDENCE_RETENTION_DAYS/);

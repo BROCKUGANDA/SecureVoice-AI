@@ -71,19 +71,74 @@ done
 # Every edge must be serving its own name, on its own loopback port. An edge
 # that is up but not serving is the case that produces a black-holed name
 # after the switch.
-check_edge() {
+# Answers for `name` on its own loopback port, and says nothing either way: the
+# caller decides whether a miss is a problem, because for our own edge a miss is
+# the normal pre-cutover state.
+probe_edge() {
 	local name="$1" port="$2" code
 	code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 15 \
-		--resolve "$name:$port:127.0.0.1" "https://$name:$port/" || echo 000)"
+		--resolve "$name:$port:127.0.0.1" "https://$name:$port/" 2>/dev/null)"
+	[ -n "$code" ] || code=000
+	printf '%s' "$code"
+}
+
+require_edge() {
+	local name="$1" port="$2" code
+	code="$(probe_edge "$name" "$port")"
 	if [ "$code" = "200" ]; then
 		echo "    ok   $name on 127.0.0.1:$port -> $code"
 	else
 		note_problem "$name does not answer on 127.0.0.1:$port (got $code)"
 	fi
 }
-check_edge securevoiceai.me 8443
-check_edge crucible.svalley.tech 8444
-check_edge astrolabe.svalley.tech 8445
+
+# Will the edge publish this port on the loopback, once it is recreated?
+#
+# `docker compose config` renders the LONG form of a port mapping — `host_ip`,
+# `target`, `published` — so the short syntax this compose file is written in
+# (`127.0.0.1:8443:443`) does not survive into the output. A check that
+# greps for the short syntax therefore never matches, and the precondition it
+# guards is never satisfied: the switch refuses, and reports that the edge
+# would not publish the port it is about to publish. The check has to look
+# for what compose actually prints.
+#
+# Both renderings are accepted, so the check does not depend on the compose
+# version's output format.
+edge_publishes() {
+	local port="$1" cfg
+	cfg="$(cd "$STACK_DIR" && docker compose config 2>/dev/null || true)"
+	printf '%s' "$cfg" | grep -q "127\.0\.0\.1:$port:443" && return 0
+	printf '%s' "$cfg" |
+		grep -A3 'host_ip: 127\.0\.0\.1' |
+		grep -q "published: \"$port\"" && return 0
+	return 1
+}
+require_edge crucible.svalley.tech 8444
+require_edge astrolabe.svalley.tech 8445
+
+# Our own edge is the one name whose loopback binding THIS script creates, so it
+# cannot be checked the same way. Demanding that securevoiceai.me already answer on
+# 127.0.0.1:8443 is a circular precondition: nothing listens there until step 2
+# recreates this project's edge, and step 2 runs only if every check has passed. The
+# script could therefore never reach its own first action, on any box, ever.
+#
+# The non-circular question is the one that predicts step 2: is the compose we are
+# about to bring up actually going to publish the loopback port the front door's
+# table points at? If it is not, step 2 would take the public ports and leave
+# nothing behind them — which is the failure the check was always meant to catch.
+if [ "$(probe_edge securevoiceai.me 8443)" = "200" ]; then
+	echo "    ok   our edge already answers on 127.0.0.1:8443"
+elif edge_publishes 8443; then
+	code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 15 https://securevoiceai.me/ 2>/dev/null)"
+	[ -n "$code" ] || code=000
+	if [ "$code" = "200" ]; then
+		echo "    ok   our edge holds the public port ($code) and is configured to publish 127.0.0.1:8443 on recreate"
+	else
+		note_problem "our edge answers neither on 127.0.0.1:8443 nor publicly (got $code) — there is nothing for the front door to route to"
+	fi
+else
+	note_problem "our edge would not publish 127.0.0.1:8443 after recreate. Set CADDY_BIND=127.0.0.1 and CADDY_HTTPS_PORT=8443 in $STACK_DIR/.env first; step 2 would otherwise release :80/:443 with nothing behind them."
+fi
 
 # The front door's own configuration, validated with the image it will run.
 if docker run --rm \
@@ -93,6 +148,34 @@ if docker run --rm \
 	echo "    ok   the front door's configuration is valid"
 else
 	note_problem "the front door's configuration does not validate"
+fi
+
+# The routing table must be NON-EMPTY, and must name every hostname the
+# switch is about to route.
+#
+# This check exists because of a real failure: the front door's compose file
+# pointed at a fragment directory that did not exist, docker created an empty
+# one, and nginx's `include` matching ZERO files is perfectly valid — so the
+# front door started, the configuration validated, and the routing table was
+# EMPTY. Every name was then refused by the fail-closed default, and the
+# front door's logs had nothing to say about it.
+#
+# A validation that passes on an empty table is not a validation.
+fragments="$EDGE_DIR/nginx/edge.d"
+if [ ! -d "$fragments" ]; then
+	note_problem "$fragments does not exist — the front door would start with an empty routing table"
+else
+	routed="$(cat "$fragments"/*.sni.map 2>/dev/null | grep -vc '^[[:space:]]*\(#.*\)\?$')"
+	if [ "${routed:-0}" -eq 0 ]; then
+		note_problem "the routing table is EMPTY — the front door would refuse every name"
+	else
+		echo "    ok   the routing table has $routed entries"
+		for name in securevoiceai.me crucible.svalley.tech astrolabe.svalley.tech; do
+			if ! grep -q "^$name " "$fragments"/*.sni.map 2>/dev/null; then
+				note_problem "$name is not in the routing table — the front door would refuse it"
+			fi
+		done
+	fi
 fi
 
 # The shared edge must still be the thing holding the public ports, or this

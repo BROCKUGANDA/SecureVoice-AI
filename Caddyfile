@@ -79,6 +79,8 @@
 	# src/proxy.ts trusts X-Forwarded-For only when it sees this marker, so a forged
 	# header on a direct-to-origin request cannot buy extra rate-limit budget.
 	header_up X-SecureVoice-Proxy "1"
+	# Caddy is the trust boundary; overwrite the spoofable client-supplied header.
+	header_up CF-Connecting-IP {remote_host}
 
 	# DO NOT add `header_up Connection {>Connection}` here. Measured, not guessed:
 	# with that line the websocket upgrade dies with

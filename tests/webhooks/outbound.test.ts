@@ -347,6 +347,37 @@ test("WP-5: a redirect is a failed delivery, never a signed payload to another h
   await db.outboxEvent.delete({ where: { id: event.id } });
 });
 
+test("a per-case callback_url becomes the outbox target", async () => {
+  // `callback_url` is accepted and SSRF-checked at ingest. Before this gate it
+  // was then discarded, so the bank's promised post-call endpoint never
+  // received anything. The case row is the source of truth; the outbox resolves
+  // it before falling back to the tenant/deployment endpoint.
+  const caseRef = `SV-F-CB-${Date.now().toString(36).toUpperCase()}`;
+  await db.case.create({
+    data: {
+      caseRef,
+      orgId: "org-test",
+      state: "CONFIRMED_FRAUD",
+      callbackUrl: "https://bank.example.test/callback",
+    },
+  });
+  try {
+    const created = await db.$transaction((t) =>
+      enqueueOutbox(t, {
+        eventType: "case.notified",
+        caseRef,
+        orgId: "org-test",
+        data: { state: "NOTIFIED" },
+      }),
+    );
+    const row = await db.outboxEvent.findUniqueOrThrow({ where: { id: created.id } });
+    expect(row.targetUrl).toBe("https://bank.example.test/callback");
+  } finally {
+    await db.outboxEvent.deleteMany({ where: { caseRef } });
+    await db.case.deleteMany({ where: { caseRef } });
+  }
+});
+
 function findPython(): string | null {
   const candidates = [
     process.env.PYTHON,

@@ -40,14 +40,14 @@ import {
   speakText,
   stopVoice,
   prefetchSpeech,
-  VOICE_FALLBACK_COPY,
+  STRICT_VOICE_UNAVAILABLE,
   type VoiceRole,
 } from "@/lib/voice-client";
 import { useApp, t } from "@/lib/store";
 import { seatLabel, type Seat } from "@/lib/auth/seat";
 import { useViewerSeat } from "@/lib/auth/use-viewer-seat";
 import { isDemoAccount } from "@/lib/demo-account";
-import { Chip, Skeleton } from "@/components/fx/core";
+import { Chip } from "@/components/fx/core";
 import { Waveform, Equalizer } from "@/components/fx/Waveform";
 import { LiveVoicePanel } from "@/components/demo/LiveVoicePanel";
 import { cn } from "@/lib/utils";
@@ -118,7 +118,7 @@ export function Demo() {
   const [callLang, setCallLang] = useState<CallLang>("en");
   const spokenRef = useRef<Set<string>>(new Set());
   const audioBusyRef = useRef(false); // scenario clock freezes while a line is spoken
-  const endRef = useRef<HTMLDivElement>(null);
+  const transcriptRef = useRef<HTMLDivElement>(null);
   const speakSeq = useRef(0);
 
   const SCEN = useMemo(() => buildScenario(kind), [kind]);
@@ -189,17 +189,18 @@ export function Demo() {
     const seq = speakSeq.current;
     stopVoice();
     audioBusyRef.current = true;
-    const role: VoiceRole = latest.speaker === "agent" ? "agent" : "customer";
+    // The whole simulation is the ElevenLabs agent voice, including the scripted
+    // customer turns. A separate customer voice would make the stage's
+    // "ELEVENLABS AGENT VOICE" label false for every customer line.
+    const role: VoiceRole = "agent";
     const text = eventText(latest, callLang);
-    speakText(text, callLang, role, Math.min(speed, 2)).then((outcome) => {
+    // Strict: every line in this simulation is the ElevenLabs agent voice. If
+    // the vendor is unavailable the line is not spoken by a device voice or a
+    // tone; the page says so instead.
+    speakText(text, callLang, role, Math.min(speed, 2), { strict: true }).then((outcome) => {
       if (seq !== speakSeq.current) return; // a newer line owns the flag now
       audioBusyRef.current = false;
-      // Say which voice the visitor is hearing. `browserSpeak` already ran inside
-      // speakText, so the line is audible either way — what changes is whether the
-      // claim on the page matches the sound.
-      setVoiceNote(outcome.neural ? null : VOICE_FALLBACK_COPY[outcome.reason ?? "failed"]);
-      if (!outcome.neural) return;
-      /* browser fallback already spoken inside speakText */
+      setVoiceNote(outcome.neural ? null : STRICT_VOICE_UNAVAILABLE[lang === "ar" ? "ar" : "en"]);
     });
     // pre-warm the next spoken line so the reply starts without a gap
     const idx = SCEN.indexOf(latest);
@@ -209,7 +210,7 @@ export function Demo() {
       // The language is the voice selector; the server maps it the way a real
       // call would, so a pre-warmed line cannot sound different from the same
       // line spoken live.
-      prefetchSpeech(ntext, callLang, callLang, next.speaker === "agent" ? "agent" : "customer");
+      prefetchSpeech(ntext, callLang, callLang, "agent", true);
     }
   }, [revealed, audioOn, started, callLang, speed, SCEN]);
 
@@ -219,12 +220,22 @@ export function Demo() {
 
   /* unmount — release audio + mic-safe cleanup */
   useEffect(() => {
-    return () => stopVoice();
+    return () => {
+      // Invalidate any pending speakText().then before stopping: the promise
+      // now resolves on finish/stop, and its handler must not set state on an
+      // unmounted component.
+      speakSeq.current += 1;
+      stopVoice();
+    };
   }, []);
 
-  /* ——— autoscroll transcript ——— */
+  /* ——— autoscroll transcript ———
+     Scroll the transcript's own box, not `scrollIntoView` on a sentinel: the
+     latter scrolls ancestor scroll containers too, sliding the page under the
+     sticky header while a new bubble is being revealed. */
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    const el = transcriptRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [revealed.length]);
 
   /* ——— demo seat heartbeat ———
@@ -597,7 +608,8 @@ export function Demo() {
                   </span>
                 </p>
                 <p className="num mt-1 text-[11px] text-white/70">
-                  {t("VOICE", "الصوت", lang)} · {VOICE_BY_LANG[callLang]} · {META.assetId}
+                  {t("ELEVENLABS AGENT VOICE", "صوت وكيل ElevenLabs", lang)} ·{" "}
+                  {VOICE_BY_LANG[callLang]} · {META.assetId}
                 </p>
               </>
             }
@@ -645,7 +657,10 @@ export function Demo() {
           </div>
 
           {/* transcript */}
-          <div className="sv-scroll h-[420px] space-y-3.5 overflow-y-auto px-4 py-5 sm:px-6">
+          <div
+            ref={transcriptRef}
+            className="sv-scroll h-[420px] space-y-3.5 overflow-y-auto px-4 py-5 sm:px-6"
+          >
             {!started && (
               <div className="flex h-full flex-col items-center justify-center gap-5 text-center">
                 <span className="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-green-tint">
@@ -703,7 +718,6 @@ export function Demo() {
                 </span>
               </div>
             )}
-            <div ref={endRef} />
           </div>
 
           {/* transcript controls */}
@@ -791,11 +805,14 @@ export function Demo() {
                 />
               </div>
             ) : (
-              <div className="space-y-2.5">
-                <Skeleton className="h-3.5 w-3/4" />
-                <Skeleton className="h-3.5 w-1/2" />
-                <Skeleton className="h-3.5 w-2/3" />
-              </div>
+              <RailState
+                title={t("Awaiting an alert", "بانتظار إشارة", lang)}
+                body={t(
+                  "This panel fills from the simulated case when you fire the alert. No database query runs here, so the empty state is genuinely empty — not a fetch still in flight.",
+                  "تمتلئ هذه اللوحة من الحالة المحاكاة عند إطلاق التنبيه. لا يُنفَّذ استعلام قاعدة بيانات هنا، لذا فالحالة الفارغة فارغة فعلاً — وليست طلباً ما زال قيد التنفيذ.",
+                  lang,
+                )}
+              />
             )}
           </RailCard>
 
@@ -838,6 +855,15 @@ export function Demo() {
                   </div>
                 );
               })}
+              {!started && (
+                <p className="pt-1 text-[10.5px] leading-relaxed text-ink-3">
+                  {t(
+                    "Idle — no signal received yet. Stages light in order once the alert fires.",
+                    "خامل — لم تُستلم إشارة بعد. تضيء المراحل بالترتيب عند إطلاق التنبيه.",
+                    lang,
+                  )}
+                </p>
+              )}
             </div>
           </RailCard>
 
@@ -886,11 +912,24 @@ export function Demo() {
                   </div>
                 )}
               </div>
+            ) : !started ? (
+              <RailState
+                title={t("No action yet", "لا إجراء بعد", lang)}
+                body={t(
+                  "Nothing is staged until the customer confirms the disputed transaction. No action is taken on an alert alone.",
+                  "لا يُمهَّد أي إجراء حتى يؤكد العميل العملية المتنازع عليها. لا يُتخذ أي إجراء على أساس التنبيه وحده.",
+                  lang,
+                )}
+              />
             ) : (
-              <div className="space-y-2.5">
-                <Skeleton className="h-3.5 w-2/3" />
-                <Skeleton className="h-14 w-full" />
-              </div>
+              <RailState
+                title={t("Awaiting confirmation", "بانتظار التأكيد", lang)}
+                body={t(
+                  "The customer has not confirmed yet. The protective action is staged at 0:45 and committed by a human.",
+                  "لم يؤكد العميل بعد. يُمهَّد إجراء الحماية عند ٠:٤٥ ويُثبّته إنسان.",
+                  lang,
+                )}
+              />
             )}
           </RailCard>
 
@@ -919,18 +958,35 @@ export function Demo() {
                   </span>
                 </div>
               </div>
+            ) : !started ? (
+              <RailState
+                title={t("No handoff yet", "لا تسليم بعد", lang)}
+                body={t(
+                  "A specialist is looped in only after the call reaches its handoff stage. Nothing is queued while the rail is idle.",
+                  "يُضم الأخصائي فقط بعد وصول المكالمة إلى مرحلة التسليم. لا شيء في الطابور أثناء خمول اللوحة.",
+                  lang,
+                )}
+              />
             ) : (
-              <div className="space-y-2.5">
-                <Skeleton className="h-3.5 w-3/4" />
-                <Skeleton className="h-3.5 w-1/2" />
-              </div>
+              <RailState
+                title={t("Not reached yet", "لم تُبلغ بعد", lang)}
+                body={t(
+                  "The call has not reached the handoff stage. Context is still being assembled.",
+                  "لم تصل المكالمة إلى مرحلة التسليم بعد. لا يزال السياق قيد التجميع.",
+                  lang,
+                )}
+              />
             )}
           </RailCard>
         </div>
       </div>
 
-      {/* ——— LIVE CONVERSATION: talk to the agent ——— */}
-      <LiveVoicePanel callLang={callLang} />
+      {/* ——— LIVE CONVERSATION: talk to the agent ———
+          Its own black-banner panel: without explicit spacing it butts against
+          the grid above and reads as part of the rail rather than a new section. */}
+      <div className="mt-6">
+        <LiveVoicePanel callLang={callLang} />
+      </div>
 
       {/* ——— what to watch for ——— */}
       <div className="mt-5 rounded-2xl border border-line bg-white px-5 py-3.5">
@@ -1153,6 +1209,27 @@ function AuthStatePanel() {
 }
 
 /* ————— helpers ————— */
+
+/**
+ * An explicit non-loading state for a rail card.
+ *
+ * The cards used to render skeleton bars whenever they had no data, which on an
+ * unstarted demo meant three panels shimmered forever. A skeleton is a promise
+ * that data is coming; here the truth is either "nothing has been triggered"
+ * or "this stage has not been reached". Saying so is the difference between a
+ * slow panel and a lying one.
+ */
+function RailState({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="flex items-start gap-2.5 rounded-xl border border-dashed border-line bg-paper/70 px-3 py-2.5">
+      <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-ink-3/60" />
+      <div className="min-w-0">
+        <p className="text-[11.5px] font-semibold text-ink-2">{title}</p>
+        <p className="mt-0.5 text-[10.5px] leading-relaxed text-ink-3">{body}</p>
+      </div>
+    </div>
+  );
+}
 
 function Row({ k, v, hot }: { k: string; v: string; hot?: boolean }) {
   return (

@@ -83,6 +83,7 @@ import {
 import { deleteRecording } from "@/lib/storage/recordings";
 import { storageConfigured } from "@/lib/storage/s3";
 import { logError } from "@/lib/validation/safe-log";
+import { evidenceHoldElapsed } from "./evidence-hold";
 
 // ── Envelope + policy constants ──────────────────────────────────────────────
 
@@ -660,6 +661,14 @@ export type ErasureOptions = {
   requestedBy?: string;
   /** Optional policy reference, e.g. "UAE PDPL Art. 27". Recorded verbatim. */
   legalBasis?: string;
+  /**
+   * Set ONLY by the retention sweeper after its selector has applied the
+   * five-year evidence hold. A manual erasure must not set it: the default
+   * refusal is what keeps a locked case out of a DSR path. Without this the
+   * transcript tier selected locked rows after the hold and then threw on every
+   * run, leaving the payload unshredded for the rest of the case-record window.
+   */
+  evidenceHoldElapsed?: boolean;
 };
 
 export type ErasureResult = {
@@ -744,9 +753,20 @@ export async function eraseCase(
   const row = await db.case.findUnique({ where: { caseRef } });
   if (!row) throw new CaseNotFoundError(caseRef);
   if (row.isEvidenceLocked) {
-    throw new Error(
-      "This data is subject to an active law-enforcement investigation and cannot be deleted under Article 23 of PDPL.",
-    );
+    if (!opts.evidenceHoldElapsed) {
+      throw new Error(
+        "This data is subject to an active law-enforcement investigation and cannot be deleted under Article 23 of PDPL.",
+      );
+    }
+    // The sweeper's selection is not proof at this instant: a case can become
+    // confirmed fraud between selection and erasure. Re-read the hold start and
+    // refuse if the new lock has not served its full window.
+    const holdStart = row.fraudConfirmedAt ?? row.createdAt;
+    if (!evidenceHoldElapsed(holdStart)) {
+      throw new Error(
+        "Evidence hold has not elapsed since the case became confirmed fraud; refusing retention erasure.",
+      );
+    }
   }
   if (row.erasedAt) {
     return {

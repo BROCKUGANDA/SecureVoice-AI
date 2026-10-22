@@ -52,7 +52,17 @@ services:
       - ./nginx/edge.conf:/etc/nginx/nginx.conf:ro
       # The collected per-project tables. Read-only: the front door never
       # writes its own configuration.
-      - ${EDGE_FRAGMENT_DIR:-/srv/edge/edge.d}:/etc/nginx/edge.d:ro
+      #
+      # The default is RELATIVE to this compose file, so the front door reads
+      # the tables beside it. An absolute default here was a trap: the
+      # directory it named did not exist, docker created an empty one, and
+      # nginx's `include` matching ZERO files is perfectly valid — so the
+      # front door came up with an EMPTY routing table and refused every
+      # name in the country, with nothing in its logs to say why.
+      #
+      # Point EDGE_FRAGMENT_DIR at a shared directory when the tables from
+      # several projects are collected in one place instead.
+      - ${EDGE_FRAGMENT_DIR:-./nginx/edge.d}:/etc/nginx/edge.d:ro
     healthcheck:
       # The front door is healthy when it is still accepting connections on
       # the public port. `nginx -t` validates the CONFIGURATION; it says

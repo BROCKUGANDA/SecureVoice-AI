@@ -60,14 +60,44 @@ else
 	echo "    (not in the crontab)"
 fi
 if [ -f /usr/local/bin/crucible-edge-attach ]; then
-	mv /usr/local/bin/crucible-edge-attach /usr/local/bin/crucible-edge-attach.retired
-	echo "    moved /usr/local/bin/crucible-edge-attach aside"
+	# It lives in /usr/local/bin, so it takes root to move. The crontab entry
+	# above is already gone, so nothing will run it even if the file stays.
+	sudo mv /usr/local/bin/crucible-edge-attach /usr/local/bin/crucible-edge-attach.retired &&
+		echo "    moved /usr/local/bin/crucible-edge-attach aside" ||
+		echo "    could not move it (sudo) — the crontab entry is gone, so it will not run"
 fi
 if [ -f "$HOME/crucible-edge-attach.log" ]; then
 	echo "    the old repair log is at $HOME/crucible-edge-attach.log"
 fi
 
-# ── 3. the network attachments ───────────────────────────────────────────────
+# ── 3. the foreign network attachments ───────────────────────────────────────
+# An edge must be on ITS OWN project's network and no other. The retired
+# timer is the reason this is not automatic: it attached EVERY caddy container
+# on the box to the other product's network, and it was still running after
+# the split — so the astrolabe edge was found on `crucible_default` moments
+# after the switch. A repair that outlives its fault does not stop repairing;
+# it starts re-creating the coupling, silently, on a schedule.
+say "detaching any edge from a network it does not own"
+own_network_for() {
+	case "$1" in
+	securevoice-ai-caddy-1) echo "securevoice-ai_default" ;;
+	crucible-edge-caddy-1) echo "crucible_default" ;;
+	astrolabe-edge-caddy-1) echo "astrolabe_default" ;;
+	*) echo "" ;;
+	esac
+}
+for c in $(docker ps --format '{{.Names}}' | grep -i caddy); do
+	own="$(own_network_for "$c")"
+	[ -n "$own" ] || continue
+	for net in $(docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$c"); do
+		if [ "$net" != "$own" ]; then
+			docker network disconnect "$net" "$c" >/dev/null 2>&1 &&
+				echo "    detached $c from $net (it belongs to $own)" ||
+				echo "    could not detach $c from $net"
+		fi
+	done
+done
+
 say "the edge's networks"
 for c in $(docker ps --format '{{.Names}}' | grep -i caddy); do
 	echo "--- $c"

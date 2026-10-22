@@ -34,6 +34,14 @@ import {
   isCallLanguage,
 } from "@/lib/elevenlabs/outbound-call";
 import {
+  AI_IDENTITY_AR,
+  AI_IDENTITY_EN,
+  AI_IDENTITY_FR,
+  AI_IDENTITY_HI,
+  AI_IDENTITY_SW,
+  AI_IDENTITY_UR,
+  auditAgentReply,
+  namesAi,
   OPENING_DISCLOSURE_AR,
   OPENING_DISCLOSURE_EN,
   OPENING_DISCLOSURE_FR,
@@ -41,6 +49,7 @@ import {
   OPENING_DISCLOSURE_SW,
   OPENING_DISCLOSURE_UR,
 } from "@/lib/compliance/policy";
+import type { Lang } from "@/lib/languages";
 import {
   containsAccountIdentifier,
   maskAccountIdentifiers,
@@ -125,6 +134,125 @@ describe("the opening disclosure exists in every callable language", () => {
     expect(firstMessageForLanguage("")).toBeNull();
     expect(isCallLanguage("zu")).toBe(false);
     expect(isCallLanguage("ar")).toBe(true);
+  });
+});
+
+describe("the opening also discloses that the caller is an AI", () => {
+  const IDENTITY_BY_LANG: Record<Lang, string> = {
+    en: AI_IDENTITY_EN,
+    ar: AI_IDENTITY_AR,
+    hi: AI_IDENTITY_HI,
+    ur: AI_IDENTITY_UR,
+    fr: AI_IDENTITY_FR,
+    sw: AI_IDENTITY_SW,
+  };
+  const LANGS: Lang[] = ["en", "ar", "hi", "ur", "fr", "sw"];
+
+  test("a recording notice without AI identification is repaired, not passed", () => {
+    // The exact shape a rephrasing model produced: the recording sentence and
+    // the transaction, but no statement that the caller is a machine.
+    const r = auditAgentReply({
+      reply:
+        "This call is recorded to protect you. I am calling about a pending transaction of forty-eight thousand dirhams. Was this charge yours?",
+      intent: "greeting",
+      isOpening: true,
+      lang: "en",
+    });
+    expect(r.guardrails).toContain("ai_identity_injected");
+    expect(r.reply).toContain(AI_IDENTITY_EN);
+    expect(r.reply.startsWith(OPENING_DISCLOSURE_EN)).toBe(true);
+    // The recording notice is not duplicated by the repair.
+    expect(r.reply.split(OPENING_DISCLOSURE_EN)).toHaveLength(2);
+  });
+
+  test("every language gets its own AI identification", () => {
+    for (const lang of LANGS) {
+      const disclosure = {
+        en: OPENING_DISCLOSURE_EN,
+        ar: OPENING_DISCLOSURE_AR,
+        hi: OPENING_DISCLOSURE_HI,
+        ur: OPENING_DISCLOSURE_UR,
+        fr: OPENING_DISCLOSURE_FR,
+        sw: OPENING_DISCLOSURE_SW,
+      }[lang];
+      const r = auditAgentReply({
+        reply: `${disclosure}. I am calling about a pending transaction.`,
+        intent: "greeting",
+        isOpening: true,
+        lang,
+      });
+      expect(r.reply, lang).toContain(IDENTITY_BY_LANG[lang]);
+      expect(namesAi(r.reply, lang), lang).toBe(true);
+      expect(r.guardrails, lang).toContain("ai_identity_injected");
+    }
+  });
+
+  test("merely mentioning AI is not a self-identification", () => {
+    // A model can say "our AI flagged this" and still leave the customer
+    // believing a human is on the line. The anchor is what separates the two.
+    const r = auditAgentReply({
+      reply:
+        "This call is recorded to protect you. Our AI flagged the transaction, so I am calling about it.",
+      intent: "greeting",
+      isOpening: true,
+      lang: "en",
+    });
+    expect(r.reply).toContain(AI_IDENTITY_EN);
+    expect(r.guardrails).toContain("ai_identity_injected");
+  });
+
+  test("Arabic process wording is not an identity", () => {
+    // `بآلية` (by an automated mechanism) is not the speaker saying it is an AI.
+    expect(namesAi("هذا القرار يتم بآلية آمنة ومعتمدة.", "ar")).toBe(false);
+    expect(namesAi("أنا مساعد أمان آلي يعمل بالذكاء الاصطناعي في مصرفك.", "ar")).toBe(true);
+  });
+
+  test("English AI topics are not self-identification", () => {
+    expect(namesAi("I am calling about an AI fraud alert.", "en")).toBe(false);
+    expect(namesAi("This is an automated payment reminder.", "en")).toBe(false);
+    expect(namesAi("I am an automated AI assistant, not a human.", "en")).toBe(true);
+    expect(namesAi("I am your bank's AI security assistant.", "en")).toBe(true);
+    expect(namesAi("This is an AI assistant.", "en")).toBe(true);
+  });
+
+  test("Hindi and Urdu stop at their sentence terminators", () => {
+    expect(
+      namesAi(
+        "मैं आपके खाते की जांच कर रहा हूँ। हमारा AI सिस्टम ने एक लेनदेन चिह्नित किया है।",
+        "hi",
+      ),
+    ).toBe(false);
+    expect(namesAi("मैं आपके बैंक का AI सुरक्षा सहायक हूँ।", "hi")).toBe(true);
+    expect(
+      namesAi(
+        "میں آپ کے اکاؤنٹ کی جانچ کر رہا ہوں۔ ہمارا AI سسٹم نے لین دین کی نشاندہی کی ہے۔",
+        "ur",
+      ),
+    ).toBe(false);
+    expect(namesAi("میں آپ کے بینک کا اے آئی سیکیورٹی اسسٹنٹ ہوں۔", "ur")).toBe(true);
+  });
+
+  test("a reply that already identifies the AI is left alone", () => {
+    const r = auditAgentReply({
+      reply: `${OPENING_DISCLOSURE_EN}. I am an automated AI assistant, not a human. May I confirm a transaction?`,
+      intent: "greeting",
+      isOpening: true,
+      lang: "en",
+    });
+    expect(r.guardrails).toContain("ai_identity_present");
+    expect(r.guardrails).not.toContain("ai_identity_injected");
+    expect(r.reply.split(AI_IDENTITY_EN)).toHaveLength(2);
+  });
+
+  test("the identification is only required on the opening turn", () => {
+    const r = auditAgentReply({
+      reply: "Thank you for confirming. I have closed the review.",
+      intent: "confirm_authorized",
+      isOpening: false,
+      lang: "en",
+    });
+    expect(r.reply).not.toContain(AI_IDENTITY_EN);
+    expect(r.guardrails).not.toContain("ai_identity_injected");
   });
 });
 

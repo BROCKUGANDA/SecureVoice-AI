@@ -191,6 +191,8 @@ const PUBLIC_BY_DESIGN: Readonly<Record<string, string>> = {
     "self-serve bank conformance checker guarded by an org-scoped PRODUCER KEY, not an operator session (src/app/v1/conformance/run/route.ts)",
   "/api/v1/campaigns":
     "batch outbound campaign ingest guarded by a per-org producer key; enqueues recipients through the same durable dial queue, whose worker enforces do-not-call and the calling window, not an operator session",
+  "/api/internal/get-api-keys":
+    "decoy honeypot: deliberately public so a scanner reaches it, returns a fake 500, records and blocks the source for 24h, and exposes no credential or tenant data — the blocklist is checked by the proxy before every route",
   "/api/queue/dispatch":
     "internal QStash dispatch endpoint; authenticates the request by QStash Upstash-Signature, never by a session",
   "/api/queue/dead-letter":

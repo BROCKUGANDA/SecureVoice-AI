@@ -104,7 +104,11 @@ export const scenes = [
     ],
     min: 4.0,
     agentLines: [
-      { at: 6.0, lang: "en", text: "This is Marcus calling about a transaction on your card." },
+      {
+        at: 6.0,
+        lang: "en",
+        text: "This call is recorded to protect you. I am your bank's automated AI security assistant, calling about a transaction on your card.",
+      },
       {
         at: 13.5,
         lang: "en",
@@ -129,13 +133,13 @@ export const scenes = [
     chapter: "Multilingual",
     title: "The same flow in Arabic",
     narration:
-      "The customer's language is the agent's language. Switching the call to Arabic routes to a different voice identity — Fatima, Gulf Arabic — same disclosure, same guardrails, a bilingual transcript on screen. Each language carries its own voice, so it never sounds translated.",
-    captions: ["Voice identity per language", "Arabic: Fatima, Gulf Arabic"],
+      "The customer's language is the agent's language. Switching the call to Arabic routes to a different voice identity — the Gulf Arabic locale — same disclosure, same guardrails, a bilingual transcript on screen. Each language carries its own voice, so it never sounds translated.",
+    captions: ["Voice identity per language", "Arabic: AR-Gulf locale"],
     steps: [
       { nav: "Demo" },
       { sleep: 1200 },
       { chip: "عربي" },
-      { text: "FATIMA", timeout: 9000 },
+      { text: "AR-GULF", timeout: 9000 },
       { sleep: 8000 },
     ],
     min: 3.0,

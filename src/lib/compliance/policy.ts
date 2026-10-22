@@ -136,8 +136,10 @@ const AI_SELF_IDENTIFICATION: Record<Lang, RegExp> = {
   // "القرار يتم بآلية" is not the speaker identifying itself; the old unanchored
   // `آلي` matched inside `بآلية`.
   ar: /(?:أنا|انا|هذا|هذه)\s+(?:مساعد|نظام|وكيل|بوت|روبوت)[^.!?\n]{0,40}(?:الذكاء الاصطناعي|ذكاء اصطناعي|آلي)/,
-  hi: /(मैं|यह)[^.!?\n]{0,60}(\bAI\b|कृत्रिम बुद्धिमत्ता|स्वचालित)/,
-  ur: /(میں|یہ)[^.!?\n]{0,60}(\bAI\b|اے آئی|مصنوعی ذہانت|خودکار)/,
+  // Hindi danda and Urdu full stop are sentence boundaries too; without them a
+  // later sentence's AI mention reads as the speaker's identity.
+  hi: /(मैं|यह)[^.!?।\n]{0,60}(\bAI\b|कृत्रिम बुद्धिमत्ता|स्वचालित)/,
+  ur: /(میں|یہ)[^.!?۔\n]{0,60}(\bAI\b|اے آئی|مصنوعی ذہانت|خودکار)/,
   fr: /\b(je suis|j'étais|voici)\b[^.!?\n]{0,60}\b(IA|intelligence artificielle|automatisé)\b/i,
   sw: /\b(mimi ni|huyu ni)\b[^.!?\n]{0,60}\b(AI|akili bandia|kiotomatiki|otomatiki)\b/i,
 };

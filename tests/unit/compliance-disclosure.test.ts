@@ -215,6 +215,23 @@ describe("the opening also discloses that the caller is an AI", () => {
     expect(namesAi("This is an AI assistant.", "en")).toBe(true);
   });
 
+  test("Hindi and Urdu stop at their sentence terminators", () => {
+    expect(
+      namesAi(
+        "मैं आपके खाते की जांच कर रहा हूँ। हमारा AI सिस्टम ने एक लेनदेन चिह्नित किया है।",
+        "hi",
+      ),
+    ).toBe(false);
+    expect(namesAi("मैं आपके बैंक का AI सुरक्षा सहायक हूँ।", "hi")).toBe(true);
+    expect(
+      namesAi(
+        "میں آپ کے اکاؤنٹ کی جانچ کر رہا ہوں۔ ہمارا AI سسٹم نے لین دین کی نشاندہی کی ہے۔",
+        "ur",
+      ),
+    ).toBe(false);
+    expect(namesAi("میں آپ کے بینک کا اے آئی سیکیورٹی اسسٹنٹ ہوں۔", "ur")).toBe(true);
+  });
+
   test("a reply that already identifies the AI is left alone", () => {
     const r = auditAgentReply({
       reply: `${OPENING_DISCLOSURE_EN}. I am an automated AI assistant, not a human. May I confirm a transaction?`,

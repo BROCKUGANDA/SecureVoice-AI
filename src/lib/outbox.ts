@@ -361,7 +361,9 @@ export async function deliver(
     // Signed with THIS tenant's key. There is no fallback to the platform
     // secret: a payload signed with a key the receiving bank never issued is
     // either rejected outright or, if it happens to share the key, believed.
-    const resolved = await resolveVendorEndpoint(event.orgId);
+    // A per-case callback supplies the target; the tenant's sealed key signs it.
+    // `allowSecretOnly` lets that key resolve without a tenant-wide URL.
+    const resolved = await resolveVendorEndpoint(event.orgId, { allowSecretOnly: true });
     if (!resolved.ok) throw new Error(`endpoint unresolvable: ${resolved.reason}`);
     if (!resolved.endpoint.secret) throw new Error("endpoint has no usable signing key");
 

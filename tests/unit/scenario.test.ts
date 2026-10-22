@@ -330,6 +330,17 @@ describe("language and phase metadata", () => {
     expect(Object.keys(CALL_LANG_LABEL).sort()).toEqual([...LANGS].sort());
   });
 
+  test("voice labels are locale descriptors, never gendered person names", () => {
+    // The voice actually heard is an env-configured stock or cloned voice. A
+    // human name in the UI asserts a named person whose gender/character the
+    // platform does not record, and it drifts the moment the voice is swapped.
+    const NAMES = /marcus|fatima|kavita|sana|celine|amina/i;
+    for (const [lang, label] of Object.entries(VOICE_BY_LANG)) {
+      expect(label, lang).toMatch(/^[A-Z]{2}-[A-Z]{2,5}$/);
+      expect(label, lang).not.toMatch(NAMES);
+    }
+  });
+
   test("phases are numbered 0..6 in declared order", () => {
     expect(PHASES.map((p) => p.n)).toEqual([0, 1, 2, 3, 4, 5, 6]);
     expect(PHASES.map((p) => p.id)).toEqual([

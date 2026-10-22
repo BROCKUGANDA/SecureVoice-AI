@@ -130,6 +130,32 @@ describe("never promise what a human has not confirmed", () => {
   );
 });
 
+describe("the opening discloses the AI, not only the recording", () => {
+  test(
+    "a first-turn denial still gets the recording notice and AI identification",
+    async () => {
+      // The browser demo's first turn is often "that transaction is not mine",
+      // not "hello". The opening cannot depend on the caller choosing a greeting.
+      const body = await (await ask("I did not make that purchase")).json();
+      expect(body.reply).toContain("This call is recorded to protect you");
+      expect(body.reply).toContain("automated AI assistant");
+      expect(body.intent).toBe("deny_fraud");
+    },
+    SLOW,
+  );
+
+  test(
+    "the disclosure is not repeated on turn two of the same conversation",
+    async () => {
+      const first = await (await ask("hello")).json();
+      expect(first.convId).toBeTruthy();
+      const second = await (await ask("not mine", { convId: first.convId as string })).json();
+      expect(second.reply).not.toContain("This call is recorded to protect you");
+    },
+    SLOW,
+  );
+});
+
 describe("a careful customer is not a fraud report", () => {
   test(
     "'are you a scammer?' gets the trust answer, not a fraud verdict",

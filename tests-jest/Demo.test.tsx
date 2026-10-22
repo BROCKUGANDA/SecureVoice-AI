@@ -22,7 +22,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SCENARIO_TOTAL } from "@/lib/scenario";
-import { speakText, prefetchSpeech, stopVoice } from "@/lib/voice-client";
+import { speakText, prefetchSpeech, stopVoice, streamSpeech } from "@/lib/voice-client";
 import { useApp } from "@/lib/store";
 import { Demo } from "@/views/Demo";
 
@@ -94,6 +94,15 @@ describe("Demo", () => {
     expect(screen.queryByText("Risk score")).toBeNull();
     expect(screen.queryByText("REC")).toBeNull();
     expect(screen.getByText("Standing by for the next fraud signal")).toBeTruthy();
+
+    // The rail says "idle" in words. It must not render skeleton bars as if a
+    // fetch were still in flight: nothing here queries a database, and an
+    // unstarted demo used to shimmer forever.
+    expect(screen.getByText("Awaiting an alert")).toBeTruthy();
+    expect(screen.getByText("No action yet")).toBeTruthy();
+    expect(screen.getByText("No handoff yet")).toBeTruthy();
+    expect(screen.getByText(/Idle — no signal received yet/)).toBeTruthy();
+    expect(screen.queryByText("Awaiting confirmation")).toBeNull();
   });
 
   it("re-arms a different scenario through the picker", async () => {
@@ -128,6 +137,13 @@ describe("Demo", () => {
     expect(screen.getByText("Fraud Alert")).toBeTruthy();
     expect(screen.queryByText("Standing by for the next fraud signal")).toBeNull();
     expect(screen.getByText("REC")).toBeTruthy();
+
+    // The same rail cards now distinguish "not started" from "started but the
+    // stage has not been reached" — neither is a loading state.
+    expect(screen.queryByText("Awaiting an alert")).toBeNull();
+    expect(screen.getByText("Awaiting confirmation")).toBeTruthy();
+    expect(screen.getByText("Not reached yet")).toBeTruthy();
+    expect(screen.queryByText(/Idle — no signal received yet/)).toBeNull();
   });
 
   it("pauses and resumes through one labelled control", async () => {
@@ -238,13 +254,13 @@ describe("Demo", () => {
     const user = userEvent.setup();
     render(<Demo />);
 
-    expect(screen.getByText(/CALL IN ENGLISH · MARCUS \(EN-UK\)/)).toBeTruthy();
+    expect(screen.getByText(/CALL IN ENGLISH · EN-UK/)).toBeTruthy();
 
     const arabic = screen.getByRole("button", { name: "عربي" });
     await user.click(arabic);
 
     expect(arabic.getAttribute("aria-pressed")).toBe("true");
-    expect(screen.getByText(/CALL IN العربية · FATIMA \(AR-GULF\)/)).toBeTruthy();
+    expect(screen.getByText(/CALL IN العربية · AR-GULF/)).toBeTruthy();
     // Changing language must drop whatever was queued to speak.
     expect(mockCalls(stopVoice).length).toBeGreaterThan(0);
   });
@@ -269,6 +285,13 @@ describe("Demo", () => {
       timeout: 4000,
     });
     expect(log.textContent).toContain("that transaction is not mine");
+    // A typed turn has no caller speech end and no ASR, so its badge must not
+    // read as a phone-turn latency. It is explicitly routing-only.
+    expect(log.textContent).toContain("typed · routing");
+    // And the typed reply must not arm barge-in: there is nothing to
+    // interrupt, and the mic monitor can cut the reply via speaker bleed.
+    const streamCalls = (streamSpeech as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    expect(streamCalls.at(-1)?.[4]).toEqual({ bargeIn: false });
     expect(agentCalls).toHaveLength(1);
     expect(agentCalls[0].url).toBe("/api/agent");
     expect(agentCalls[0].method).toBe("POST");

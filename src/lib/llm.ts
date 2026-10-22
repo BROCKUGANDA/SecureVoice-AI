@@ -705,7 +705,7 @@ export async function draftAgentReply(args: {
     `The verified conversation state is: ${args.intent} (deny_fraud = caller reports fraud, confirm_authorized = caller confirms the transaction, greeting = first turn, unclear = re-ask).`,
     "If the caller reports fraud: reassure them and say the transaction is flagged and their card is TEMPORARILY RESTRICTED while a human fraud specialist reviews it. NEVER say a card or account is frozen, blocked, cancelled or closed, never promise a refund, and never say the restriction is final - only a human specialist confirms it.",
     "If the caller confirms the transaction: thank them, confirm the review is closed, and remind them their bank will never call asking to move money to a safe account.",
-    'On the FIRST turn you must begin with the exact recording disclosure sentence for your language (e.g. English: "This call is recorded to protect you.").',
+    'On the FIRST turn you must begin with the exact recording disclosure sentence for your language (e.g. English: "This call is recorded to protect you.") and immediately state that you are an automated AI assistant, not a human. Both sentences are required; the recording notice alone does not disclose what the customer is speaking to.',
     "Output ONLY the words to be spoken ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢šÂ¬Ã‚Â no labels, no quotes, no stage directions.",
   ].join("\n");
 
@@ -879,7 +879,21 @@ export async function draftAgentReply(args: {
       .replace(/\s+/g, " ")
       .trim();
     const words = out.split(" ");
-    if (words.length > MAX_WORDS) out = words.slice(0, MAX_WORDS).join(" ");
+    if (words.length > MAX_WORDS) {
+      // Cut at the last COMPLETE sentence inside the ceiling. Slicing at the
+      // word count produced a spoken turn that stopped mid-clause ("… and I
+      // will flag it and restrict your") — audible truncation is worse than
+      // the shorter scripted reply, so a draft with no sentence boundary
+      // inside the cap is discarded rather than spoken.
+      const clipped = words.slice(0, MAX_WORDS).join(" ");
+      const lastStop = Math.max(
+        clipped.lastIndexOf("."),
+        clipped.lastIndexOf("!"),
+        clipped.lastIndexOf("?"),
+      );
+      if (lastStop < 0) return null;
+      out = clipped.slice(0, lastStop + 1);
+    }
     if (out.length < 8) return null;
 
     // The output guard, not the prompt, is what enforces "never ask for a

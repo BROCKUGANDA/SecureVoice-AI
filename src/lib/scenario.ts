@@ -2,10 +2,10 @@
  * SecureVoice AI — fraud scenario library + simulated call scripts.
  * Six-language call delivery (EN / AR / HI / UR / FR / SW) — the language
  * selector represents the language the AGENT speaks on the call:
- *   en → Marcus (EN-UK) · ar → Fatima (AR-Gulf) · hi → Kavita (HI-IN)
- *   ur → Sana (UR-UAE) — Urdu layer lives in ./scenario-ur
- *   fr → Céline (FR-FR) — French layer lives in ./scenario-fr
- *   sw → Amina (SW-KE) — Swahili layer lives in ./scenario-sw
+ *   en → EN-UK · ar → AR-Gulf · hi → HI-IN
+ *   ur → UR-UAE — Urdu layer lives in ./scenario-ur
+ *   fr → FR-FR — French layer lives in ./scenario-fr
+ *   sw → SW-KE — Swahili layer lives in ./scenario-sw
  * A selectable language without a transcript layer is a silent defect: the deck
  * would announce French or Swahili and speak English words. The per-language
  * modules exist so the selector never lies, and
@@ -30,13 +30,25 @@ export type Phase = "alert" | "dial" | "intro" | "verify" | "confirm" | "action"
 
 export type CallLang = "en" | "ar" | "hi" | "ur" | "fr" | "sw";
 
+/**
+ * The deployment's voice identity, per call language.
+ *
+ * Deliberately a LOCALE, not a person's name. The voice actually heard is
+ * whatever `ELEVENLABS_VOICE_*` resolves to — a stock Library voice today, a
+ * cloned bank voice tomorrow — and its gender or character is not recorded
+ * anywhere this UI can check. Attaching "Marcus" to it made the demo assert a
+ * named, gendered person to a customer being asked to trust it about their
+ * money; swap the voice and the name becomes a false statement. The role is
+ * already stated: this is the SecureVoice agent. All that is left to say is
+ * which language and locale it is speaking.
+ */
 export const VOICE_BY_LANG: Record<CallLang, string> = {
-  en: "MARCUS (EN-UK)",
-  ar: "FATIMA (AR-GULF)",
-  hi: "KAVITA (HI-IN)",
-  ur: "SANA (UR-UAE)",
-  fr: "CELINE (FR-FR)",
-  sw: "AMINA (SW-KE)",
+  en: "EN-UK",
+  ar: "AR-GULF",
+  hi: "HI-IN",
+  ur: "UR-UAE",
+  fr: "FR-FR",
+  sw: "SW-KE",
 };
 
 export const CALL_LANG_LABEL: Record<CallLang, string> = {
@@ -260,8 +272,8 @@ export const PACKS: Record<Exclude<ScenarioKind, "voicemail">, Pack> = {
     ],
     dial: [
       "Outbound call placed to registered number +971 •• ••• 4567 (Ahmed Al-Rashid). Channel opened for this call, stock Library voice (English).",
-      "اتصال صادر إلى الرقم المسجل +٩٧١ •• ••• ٤٥٦٧ (أحمد الرشيد). صوت عربي خليجي: فاطمة.",
-      "पंजीकृत नंबर +971 •• ••• 4567 (अहमद अल-रशीद) पर आउटबाउंड कॉल। चैनल पहले से तैयार, हिंदी वॉयस प्रोफ़ाइल: कविता।",
+      "اتصال صادر إلى الرقم المسجل +٩٧١ •• ••• ٤٥٦٧ (أحمد الرشيد). صوت عربي خليجي (AR-GULF).",
+      "पंजीकृत नंबर +971 •• ••• 4567 (अहमद अल-रशीद) पर आउटबाउंड कॉल। चैनल पहले से तैयार, हिंदी वॉयस प्रोफ़ाइल (HI-IN)।",
     ],
     connected: [
       "Call connected in 1.2s. Recording enabled. Agent locked to English after first response detected.",
@@ -320,8 +332,8 @@ export const PACKS: Record<Exclude<ScenarioKind, "voicemail">, Pack> = {
     ],
     dial: [
       "Outbound call placed to registered number +971 •• ••• 7831 (Mariam Haddad). Channel opened for this call, stock Library voice (English). Card still active — withdrawal in progress.",
-      "اتصال صادر إلى الرقم المسجل +٩٧١ •• ••• ٧٨٣١ (مريم حداد). صوت عربي خليجي: فاطمة. البطاقة لا تزال نشطة — عملية السحب جارية.",
-      "पंजीकृत नंबर +971 •• ••• 7831 (मरियम हदाद) पर आउटबाउंड कॉल। हिंदी वॉयस प्रोफ़ाइल: कविता। कार्ड अभी सक्रिय है — निकासी जारी है।",
+      "اتصال صادر إلى الرقم المسجل +٩٧١ •• ••• ٧٨٣١ (مريم حداد). صوت عربي خليجي (AR-GULF). البطاقة لا تزال نشطة — عملية السحب جارية.",
+      "पंजीकृत नंबर +971 •• ••• 7831 (मरियम हदाद) पर आउटबाउंड कॉल। हिंदी वॉयस प्रोफ़ाइल (HI-IN)। कार्ड अभी सक्रिय है — निकासी जारी है।",
     ],
     connected: [
       "Call connected in 1.1s. Recording enabled. Agent locked to English after first response detected.",
@@ -380,8 +392,8 @@ export const PACKS: Record<Exclude<ScenarioKind, "voicemail">, Pack> = {
     ],
     dial: [
       "Outbound call placed to registered number +971 •• ••• 2210 (Khalid Al-Mansoori). Channel opened for this call, stock Library voice (English). Customer is currently on another line — suspected scammer call.",
-      "اتصال صادر إلى الرقم المسجل +٩٧١ •• ••• ٢٢١٠ (خالد المنصوري). صوت إنجليزي: ماركوس. العميل متصل حالياً بخط آخر — يُشتبه أنه خط المحتال.",
-      "पंजीकृत नंबर +971 •• ••• 2210 (खालिद अल-मनसूरी) पर आउटबाउंड कॉल। हिंदी वॉयस प्रोफ़ाइल: कविता। ग्राहक इस समय दूसरी लाइन पर है — संदिग्ध ठगी कॉल।",
+      "اتصال صادر إلى الرقم المسجل +٩٧١ •• ••• ٢٢١٠ (خالد المنصوري). صوت إنجليزي (EN-UK). العميل متصل حالياً بخط آخر — يُشتبه أنه خط المحتال.",
+      "पंजीकृत नंबर +971 •• ••• 2210 (खालिद अल-मनसूरी) पर आउटबाउंड कॉल। हिंदी वॉयस प्रोफ़ाइल (HI-IN)। ग्राहक इस समय दूसरी लाइन पर है — संदिग्ध ठगी कॉल।",
     ],
     connected: [
       "Call connected in 1.0s. Call-waiting interrupt applied. Recording enabled. Agent locked to English after first response detected.",
@@ -440,8 +452,8 @@ export const PACKS: Record<Exclude<ScenarioKind, "voicemail">, Pack> = {
     ],
     dial: [
       "Outbound call placed to registered number +971 •• ••• 3390 (Fatima Al-Zaabi). Channel opened for this call, stock Library voice (English). Claim payout still pending — not yet released.",
-      "اتصال صادر إلى الرقم المسجل +٩٧١ •• ••• ٣٣٩٠ (فاطمة الزعابي). صوت عربي خليجي: فاطمة. التعويض لا يزال معلقاً — لم يُصرف بعد.",
-      "पंजीकृत नंबर +971 •• ••• 3390 (फातिमा अल-ज़ाबी) पर आउटबाउंड कॉल। हिंदी वॉयस प्रोफ़ाइल: कविता। क्लेम भुगतान अभी लंबित है — जारी नहीं हुआ।",
+      "اتصال صادر إلى الرقم المسجل +٩٧١ •• ••• ٣٣٩٠ (فاطمة الزعابي). صوت عربي خليجي (AR-GULF). التعويض لا يزال معلقاً — لم يُصرف بعد.",
+      "पंजीकृत नंबर +971 •• ••• 3390 (फातिमा अल-ज़ाबी) पर आउटबाउंड कॉल। हिंदी वॉयस प्रोफ़ाइल (HI-IN)। क्लेम भुगतान अभी लंबित है — जारी नहीं हुआ।",
     ],
     connected: [
       "Call connected in 1.1s. Recording enabled. Agent locked to English after first response detected.",
@@ -604,8 +616,8 @@ function voicemailEvents(m: ScenarioMeta): ScenarioEvent[] {
       speaker: "system",
       tag: "telephony · twilio",
       en: `Outbound call placed to registered number ${m.phone} (${m.customer}). Channel opened for this call, stock Library voice (English).`,
-      ar: "اتصال صادر إلى الرقم المسجل +٩٧١ •• ••• ٥٥١٨ (عمر الصديقي). صوت إنجليزي: ماركوس.",
-      hi: `पंजीकृत नंबर ${m.phone} (उमर सिद्दीकी) पर आउटबाउंड कॉल। चैनल पहले से तैयार, हिंदी वॉयस प्रोफ़ाइल: कविता।`,
+      ar: "اتصال صادر إلى الرقم المسجل +٩٧١ •• ••• ٥٥١٨ (عمر الصديقي). صوت إنجليزي (EN-UK).",
+      hi: `पंजीकृत नंबर ${m.phone} (उमर सिद्दीकी) पर आउटबाउंड कॉल। चैनल पहले से तैयार, हिंदी वॉयस प्रोफ़ाइल (HI-IN)।`,
     },
     {
       id: "e04",

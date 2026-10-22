@@ -127,6 +127,18 @@ export function fetchSpeechUrl(
 
 /* ————— single active audio channel ————— */
 let currentAudio: HTMLAudioElement | null = null;
+/**
+ * Resolves the browser-TTS promise when `stopVoice()` cancels an utterance.
+ * `speechSynthesis.cancel()` does not reliably fire `onend`, so without this a
+ * caller awaiting completion would wait forever after a language switch.
+ */
+let pendingUtteranceFinish: (() => void) | null = null;
+
+function finishPendingUtterance(): void {
+  const finish = pendingUtteranceFinish;
+  pendingUtteranceFinish = null;
+  finish?.();
+}
 
 export function stopVoice(): void {
   if (currentAudio) {
@@ -139,9 +151,19 @@ export function stopVoice(): void {
   try {
     window.speechSynthesis?.cancel();
   } catch {}
+  finishPendingUtterance();
 }
 
-/** Play a cached speech URL. Resolves when playback starts. */
+/**
+ * Play a cached speech URL.
+ *
+ * Resolves when playback FINISHES (or is stopped), not when it starts. The
+ * previous contract resolved at `play()`, and the demo clock treated that as
+ * "the agent has finished speaking": it advanced to the next scenario beat and
+ * called `stopVoice()` while the line was still audible, cutting the agent off
+ * mid-sentence on every fallback path. A caller that only needs "audio is now
+ * playing" should not await this function.
+ */
 export async function playUrl(url: string, rate = 1): Promise<void> {
   stopVoice();
   const a = new Audio(url);
@@ -151,37 +173,78 @@ export async function playUrl(url: string, rate = 1): Promise<void> {
     (a as HTMLAudioElement & { preservesPitch?: boolean }).preservesPitch = true;
   } catch {}
   currentAudio = a;
-  await a.play().catch(() => {});
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      a.removeEventListener("ended", done);
+      a.removeEventListener("error", done);
+      a.removeEventListener("pause", done);
+      if (currentAudio === a) currentAudio = null;
+      resolve();
+    };
+    a.addEventListener("ended", done);
+    a.addEventListener("error", done);
+    // `stopVoice()` pauses the element; without the pause listener the await
+    // would hang on a superseded or unmounted line.
+    a.addEventListener("pause", done);
+    void a.play().catch(done);
+  });
 }
 
-/** Best-effort browser TTS fallback. */
-export function browserSpeak(text: string, lang: CallLang, rate = 1): void {
-  try {
-    const synth = window.speechSynthesis;
-    if (!synth) return;
-    synth.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    // map every supported call language — falling ur/fr/sw back to an en-US
-    // voice renders unintelligible gibberish
-    u.lang =
-      lang === "ar"
-        ? "ar-SA"
-        : lang === "hi"
-          ? "hi-IN"
-          : lang === "ur"
-            ? "ur-PK"
-            : lang === "fr"
-              ? "fr-FR"
-              : lang === "sw"
-                ? "sw-KE"
-                : "en-US";
-    u.rate = rate;
-    const v = synth.getVoices().find((x) => x.lang.startsWith(u.lang.slice(0, 2)));
-    if (v) u.voice = v;
-    synth.speak(u);
-  } catch {
-    /* not supported — silent */
-  }
+/**
+ * Best-effort browser TTS fallback. Resolves when the utterance ends, errors,
+ * is cancelled, or exceeds a length-derived ceiling (a speech engine that
+ * never fires `onend` must not freeze the caller's clock forever).
+ */
+export function browserSpeak(text: string, lang: CallLang, rate = 1): Promise<void> {
+  return new Promise<void>((resolve) => {
+    try {
+      const synth = window.speechSynthesis;
+      if (!synth) {
+        resolve();
+        return;
+      }
+      synth.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      // map every supported call language — falling ur/fr/sw back to an en-US
+      // voice renders unintelligible gibberish
+      u.lang =
+        lang === "ar"
+          ? "ar-SA"
+          : lang === "hi"
+            ? "hi-IN"
+            : lang === "ur"
+              ? "ur-PK"
+              : lang === "fr"
+                ? "fr-FR"
+                : lang === "sw"
+                  ? "sw-KE"
+                  : "en-US";
+      u.rate = rate;
+      const v = synth.getVoices().find((x) => x.lang.startsWith(u.lang.slice(0, 2)));
+      if (v) u.voice = v;
+      let settled = false;
+      function done() {
+        if (settled) return;
+        settled = true;
+        clearTimeout(ceiling);
+        u.onend = null;
+        u.onerror = null;
+        if (pendingUtteranceFinish === done) pendingUtteranceFinish = null;
+        resolve();
+      }
+      // ~700 ms per word covers a 0.5× rate with margin.
+      const ceiling = setTimeout(done, Math.max(4_000, text.split(/\s+/).length * 700));
+      u.onend = done;
+      u.onerror = done;
+      pendingUtteranceFinish = done;
+      synth.speak(u);
+    } catch {
+      resolve();
+    }
+  });
 }
 
 /**
@@ -229,14 +292,14 @@ export async function speakText(
     // drift away from the product once already.
     url = await fetchSpeechUrl(text, lang, lang, role);
   } catch (err) {
-    browserSpeak(text, lang, rate);
+    await browserSpeak(text, lang, rate);
     return { neural: false, reason: classify(err) };
   }
   if (url === DEGRADED) {
     // The server could not synthesise and sent the hold-cue tone instead. Right on
     // a live fraud call; in a demo the visitor hears their own device voice and is
     // told why.
-    browserSpeak(text, lang, rate);
+    await browserSpeak(text, lang, rate);
     return { neural: false, reason: "degraded" };
   }
   await playUrl(url, rate);
@@ -258,6 +321,7 @@ export async function streamSpeech(
   lang: CallLang,
   role: VoiceRole,
   rate = 1,
+  opts: { bargeIn?: boolean } = {},
 ): Promise<{ streamed: boolean; bargeIn: boolean; neural: boolean; reason?: string }> {
   if (typeof MediaSource === "undefined" || !MediaSource.isTypeSupported("audio/mpeg")) {
     // `neural` is reported rather than assumed because the copy beside this player
@@ -323,15 +387,20 @@ export async function streamSpeech(
           }
         };
 
-        // barge-in monitor: echo-cancelled mic + sustained-speech gate — the
-        // agent's own speaker bleed must NOT trigger a self-cutoff
-        startMicMonitor(() => {
-          audio.pause();
-          try {
-            mediaSource.endOfStream();
-          } catch {}
-          done(true);
-        });
+        // Barge-in monitor: echo-cancelled mic + sustained-speech gate — the
+        // agent's own speaker bleed must NOT trigger a self-cutoff. A TYPED
+        // turn opts out: there is no caller speech to interrupt, and opening
+        // the mic would both prompt for permission and give speaker bleed a
+        // way to cut an otherwise uninterrupted reply.
+        if (opts.bargeIn !== false) {
+          startMicMonitor(() => {
+            audio.pause();
+            try {
+              mediaSource.endOfStream();
+            } catch {}
+            done(true);
+          });
+        }
 
         const res = await fetch("/api/tts/stream", {
           method: "POST",

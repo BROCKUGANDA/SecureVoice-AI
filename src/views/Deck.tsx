@@ -652,11 +652,11 @@ function RenderSlide({
         <div className="mt-7 grid gap-3 sm:grid-cols-2">
           {[
             {
-              n: "Marcus · Fatima",
-              l: "Operator catalogue, not provisioned",
-              lAr: "كتالوج في لوحة التحكم، لا صوت مُهيّأ",
-              d: "Names the console offers an operator to register. No voice is cloned on this account and `ELEVENLABS_VOICE_*` ships empty.",
-              dAr: "أسماء تعرضها لوحة التحكم ليُسجّلها المشغّل؛ فلا صوت منسوخ على هذا الحساب، ومتغيّرات الصوت في البيئة تأخذ قيمة فارغة.",
+              n: "EN-UK · AR-Gulf",
+              l: "Locale descriptors, not personas",
+              lAr: "أوصاف لغوية، لا شخصيات",
+              d: "The voice is identified by language and locale, never by a person's name. No voice is cloned on this account and `ELEVENLABS_VOICE_*` ships empty.",
+              dAr: "يُعرَّف الصوت باللغة والمنطقة، لا باسم شخص. ولا صوت منسوخ على هذا الحساب، ومتغيّرات الصوت في البيئة تأخذ قيمة فارغة.",
               tint: false,
             },
             {

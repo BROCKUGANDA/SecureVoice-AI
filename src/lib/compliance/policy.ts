@@ -10,8 +10,9 @@ import "server-only";
  * What this module enforces (and why):
  *
  *  1. OPENING_DISCLOSURE — the agent's FIRST response in every conversation
- *     MUST contain the bank's identity, the recording notice, and the
- *     "I will never ask for your PIN, password, or OTP" promise. Without
+ *     MUST contain the bank's identity, the recording notice, the statement
+ *     that the caller is an automated AI assistant rather than a human, and
+ *     the "I will never ask for your PIN, password, or OTP" promise. Without
  *     this, PUP §impersonation-and-deception risk + CBUAE Consumer Protection
  *     Standard §5 fail.
  *
@@ -76,6 +77,73 @@ export const OPENING_DISCLOSURE_FR = "Cet appel est enregistré pour vous proté
 export const OPENING_DISCLOSURE_SW = "Simu hii inarekodiwa kwa usalama wako";
 
 /**
+ * The AI-identification half of the opening.
+ *
+ * The recording notice alone does not disclose what the customer is speaking
+ * to. ElevenLabs' PUP requires the caller be told they are talking to an AI,
+ * and CBUAE's impersonation risk turns on the same fact: a voice that never
+ * says it is a machine is asking a customer to infer it. A model rephrasing
+ * "Hello, I am your bank's AI security assistant…" into "I am calling about a
+ * pending transaction…" keeps the recording sentence and silently drops the
+ * half that matters, so this is checked by code rather than requested in a
+ * prompt.
+ */
+export const AI_IDENTITY_EN = "I am an automated AI assistant, not a human";
+export const AI_IDENTITY_AR = "أنا مساعد آلي يعمل بالذكاء الاصطناعي، ولست إنساناً";
+export const AI_IDENTITY_HI = "मैं एक स्वचालित AI सहायक हूँ, इंसान नहीं";
+export const AI_IDENTITY_UR = "میں ایک خودکار AI اسسٹنٹ ہوں، انسان نہیں";
+export const AI_IDENTITY_FR = "Je suis un assistant IA automatisé, pas un humain";
+export const AI_IDENTITY_SW = "Mimi ni msaidizi wa AI wa kiotomatiki, si binadamu";
+
+const OPENING_DISCLOSURE: Record<Lang, string> = {
+  en: OPENING_DISCLOSURE_EN,
+  ar: OPENING_DISCLOSURE_AR,
+  hi: OPENING_DISCLOSURE_HI,
+  ur: OPENING_DISCLOSURE_UR,
+  fr: OPENING_DISCLOSURE_FR,
+  sw: OPENING_DISCLOSURE_SW,
+};
+
+const AI_IDENTITY: Record<Lang, string> = {
+  en: AI_IDENTITY_EN,
+  ar: AI_IDENTITY_AR,
+  hi: AI_IDENTITY_HI,
+  ur: AI_IDENTITY_UR,
+  fr: AI_IDENTITY_FR,
+  sw: AI_IDENTITY_SW,
+};
+
+/**
+ * Whether a reply names the caller as a machine, in the language the customer
+ * hears. Each language is checked against a term that actually means AI there;
+ * a Latin /AI/i test would pass an Arabic sentence that only said "the
+ * intelligent assistant".
+ */
+const AI_IDENTITY_TERM: Record<Lang, RegExp> = {
+  en: /\bAI\b|artificial intelligence|automated assistant/i,
+  ar: /الذكاء الاصطناعي|مساعد آلي/,
+  hi: /\bAI\b|कृत्रिम बुद्धिमत्ता|स्वचालित/,
+  ur: /\bAI\b|اے آئی|مصنوعی ذہانت|خودکار/,
+  fr: /\bIA\b|intelligence artificielle|automatisé/i,
+  sw: /\bAI\b|akili bandia|kiotomatiki|otomatiki/i,
+};
+
+/** True when `text` tells the customer they are speaking with an AI. */
+export function namesAi(text: string, lang: Lang): boolean {
+  return AI_IDENTITY_TERM[lang].test(text);
+}
+
+/**
+ * Put the AI identification immediately after the recording notice, keeping the
+ * notice first and never duplicating it.
+ */
+function injectAiIdentity(reply: string, disclosure: string, identity: string): string {
+  const at = reply.indexOf(disclosure) + disclosure.length;
+  const tail = reply.slice(at).replace(/^[\s.!?]+/, "");
+  return `${reply.slice(0, at)}. ${identity}.${tail ? ` ${tail}` : ""}`;
+}
+
+/**
  * Validate an outbound agent reply against PUP/PDPL rules. Returns the redacted
  * reply text + a list of guardrail names that fired. A reply that fails the
  * credential-extraction check is REPLACED with a safe refusal.
@@ -103,26 +171,24 @@ export function auditAgentReply(args: {
     };
   }
 
-  // 2. Opening disclosure must be present in the first agent turn.
+  // 2. Opening disclosure must be present in the first agent turn: the
+  //    recording notice AND the statement that this is an AI, not a human.
+  //    Both are repaired in place rather than rejected, because a live call
+  //    cannot stop to argue with a model that dropped a sentence.
   if (args.isOpening) {
-    const disclosure =
-      args.lang === "ar"
-        ? OPENING_DISCLOSURE_AR
-        : args.lang === "hi"
-          ? OPENING_DISCLOSURE_HI
-          : args.lang === "ur"
-            ? OPENING_DISCLOSURE_UR
-            : args.lang === "fr"
-              ? OPENING_DISCLOSURE_FR
-              : args.lang === "sw"
-                ? OPENING_DISCLOSURE_SW
-                : OPENING_DISCLOSURE_EN;
+    const disclosure = OPENING_DISCLOSURE[args.lang];
+    const identity = AI_IDENTITY[args.lang];
     if (!args.reply.includes(disclosure)) {
-      // Compliance violation — fix in place rather than reject.
       args.reply = `${disclosure}. ${args.reply}`;
       guardrails.push("disclosure_injected");
     } else {
       guardrails.push("disclosure_present");
+    }
+    if (!namesAi(args.reply, args.lang)) {
+      args.reply = injectAiIdentity(args.reply, disclosure, identity);
+      guardrails.push("ai_identity_injected");
+    } else {
+      guardrails.push("ai_identity_present");
     }
   }
 

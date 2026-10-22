@@ -340,6 +340,8 @@ export async function transitionCaseWithOutbox(
   signalKind?: string | null;
   /** fact_finding | sensitive_case | b2b | routine | time_critical_fraud (src/lib/call-categories.ts) */
   callCategory?: string | null;
+  /** Per-intervention outcome callback supplied by the bank at ingest. */
+  callbackUrl?: string | null;
   /**
    * The out-of-band verification token for this case.
    *
@@ -384,6 +386,7 @@ export async function transitionCaseWithOutbox(
         cardLast4: data.cardLast4 ?? null,
         signalKind: data.signalKind ?? null,
         callCategory: data.callCategory ?? null,
+        callbackUrl: data.callbackUrl ?? null,
         // Write-once, and the migration's trigger refuses any later change to a
         // token that is already set.
         verificationTokenHash: data.verificationToken?.hash ?? null,

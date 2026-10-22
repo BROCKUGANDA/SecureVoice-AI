@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { consume } from "@/lib/ratelimit";
+import { isHoneypotBlocked } from "@/lib/abuse/honeypot-blocklist";
 import { IP_UNKNOWN, IP_UNTRUSTED, isRealIp, normalizeIp } from "@/lib/ip-normalize";
 import { logWarn } from "@/lib/validation/safe-log";
 
@@ -418,6 +419,17 @@ export default async function proxy(req: NextRequest): Promise<NextResponse> {
         "X-RateLimit-Remaining": "0",
       });
     }
+  }
+
+  // 2b. Decoy blocklist. A source that touched a trap is refused before any
+  //     route handler, body parse or session lookup. The check is local-first
+  //     with a short negative cache; a shared Redis blocklist is consulted only
+  //     on a miss, so ordinary traffic does not pay a round trip per request.
+  // A sentinel (`untrusted`/`unknown`) is shared by every request that did not
+  // arrive through the trusted edge; it must never become a global block key.
+  const sourceIp = clientIp(req);
+  if (isRealIp(sourceIp) && (await isHoneypotBlocked(sourceIp))) {
+    return reject(req, 403, "forbidden", requestId);
   }
 
   // 3. Enrich: hand the route a consistent set of request-scoped facts.

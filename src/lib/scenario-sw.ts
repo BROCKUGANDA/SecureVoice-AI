@@ -26,7 +26,7 @@ export const SW_PACKS: Record<ScenarioKind, SwLine[]> = {
     // e02 · queue
     "Tahadhari imethibitishwa na kuimarishwa. Imewekwa kwenye foleni kwa kipaumbele P1 — muda wa kuwasiliana na mteja (SLA): sekunde 60.",
     // e03 · dial
-    "Simu ya nje imepigwa kwa namba iliyosajiliwa +971 •• ••• 4567 (Ahmed Al-Rashid). Njia imetayarishwa, wasifu wa sauti ya Kiswahili: Amina.",
+    "Simu ya nje imepigwa kwa namba iliyosajiliwa +971 •• ••• 4567 (Ahmed Al-Rashid). Njia imetayarishwa, wasifu wa sauti ya Kiswahili (SW-KE).",
     // e04 · connected
     "Simu imeunganishwa kwa sekunde 1.2. Urekodi umeanzishwa. Baada ya jibu la kwanza, msaidizi amefungwa kwenye Kiswahili.",
     // e05 · intro
@@ -64,7 +64,7 @@ export const SW_PACKS: Record<ScenarioKind, SwLine[]> = {
   atm: [
     "KIRUDHI CHA UDANGANYIFU KIMEPOKELEWA — kadi •• 9034, utoaji wa pesa taslimu wa dirhami 8,000.00 kwenye ATM ya Corniche Street, Abu Dhabi. Alama ya hatari 0.97 (hatari kubwa). Kiolezo cha kadi iliyonakiliwa: alama ya usomaji wa uamba na jaribio la tatu ndani ya dakika 10.",
     "Tahadhari imethibitishwa na kuimarishwa. Imewekwa kwenye foleni kwa kipaumbele P1 — muda wa kuwasiliana na mteja (SLA): sekunde 60.",
-    "Simu ya nje imepigwa kwa namba iliyosajiliwa +971 •• ••• 7831 (Mariam Haddad). Njia imetayarishwa, wasifu wa sauti ya Kiswahili: Amina. Kadi bado inatumika — utoaji unaendelea.",
+    "Simu ya nje imepigwa kwa namba iliyosajiliwa +971 •• ••• 7831 (Mariam Haddad). Njia imetayarishwa, wasifu wa sauti ya Kiswahili (SW-KE). Kadi bado inatumika — utoaji unaendelea.",
     "Simu imeunganishwa kwa sekunde 1.1. Urekodi umeanzishwa. Baada ya jibu la kwanza, msaidizi amefungwa kwenye Kiswahili.",
     (m) =>
       `Habari, mimi ni msaidizi wa usalama wa AI wa benki yako, nakupigia kuhusu shughuli ya hivi karibuni kwenye akaunti yako. Simu hii inarekodiwa ili kulinda akaunti yako. Je, nazungumza na ${m.customer}?`,
@@ -88,7 +88,7 @@ export const SW_PACKS: Record<ScenarioKind, SwLine[]> = {
   wire: [
     "KIRUDHI CHA UDANGANYIFU KIMEPOKELEWA — uhamishaji wa nje wa dirhami 48,000.00 kwa mpokeaji mpya M. TRADING LLC, unaangojea idhinisho. Alama ya hatari 0.99 (hatari kubwa). Mpokeaji amewekwa alama kuwa akaunti ya kupitishia pesa haramu inayojulikana; mwenendo wa udanganyifu wa kijamii kwenye simu za hivi karibuni.",
     "Tahadhari imethibitishwa na kuimarishwa. Imewekwa kwenye foleni kwa kipaumbele P1 — muda wa kuwasiliana na mteja (SLA): sekunde 60.",
-    "Simu ya nje imepigwa kwa namba iliyosajiliwa +971 •• ••• 2210 (Khalid Al-Mansoori). Njia imetayarishwa, wasifu wa sauti ya Kiswahili: Amina. Mteja yupo kwenye simu nyingine — inadhaniwa ni simu ya mwinjijini.",
+    "Simu ya nje imepigwa kwa namba iliyosajiliwa +971 •• ••• 2210 (Khalid Al-Mansoori). Njia imetayarishwa, wasifu wa sauti ya Kiswahili (SW-KE). Mteja yupo kwenye simu nyingine — inadhaniwa ni simu ya mwinjijini.",
     "Simu imeunganishwa kwa sekunde 1.0, na iliingilia mzunguko uliokuwa ukiendelea. Urekodi umeanzishwa. Baada ya jibu la kwanza, msaidizi amefungwa kwenye Kiswahili.",
     (m) =>
       `Habari, mimi ni msaidizi wa usalama wa AI wa benki yako, nakupigia kuhusu shughuli ya hivi karibuni kwenye akaunti yako. Simu hii inarekodiwa ili kulinda akaunti yako. Je, nazungumza na ${m.customer}?`,
@@ -115,7 +115,7 @@ export const SW_PACKS: Record<ScenarioKind, SwLine[]> = {
     // e02 · queue
     "Tahadhari imethibitishwa na kuimarishwa. Imewekwa kwenye foleni kwa kipaumbele P1 — muda wa kuwasiliana na mteja (SLA): sekunde 60.",
     // e03 · dial
-    "Simu ya nje imepigwa kwa namba iliyosajiliwa +971 •• ••• 3390 (Fatima Al-Zaabi). Njia imetayarishwa, wasifu wa sauti ya Kiswahili: Amina. Malipo ya fidia bado yanasubiri — hayajatolewa.",
+    "Simu ya nje imepigwa kwa namba iliyosajiliwa +971 •• ••• 3390 (Fatima Al-Zaabi). Njia imetayarishwa, wasifu wa sauti ya Kiswahili (SW-KE). Malipo ya fidia bado yanasubiri — hayajatolewa.",
     // e04 · connected
     "Simu imeunganishwa kwa sekunde 1.1. Urekodi umeanzishwa. Baada ya jibu la kwanza, msaidizi amefungwa kwenye Kiswahili.",
     // e05 · intro (insurer, not bank)
@@ -158,7 +158,7 @@ export const SW_PACKS: Record<ScenarioKind, SwLine[]> = {
     "Tahadhari imethibitishwa na kuimarishwa. Imewekwa kwenye foleni kwa kipaumbele P1 — muda wa kuwasiliana na mteja (SLA): sekunde 60.",
     // e03 · dial
     (m) =>
-      `Simu ya nje imepigwa kwa namba iliyosajiliwa ${m.phone} (Omar Siddiqui). Njia imetayarishwa, wasifu wa sauti ya Kiswahili: Amina.`,
+      `Simu ya nje imepigwa kwa namba iliyosajiliwa ${m.phone} (Omar Siddiqui). Njia imetayarishwa, wasifu wa sauti ya Kiswahili (SW-KE).`,
     // e04 · answering machine
     "Simu imeunganishwa kwa sekunde 1.4 — mashine ya kujibu imetambuliwa (salamu + mlio). Ugunduzi wa mashine umeanzishwa: msaidizi haanzishi mazungumzo na kisanduku cha ujumbe.",
     // e05 · generic voicemail message (no amount, merchant or case number)

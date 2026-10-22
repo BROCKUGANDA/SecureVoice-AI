@@ -60,7 +60,7 @@ function deploymentEndpoint(): VendorEndpoint | null {
  */
 export async function resolveVendorEndpoint(
   orgId: string | null | undefined,
-  opts: { requireSecret?: boolean } = {},
+  opts: { requireSecret?: boolean; allowSecretOnly?: boolean } = {},
 ): Promise<EndpointResolution> {
   const requireSecret = opts.requireSecret !== false;
 
@@ -79,8 +79,18 @@ export async function resolveVendorEndpoint(
     }
 
     const url = row?.vendorWebhookUrl?.trim();
+    const sealed = row?.vendorWebhookSecretEnc;
+    // A per-case callback supplies the destination, but the signing key still
+    // belongs to the tenant. Resolve the key even when the tenant has no
+    // tenant-wide URL, so a bank does not have to configure a second endpoint
+    // just to sign the callback it already supplied at ingest.
+    if (!url && sealed && opts.allowSecretOnly) {
+      const secret = decryptSecret(sealed);
+      if (secret) {
+        return { ok: true, endpoint: { url: "", secret, source: "tenant" } };
+      }
+    }
     if (url) {
-      const sealed = row?.vendorWebhookSecretEnc;
       if (requireSecret && !sealed) {
         return {
           ok: false,
@@ -152,9 +162,9 @@ export async function assertVendorUrlSaveable(
  */
 export async function assertVendorUrlDeliverable(
   url: string,
-): Promise<{ ok: true } | { ok: false; reason: string }> {
+): Promise<{ ok: true; addresses: readonly string[] } | { ok: false; reason: string }> {
   const verdict = await validateOutboundUrl(url);
   return verdict.ok
-    ? { ok: true }
+    ? { ok: true, addresses: verdict.addresses }
     : { ok: false, reason: `address no longer permitted (${verdict.code})` };
 }

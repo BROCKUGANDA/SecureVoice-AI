@@ -1479,14 +1479,14 @@ function AgentWorkflowsSection() {
 function Config() {
   const { lang } = useApp();
   const [guards, setGuards] = useState(GUARDRAILS.map((g) => g.on));
-  const [selectedVoice, setSelectedVoice] = useState("fatima");
+  const [selectedVoice, setSelectedVoice] = useState("en-uk");
   const { toast } = useToast();
 
   const preview = async (id: string) => {
-    const callLang = id === "fatima" ? "ar" : "en";
+    const callLang = id === "ar-gulf" ? "ar" : "en";
     const sample =
-      id === "fatima"
-        ? "مرحباً، أنا مساعد الأمان في مصرفك. أتصل بخصوص نشاط حديث على حسابك."
+      id === "ar-gulf"
+        ? "مرحباً، أنا مساعد أمان آلي يعمل بالذكاء الاصطناعي في مصرفك. أتصل بخصوص نشاط حديث على حسابك."
         : "Hello, this is your bank's AI security assistant calling about recent activity on your account.";
     // Ask the product's own voice first. This panel used to call
     // `window.speechSynthesis` directly, so a bank operator approving a voice here
@@ -1513,9 +1513,7 @@ function Config() {
       <AgentWorkflowsSection />
       {/* voices */}
       <div className="rounded-3xl border border-line bg-white p-5 sm:p-6">
-        <h3 className="text-[14px] font-semibold">
-          {t("Voice personas", "الأصوات المعتمدة", lang)}
-        </h3>
+        <h3 className="text-[14px] font-semibold">{t("Voice profiles", "ملفات الصوت", lang)}</h3>
         <div className="mt-4 space-y-3">
           {VOICES.map((v) => (
             <button
@@ -1540,7 +1538,7 @@ function Config() {
                 <span className="flex items-center gap-2">
                   <span className="text-[14px] font-semibold">{v.name}</span>
                   <span
-                    className={cn("text-[12px]", v.id === "fatima" ? "font-arabic" : "text-ink-3")}
+                    className={cn("text-[12px]", v.id === "ar-gulf" ? "font-arabic" : "text-ink-3")}
                   >
                     {v.lang}
                   </span>

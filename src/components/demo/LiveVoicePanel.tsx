@@ -14,7 +14,12 @@ import {
 } from "lucide-react";
 import { useApp, t } from "@/lib/store";
 import { VOICE_BY_LANG, type CallLang } from "@/lib/scenario";
-import { blobToWavBase64, stopVoice, streamSpeech } from "@/lib/voice-client";
+import {
+  blobToWavBase64,
+  stopVoice,
+  streamSpeech,
+  STRICT_VOICE_UNAVAILABLE,
+} from "@/lib/voice-client";
 import { Input } from "@/components/ui/input";
 import { PanelHeader } from "@/components/ui/PanelHeader";
 import { cn } from "@/lib/utils";
@@ -35,6 +40,14 @@ type Turn = {
   id: number;
   role: "you" | "agent";
   text: string;
+  /**
+   * How this turn was produced. A typed turn has no caller speech end and no
+   * ASR, so its `latencyMs` is the routing span only; calling that a "turn"
+   * would publish a faster product than a phone caller experiences. A spoken
+   * turn starts the clock when the caller stops speaking (push-to-talk here),
+   * so ASR + routing is the honest total.
+   */
+  modality: "typed" | "spoken";
   intent?: string;
   action?: string;
   escalate?: boolean;
@@ -101,9 +114,11 @@ export function LiveVoicePanel({ callLang }: { callLang: CallLang }) {
   const [voiceNote, setVoiceNote] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  /* scroll the conversation */
+  /* scroll the conversation — snap, not smooth: a long reply must be fully
+     visible the moment it lands, and an in-flight smooth scroll is what made
+     the last bubble look clipped against the guardrail footer. */
   useEffect(() => {
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
+    listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "auto" });
   }, [turns, phase]);
 
   /* cleanup on unmount + language switch */
@@ -134,24 +149,25 @@ export function LiveVoicePanel({ callLang }: { callLang: CallLang }) {
     stopVoice();
   }, [callLang]);
 
-  const speakReply = (text: string) => {
+  const speakReply = (text: string, allowBargeIn: boolean) => {
     setPhase("speaking");
     speakSeq.current += 1;
     const seq = speakSeq.current;
     setVoiceNote(null);
-    // streaming first (ElevenLabs chunked pipe + barge-in), buffered fallback
-    streamSpeech(text, callLang, "agent", 1)
+    // Streaming first (ElevenLabs chunked pipe + barge-in). Barge-in is only
+    // armed for a turn the caller actually spoke: a typed turn has already
+    // finished, so the mic can only prompt for permission or let speaker
+    // bleed cut the reply short.
+    streamSpeech(text, callLang, "agent", 1, {
+      bargeIn: allowBargeIn,
+      strict: true,
+    })
       .catch(() => ({ streamed: false, bargeIn: false, neural: false, reason: "threw" }))
       .then((outcome) => {
         if (seq !== speakSeq.current) return; // a newer line owns the turn now
         if (!outcome.neural) {
-          setVoiceNote(
-            t(
-              "You are hearing your own device voice — the platform's neural voice is not enabled for this deployment.",
-              "تسمع صوت جهازك — صوت الوكيل العصبي غير مُفعّل لهذا النشر.",
-              lang,
-            ),
-          );
+          // Strict mode never falls back to the device voice; say what happened.
+          setVoiceNote(t(STRICT_VOICE_UNAVAILABLE.en, STRICT_VOICE_UNAVAILABLE.ar, lang));
         }
         setPhase("idle");
       });
@@ -160,10 +176,11 @@ export function LiveVoicePanel({ callLang }: { callLang: CallLang }) {
   const sendTurn = async (text: string, asrMs?: number) => {
     const clean = text.trim();
     if (!clean || clean.length > 600) return;
+    const modality: Turn["modality"] = asrMs === undefined ? "typed" : "spoken";
     setError(null);
     turnId.current += 1;
     const youId = turnId.current;
-    setTurns((p) => [...p, { id: youId, role: "you", text: clean, asrMs }]);
+    setTurns((p) => [...p, { id: youId, role: "you", text: clean, modality, asrMs }]);
     setPhase("agent");
     const started = performance.now();
     try {
@@ -201,14 +218,16 @@ export function LiveVoicePanel({ callLang }: { callLang: CallLang }) {
           id: turnId.current,
           role: "agent",
           text: data.reply,
+          modality,
           intent: data.intent,
           action: data.action,
           escalate: data.escalate as boolean | undefined,
           escalationReason: data.escalationReason as string | undefined,
           latencyMs: data.latencyMs ?? Math.round(performance.now() - started),
+          asrMs,
         },
       ]);
-      speakReply(data.reply);
+      speakReply(data.reply, modality === "spoken");
     } catch (e) {
       setError(
         lang === "ar"
@@ -336,7 +355,7 @@ export function LiveVoicePanel({ callLang }: { callLang: CallLang }) {
               </span>
             </p>
             <p className="num mt-1 text-[10.5px] text-white/60">
-              REAL STT → GUARDRAILED ROUTING → NEURAL VOICE · {VOICE_BY_LANG[callLang]}
+              REAL STT → GUARDRAILED ROUTING → ELEVENLABS AGENT VOICE · {VOICE_BY_LANG[callLang]}
             </p>
           </>
         }
@@ -354,7 +373,7 @@ export function LiveVoicePanel({ callLang }: { callLang: CallLang }) {
           <p className="max-w-sm text-center text-[12.5px] leading-relaxed text-ink-2">
             {lang === "ar"
               ? "أجب كما يجابة العميل. تحدّث عبر الميكروفون — أو اكتب — ويستجيب خط الأنابيب الحقيقي: التعرّف على الكلام، التوجيه المحكوم، ورد صوتي عصبي بـ"
-              : "Answer as the customer would. Speak into your microphone — or type — and the real pipeline responds: speech recognition, deterministic guardrail routing, and a neural voice reply in "}
+              : "Answer as the customer would. Speak into your microphone — or type — and the real pipeline responds: speech recognition, deterministic guardrail routing, and an ElevenLabs agent voice reply in "}
             <span className="font-semibold text-foreground">
               {callLang === "ar"
                 ? "العربية"
@@ -525,9 +544,11 @@ export function LiveVoicePanel({ callLang }: { callLang: CallLang }) {
                       <User className="h-3 w-3 text-green-deep" />
                       <span className="micro !text-[9px] !text-green-deep">
                         {lang === "ar" ? "أنت" : "You"}
-                        {typeof t.asrMs === "number" && (
-                          <span className="num"> · ASR {t.asrMs}ms</span>
-                        )}
+                        <span className="num">
+                          {t.modality === "spoken" && typeof t.asrMs === "number"
+                            ? ` · ASR ${t.asrMs}ms`
+                            : ` · ${lang === "ar" ? "مكتوب" : "typed"}`}
+                        </span>
                       </span>
                     </div>
                     <p
@@ -561,10 +582,21 @@ export function LiveVoicePanel({ callLang }: { callLang: CallLang }) {
                       )}
                       <span className="micro !text-[9px] !text-primary">
                         {lang === "ar" ? "الوكيل · " : "Agent · "}
-                        {VOICE_BY_LANG[callLang].split(" ")[0]}
+                        {VOICE_BY_LANG[callLang]}
                       </span>
                       {typeof t.latencyMs === "number" && (
-                        <span className="num text-[9.5px] text-ink-3">turn {t.latencyMs}ms</span>
+                        <span
+                          className="num text-[9.5px] text-ink-3"
+                          title={
+                            t.modality === "spoken"
+                              ? "From the end of your speech to the reply text (ASR + routing)."
+                              : "Routing only. A typed turn has no caller speech end and no ASR, so this is not a phone-turn latency."
+                          }
+                        >
+                          {t.modality === "spoken"
+                            ? `turn ${(t.asrMs ?? 0) + t.latencyMs}ms`
+                            : `typed · routing ${t.latencyMs}ms`}
+                        </span>
                       )}
                     </div>
                     <p
@@ -620,8 +652,8 @@ export function LiveVoicePanel({ callLang }: { callLang: CallLang }) {
           <div className="border-t border-line bg-paper px-5 py-2.5 sm:px-6">
             <p className="text-[10.5px] leading-relaxed text-ink-3">
               {lang === "ar"
-                ? "الضمانات على هذا الخط: لا يطلب الوكيل أبداً رمزاً سرياً أو كلمة مرور أو رمز تحقق؛ يمكنه تنفيذ إجراء كتابي واحد معتمد مسبقاً (تجميد مؤقت للبطاقة)؛ ويُكتب كل دور في سجل التدقيق."
-                : "Guardrails on this line: the agent never asks for PINs, passwords, or one-time passcodes; it can execute exactly one pre-approved write action (temporary card freeze); every turn is written to the audit log."}
+                ? "الضمانات على هذا الخط: لا يطلب الوكيل أبداً رمزاً سرياً أو كلمة مرور أو رمز تحقق؛ يمكنه تنفيذ إجراء كتابي واحد معتمد مسبقاً (تجميد مؤقت للبطاقة)؛ ويُكتب كل دور في سجل التدقيق. زمن الدور المنطوق يبدأ من نهاية كلامك (تحويل + توجيه)؛ أما الدور المكتوب فيُعرض زمن التوجيه فقط."
+                : "Guardrails on this line: the agent never asks for PINs, passwords, or one-time passcodes; it can execute exactly one pre-approved write action (temporary card freeze); every turn is written to the audit log. A spoken turn is timed from the end of your speech (ASR + routing); a typed turn shows routing only."}
             </p>
           </div>
         </div>

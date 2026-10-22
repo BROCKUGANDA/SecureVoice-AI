@@ -31,6 +31,8 @@
 
 	# The marker src/proxy.ts requires before trusting client-IP headers.
 	header_up X-SecureVoice-Proxy "1"
+	# Caddy is the trust boundary; overwrite the spoofable client-supplied header.
+	header_up CF-Connecting-IP {remote_host}
 }
 
 (secure_defaults) {

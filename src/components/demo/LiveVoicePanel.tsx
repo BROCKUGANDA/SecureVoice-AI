@@ -14,7 +14,12 @@ import {
 } from "lucide-react";
 import { useApp, t } from "@/lib/store";
 import { VOICE_BY_LANG, type CallLang } from "@/lib/scenario";
-import { blobToWavBase64, stopVoice, streamSpeech } from "@/lib/voice-client";
+import {
+  blobToWavBase64,
+  stopVoice,
+  streamSpeech,
+  STRICT_VOICE_UNAVAILABLE,
+} from "@/lib/voice-client";
 import { Input } from "@/components/ui/input";
 import { PanelHeader } from "@/components/ui/PanelHeader";
 import { cn } from "@/lib/utils";
@@ -153,18 +158,16 @@ export function LiveVoicePanel({ callLang }: { callLang: CallLang }) {
     // armed for a turn the caller actually spoke: a typed turn has already
     // finished, so the mic can only prompt for permission or let speaker
     // bleed cut the reply short.
-    streamSpeech(text, callLang, "agent", 1, { bargeIn: allowBargeIn })
+    streamSpeech(text, callLang, "agent", 1, {
+      bargeIn: allowBargeIn,
+      strict: true,
+    })
       .catch(() => ({ streamed: false, bargeIn: false, neural: false, reason: "threw" }))
       .then((outcome) => {
         if (seq !== speakSeq.current) return; // a newer line owns the turn now
         if (!outcome.neural) {
-          setVoiceNote(
-            t(
-              "You are hearing your own device voice — the platform's neural voice is not enabled for this deployment.",
-              "تسمع صوت جهازك — صوت الوكيل العصبي غير مُفعّل لهذا النشر.",
-              lang,
-            ),
-          );
+          // Strict mode never falls back to the device voice; say what happened.
+          setVoiceNote(t(STRICT_VOICE_UNAVAILABLE.en, STRICT_VOICE_UNAVAILABLE.ar, lang));
         }
         setPhase("idle");
       });
@@ -352,7 +355,7 @@ export function LiveVoicePanel({ callLang }: { callLang: CallLang }) {
               </span>
             </p>
             <p className="num mt-1 text-[10.5px] text-white/60">
-              REAL STT → GUARDRAILED ROUTING → NEURAL VOICE · {VOICE_BY_LANG[callLang]}
+              REAL STT → GUARDRAILED ROUTING → ELEVENLABS AGENT VOICE · {VOICE_BY_LANG[callLang]}
             </p>
           </>
         }
@@ -370,7 +373,7 @@ export function LiveVoicePanel({ callLang }: { callLang: CallLang }) {
           <p className="max-w-sm text-center text-[12.5px] leading-relaxed text-ink-2">
             {lang === "ar"
               ? "أجب كما يجابة العميل. تحدّث عبر الميكروفون — أو اكتب — ويستجيب خط الأنابيب الحقيقي: التعرّف على الكلام، التوجيه المحكوم، ورد صوتي عصبي بـ"
-              : "Answer as the customer would. Speak into your microphone — or type — and the real pipeline responds: speech recognition, deterministic guardrail routing, and a neural voice reply in "}
+              : "Answer as the customer would. Speak into your microphone — or type — and the real pipeline responds: speech recognition, deterministic guardrail routing, and an ElevenLabs agent voice reply in "}
             <span className="font-semibold text-foreground">
               {callLang === "ar"
                 ? "العربية"

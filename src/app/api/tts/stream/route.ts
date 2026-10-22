@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import {
   allowedVoices,
+  isProdVoiceMode,
   requestedVoice,
   resolveTtsModel,
   streamQueryFor,
@@ -46,6 +47,8 @@ const schema = z.object({
   // Tenant speech context. Absent means "conventional tenant": the
   // unconditional half of the gate (redaction, speakability) still runs.
   speech: z.object({ shariahCompliant: z.boolean().optional() }).optional(),
+  /** Demo/scenario mode: never substitute a dev/device voice. */
+  strict: z.boolean().optional().default(false),
 });
 
 // Voice resolution used to be duplicated here — its own `DEV_SLUG_LANG`, its own
@@ -76,6 +79,15 @@ export async function POST(req: NextRequest) {
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid TTS stream request" }, { status: 422 });
+  }
+  if (parsed.data.strict && !isProdVoiceMode()) {
+    return NextResponse.json(
+      {
+        error: "Strict ElevenLabs voice requested, but this deployment is in dry-run/no-key mode.",
+        strictUnavailable: true,
+      },
+      { status: 503 },
+    );
   }
   const {
     text: requestedText,

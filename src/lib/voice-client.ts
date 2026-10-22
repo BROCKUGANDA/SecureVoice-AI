@@ -73,18 +73,26 @@ export function prefetchSpeech(
   voice: string,
   lang?: CallLang,
   role: VoiceRole = "agent",
+  strict = false,
 ): void {
-  fetchSpeech(text, voice, lang, role).catch(() => {});
+  fetchSpeech(text, voice, lang, role, strict).catch(() => {});
 }
 
-/** Fetch (or reuse) the neural-voice audio for the given text. */
+/**
+ * Fetch (or reuse) the neural-voice audio for the given text.
+ *
+ * `strict` is the demo/scenario contract: only ElevenLabs may answer. It is
+ * part of the cache key so an auto-mode synthesis (which may be PlayHT or the
+ * emergency cue) can never be replayed as if it were the strict agent voice.
+ */
 export function fetchSpeech(
   text: string,
   voice: string,
   lang?: CallLang,
   role: VoiceRole = "agent",
+  strict = false,
 ): Promise<Speech> {
-  const key = `${voice}::${lang ?? ""}::${role}::${text}`;
+  const key = `${voice}::${lang ?? ""}::${role}::${strict ? "strict" : "auto"}::${text}`;
   const hit = AUDIO_CACHE.get(key);
   if (hit) return Promise.resolve(hit);
 
@@ -95,7 +103,13 @@ export function fetchSpeech(
     const res = await fetch("/api/tts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, voice, role, ...(lang ? { lang } : {}) }),
+      body: JSON.stringify({
+        text,
+        voice,
+        role,
+        ...(lang ? { lang } : {}),
+        ...(strict ? { strict: true } : {}),
+      }),
     });
     // Carrying the status into the message is what lets speakText tell a spent
     // demo budget (429) from a refused anonymous call (401) from a vendor outage.
@@ -121,8 +135,9 @@ export function fetchSpeechUrl(
   voice: string,
   lang?: CallLang,
   role: VoiceRole = "agent",
+  strict = false,
 ): Promise<string> {
-  return fetchSpeech(text, voice, lang, role).then((s) => (s.degraded ? DEGRADED : s.url));
+  return fetchSpeech(text, voice, lang, role, strict).then((s) => (s.degraded ? DEGRADED : s.url));
 }
 
 /* ————— single active audio channel ————— */
@@ -271,6 +286,16 @@ export const VOICE_FALLBACK_COPY: Record<VoiceFallback, string> = {
   failed: "Could not reach the voice service — using your device's voice.",
 };
 
+/**
+ * Strict-mode copy. The device voice is NOT played in this mode, so the
+ * fallback text above would be false. The demo says what actually happened: the
+ * ElevenLabs agent voice is unavailable and no other voice was substituted.
+ */
+export const STRICT_VOICE_UNAVAILABLE = {
+  en: "ElevenLabs agent voice unavailable — no other voice was substituted.",
+  ar: "صوت وكيل ElevenLabs غير متاح — لم يُستخدم صوت بديل.",
+} as const;
+
 function classify(err: unknown): VoiceFallback {
   const msg = err instanceof Error ? err.message : String(err ?? "");
   if (/429/.test(msg)) return "rate_limited";
@@ -284,21 +309,24 @@ export async function speakText(
   lang: CallLang,
   role: VoiceRole,
   rate = 1,
+  opts: { strict?: boolean } = {},
 ): Promise<SpeechOutcome> {
   let url: string;
   try {
     // `voice` is the language, on purpose: the server resolves language+role to
     // the voice the live call would use. Passing a slug here is what let the demo
     // drift away from the product once already.
-    url = await fetchSpeechUrl(text, lang, lang, role);
+    url = await fetchSpeechUrl(text, lang, lang, role, opts.strict === true);
   } catch (err) {
+    if (opts.strict) return { neural: false, reason: classify(err) };
     await browserSpeak(text, lang, rate);
     return { neural: false, reason: classify(err) };
   }
   if (url === DEGRADED) {
     // The server could not synthesise and sent the hold-cue tone instead. Right on
-    // a live fraud call; in a demo the visitor hears their own device voice and is
-    // told why.
+    // a live fraud call; in a strict demo, a tone is not the agent voice and is
+    // not played at all.
+    if (opts.strict) return { neural: false, reason: "degraded" };
     await browserSpeak(text, lang, rate);
     return { neural: false, reason: "degraded" };
   }
@@ -321,13 +349,13 @@ export async function streamSpeech(
   lang: CallLang,
   role: VoiceRole,
   rate = 1,
-  opts: { bargeIn?: boolean } = {},
+  opts: { bargeIn?: boolean; strict?: boolean } = {},
 ): Promise<{ streamed: boolean; bargeIn: boolean; neural: boolean; reason?: string }> {
   if (typeof MediaSource === "undefined" || !MediaSource.isTypeSupported("audio/mpeg")) {
     // `neural` is reported rather than assumed because the copy beside this player
     // claims a neural voice: when the vendor path is skipped, the visitor is hearing
     // their own device's speech engine and is entitled to be told.
-    const outcome = await speakText(text, lang, role, rate);
+    const outcome = await speakText(text, lang, role, rate, { strict: opts.strict });
     return { streamed: false, bargeIn: false, neural: outcome.neural, reason: outcome.reason };
   }
 
@@ -335,7 +363,7 @@ export async function streamSpeech(
   try {
     mediaSource = new MediaSource();
   } catch {
-    const outcome = await speakText(text, lang, role, rate);
+    const outcome = await speakText(text, lang, role, rate, { strict: opts.strict });
     return { streamed: false, bargeIn: false, neural: outcome.neural, reason: outcome.reason };
   }
 
@@ -405,11 +433,19 @@ export async function streamSpeech(
         const res = await fetch("/api/tts/stream", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text, voice: lang, lang, role }),
+          body: JSON.stringify({
+            text,
+            voice: lang,
+            lang,
+            role,
+            ...(opts.strict ? { strict: true } : {}),
+          }),
         });
         if (!res.ok || !res.body) {
           stopMicMonitor();
-          await speakText(text, lang, role, rate);
+          // Strict mode still tries the buffered route — it is the same
+          // ElevenLabs voice — but never the device voice.
+          await speakText(text, lang, role, rate, { strict: opts.strict });
           done(false);
           return;
         }

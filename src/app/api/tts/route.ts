@@ -68,6 +68,13 @@ const schema = z.object({
   lang: z.enum(SUPPORTED_LANGS).default("en"),
   pace: z.enum(["instant", "paced"]).optional().default("paced"),
   callRef: z.string().min(3).max(64).optional(),
+  /**
+   * Demo/scenario paths set this so the audio is the ElevenLabs agent voice and
+   * nothing else. Strict mode refuses the PlayHT rung, the emergency cue and the
+   * dry-run backend; the ElevenLabs key pool is still allowed because it is the
+   * same voice on another key.
+   */
+  strict: z.boolean().optional().default(false),
 });
 
 /**
@@ -155,6 +162,7 @@ async function synthesizeWithLadder(args: {
   keyOverride?: string;
   model?: string;
   pace?: "instant" | "paced";
+  strict?: boolean;
 }): Promise<{
   audio: Buffer;
   contentType: string;
@@ -163,7 +171,7 @@ async function synthesizeWithLadder(args: {
   degraded: boolean;
   failed: Array<{ rung: string; error: string }>;
 }> {
-  const { text, voice, lang, speed, callerId, callRef, keyOverride, model, pace } = args;
+  const { text, voice, lang, speed, callerId, callRef, keyOverride, model, pace, strict } = args;
   const failed: Array<{ rung: string; error: string }> = [];
 
   // The ladder's deadline, measured from here rather than from the HTTP request,
@@ -231,7 +239,9 @@ async function synthesizeWithLadder(args: {
             contentType: raced.contentType,
             bytes: raced.bytes,
             source: "elevenlabs-pool",
-            degraded: true,
+            // The pool is the same ElevenLabs product and voice on another
+            // key. Strict mode accepts it; non-strict still flags the failover.
+            degraded: strict ? false : true,
             failed,
           };
         }
@@ -242,6 +252,18 @@ async function synthesizeWithLadder(args: {
         });
       }
     }
+  }
+
+  // Strict demo/scenario mode stops here: every rung above is ElevenLabs, and
+  // every rung below is a different vendor or a non-speech cue. Returning a
+  // PlayHT voice (or a tone) while the page claims the ElevenLabs agent voice
+  // is the misrepresentation this mode exists to prevent.
+  if (strict) {
+    throw new UpstreamError(
+      "Strict ElevenLabs mode: no ElevenLabs rung produced audio",
+      503,
+      "voice_strict_unavailable",
+    );
   }
 
   // Rung 3: PlayHT.
@@ -302,6 +324,13 @@ export async function POST(req: NextRequest) {
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
     return failure("semantically_invalid", { detail: "Invalid TTS request" });
+  }
+  if (parsed.data.strict && !isProdVoiceMode()) {
+    return failure("dependency_unavailable", {
+      detail:
+        "Strict ElevenLabs voice requested, but this deployment is in dry-run/no-key mode. " +
+        "The demo will not substitute a dev or device voice.",
+    });
   }
   const {
     text,
@@ -396,6 +425,7 @@ export async function POST(req: NextRequest) {
       callRef,
       keyOverride,
       pace,
+      strict: parsed.data.strict,
     });
 
     // The served rung as a row, not only as text inside the audit's meta blob.

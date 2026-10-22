@@ -291,7 +291,7 @@ describe("Demo", () => {
     // And the typed reply must not arm barge-in: there is nothing to
     // interrupt, and the mic monitor can cut the reply via speaker bleed.
     const streamCalls = (streamSpeech as unknown as { mock: { calls: unknown[][] } }).mock.calls;
-    expect(streamCalls.at(-1)?.[4]).toEqual({ bargeIn: false });
+    expect(streamCalls.at(-1)?.[4]).toEqual({ bargeIn: false, strict: true });
     expect(agentCalls).toHaveLength(1);
     expect(agentCalls[0].url).toBe("/api/agent");
     expect(agentCalls[0].method).toBe("POST");

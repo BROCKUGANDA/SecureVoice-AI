@@ -355,6 +355,32 @@ describe("the ladder always answers", () => {
   });
 });
 
+describe("strict ElevenLabs mode for demos and scenarios", () => {
+  test("refuses PlayHT and the emergency cue instead of substituting a voice", async () => {
+    reset({ attempt: "playht" });
+    const res = await post({ ...REQ, strict: true });
+
+    expect(res.status).toBe(503);
+    expect(res.source).toBeNull();
+    expect(res.type).not.toContain("audio");
+    // Two ElevenLabs rungs were tried (primary + key pool); no other vendor and
+    // no non-speech cue.
+    expect(calls).toEqual(["elevenlabs", "pool"]);
+  });
+
+  test("accepts the ElevenLabs key pool as the same agent voice", async () => {
+    reset({ attempt: "pool" });
+    const res = await post({ ...REQ, strict: true });
+
+    expect(res.status).toBe(200);
+    expect(res.source).toBe("elevenlabs-pool");
+    // The pool is the same voice on another key, so strict mode does not label it
+    // degraded; the non-strict path still does.
+    expect(res.degraded).toBe("false");
+    expect(calls).toEqual(["elevenlabs", "pool"]);
+  });
+});
+
 describe("the gates that run before any vendor is called", () => {
   test("an unauthenticated caller is refused before the ladder exists", async () => {
     reset({ mode: "anonymous" });

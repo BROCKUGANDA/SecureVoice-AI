@@ -40,7 +40,7 @@ import {
   speakText,
   stopVoice,
   prefetchSpeech,
-  VOICE_FALLBACK_COPY,
+  STRICT_VOICE_UNAVAILABLE,
   type VoiceRole,
 } from "@/lib/voice-client";
 import { useApp, t } from "@/lib/store";
@@ -191,15 +191,13 @@ export function Demo() {
     audioBusyRef.current = true;
     const role: VoiceRole = latest.speaker === "agent" ? "agent" : "customer";
     const text = eventText(latest, callLang);
-    speakText(text, callLang, role, Math.min(speed, 2)).then((outcome) => {
+    // Strict: every line in this simulation is the ElevenLabs agent voice. If
+    // the vendor is unavailable the line is not spoken by a device voice or a
+    // tone; the page says so instead.
+    speakText(text, callLang, role, Math.min(speed, 2), { strict: true }).then((outcome) => {
       if (seq !== speakSeq.current) return; // a newer line owns the flag now
       audioBusyRef.current = false;
-      // Say which voice the visitor is hearing. `browserSpeak` already ran inside
-      // speakText, so the line is audible either way — what changes is whether the
-      // claim on the page matches the sound.
-      setVoiceNote(outcome.neural ? null : VOICE_FALLBACK_COPY[outcome.reason ?? "failed"]);
-      if (!outcome.neural) return;
-      /* browser fallback already spoken inside speakText */
+      setVoiceNote(outcome.neural ? null : STRICT_VOICE_UNAVAILABLE[lang === "ar" ? "ar" : "en"]);
     });
     // pre-warm the next spoken line so the reply starts without a gap
     const idx = SCEN.indexOf(latest);
@@ -209,7 +207,13 @@ export function Demo() {
       // The language is the voice selector; the server maps it the way a real
       // call would, so a pre-warmed line cannot sound different from the same
       // line spoken live.
-      prefetchSpeech(ntext, callLang, callLang, next.speaker === "agent" ? "agent" : "customer");
+      prefetchSpeech(
+        ntext,
+        callLang,
+        callLang,
+        next.speaker === "agent" ? "agent" : "customer",
+        true,
+      );
     }
   }, [revealed, audioOn, started, callLang, speed, SCEN]);
 
@@ -607,7 +611,8 @@ export function Demo() {
                   </span>
                 </p>
                 <p className="num mt-1 text-[11px] text-white/70">
-                  {t("VOICE", "الصوت", lang)} · {VOICE_BY_LANG[callLang]} · {META.assetId}
+                  {t("ELEVENLABS AGENT VOICE", "صوت وكيل ElevenLabs", lang)} ·{" "}
+                  {VOICE_BY_LANG[callLang]} · {META.assetId}
                 </p>
               </>
             }

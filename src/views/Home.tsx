@@ -548,7 +548,7 @@ export function Home() {
                 </h2>
                 <p className="mt-2.5 max-w-xl text-[13.5px] leading-relaxed text-ink-2">
                   {t(
-                    "This is the same pipeline a production call uses: speech recognition, deterministic guardrail routing, and a neural voice reply. Deny a transaction and watch the agent stage exactly one pre-approved action for a human to commit — and never once ask for a PIN.",
+                    "This is the same pipeline a production call uses: speech recognition, deterministic guardrail routing, and an ElevenLabs agent voice reply. Deny a transaction and watch the agent stage exactly one pre-approved action for a human to commit — and never once ask for a PIN.",
                     "هذا هو نفس خط الأنابيب الذي تستخدمه المكالمة الفعلية: التعرّف على الكلام، وتوجيه حتمي عبر الضمانات، وردّ بصوت عصبي. أنكر صلاحية العملية وشاهد الوكيل يُمهّد إجراءً واحداً معتمداً مسبقاً ليُقرّه موظف بشري — دون أن يطلب رمزاً سرياً ولو مرة.",
                     lang,
                   )}

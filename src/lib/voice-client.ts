@@ -382,6 +382,7 @@ export async function streamSpeech(
 
   return new Promise((resolve) => {
     let settled = false;
+    let playedVendorAudio = false;
     const done = (bargeIn: boolean, neural = true) => {
       if (settled) return;
       settled = true;
@@ -415,6 +416,13 @@ export async function streamSpeech(
             /* buffer full or closed — drop chunk, keep playing */
           }
         };
+        audio.addEventListener(
+          "playing",
+          () => {
+            playedVendorAudio = true;
+          },
+          { once: true },
+        );
 
         // Barge-in monitor: echo-cancelled mic + sustained-speech gate — the
         // agent's own speaker bleed must NOT trigger a self-cutoff. A TYPED
@@ -447,7 +455,9 @@ export async function streamSpeech(
           // Strict mode still tries the buffered route — it is the same
           // ElevenLabs voice — but never the device voice.
           const outcome = await speakText(text, lang, role, rate, { strict: opts.strict });
-          done(false, outcome.neural);
+          // The fallback's failure does not erase audio the visitor already
+          // heard; only claim unavailable when no vendor chunk actually played.
+          done(false, playedVendorAudio || outcome.neural);
           return;
         }
 
@@ -458,7 +468,7 @@ export async function streamSpeech(
         audio.play().catch(() => {
           audio.pause();
           void speakText(text, lang, role, rate, { strict: opts.strict }).then((outcome) =>
-            done(false, outcome.neural),
+            done(false, playedVendorAudio || outcome.neural),
           );
         });
         for (;;) {
@@ -474,7 +484,7 @@ export async function streamSpeech(
       } catch {
         stopMicMonitor();
         const outcome = await speakText(text, lang, role, rate, { strict: opts.strict });
-        done(false, outcome.neural);
+        done(false, playedVendorAudio || outcome.neural);
       }
     });
   });

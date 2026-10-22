@@ -189,7 +189,10 @@ export function Demo() {
     const seq = speakSeq.current;
     stopVoice();
     audioBusyRef.current = true;
-    const role: VoiceRole = latest.speaker === "agent" ? "agent" : "customer";
+    // The whole simulation is the ElevenLabs agent voice, including the scripted
+    // customer turns. A separate customer voice would make the stage's
+    // "ELEVENLABS AGENT VOICE" label false for every customer line.
+    const role: VoiceRole = "agent";
     const text = eventText(latest, callLang);
     // Strict: every line in this simulation is the ElevenLabs agent voice. If
     // the vendor is unavailable the line is not spoken by a device voice or a
@@ -207,13 +210,7 @@ export function Demo() {
       // The language is the voice selector; the server maps it the way a real
       // call would, so a pre-warmed line cannot sound different from the same
       // line spoken live.
-      prefetchSpeech(
-        ntext,
-        callLang,
-        callLang,
-        next.speaker === "agent" ? "agent" : "customer",
-        true,
-      );
+      prefetchSpeech(ntext, callLang, callLang, "agent", true);
     }
   }, [revealed, audioOn, started, callLang, speed, SCEN]);
 

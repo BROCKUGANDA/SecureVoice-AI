@@ -414,7 +414,7 @@ jobs:
             [ -e "$path" ] || continue
             git ls-files --error-unmatch -- "$path" >/dev/null 2>&1 && continue
             case "$path" in
-              .env|.env.*|sites.d/*|edge.d/*)
+              .env|.env.*|sites.d/*|*edge.d/*)
                 echo "::error::$path is untracked on the box AND tracked by incoming main."
                 echo "::error::this is host-local state — reconcile it by hand, do not let a roll move it."
                 exit 1

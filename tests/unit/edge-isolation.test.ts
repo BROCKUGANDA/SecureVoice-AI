@@ -114,7 +114,7 @@ function withoutComments(src: string): string {
  * because `noUncheckedIndexedAccess` cannot see that, and an honest type
  * beats a non-null assertion.
  */
-function mapEntries(src: string): Array<{ name: string; target: string }> {
+function mapEntries(src: string): { name: string; target: string }[] {
   return src
     .split("\n")
     .map((line) => line.replace(/#.*$/, "").trim())
@@ -364,6 +364,34 @@ describe("the deploy script reports the coupling instead of accommodating it", (
 
     expect(helper).toContain("reattachCaddyNetworks(foreign)");
     expect(helper).toContain("edge-isolate");
+  });
+
+  test("a deploy write preserves the operator's edge mode", () => {
+    // `edge` is the ADR-009 decision, not a deploy fact. Callers that rebuild
+    // the state object used to drop it, which returned a cut-over box to the
+    // shared mode on the next flip; the guard then stopped enforcing.
+    const at = deployScript.indexOf("function writeState(");
+    expect(at).toBeGreaterThan(-1);
+    const body = deployScript.slice(at, deployScript.indexOf("\n}\n", at));
+    expect(body).toContain("previous.edge");
+    expect(body).toContain("state.edge = previous.edge");
+  });
+
+  test("a fresh state gets the plain app upstream, not app-undefined", () => {
+    const at = deployScript.indexOf("function writeState(");
+    const body = deployScript.slice(at, deployScript.indexOf("\n}\n", at));
+    expect(body).toContain("app:${APP_PORT}");
+  });
+
+  test("the isolated refusal returns to its caller instead of exiting", () => {
+    // The caller has already written the new upstream to the pointer file and
+    // restores it on a failure status. `process.exit` here skipped that
+    // restore, leaving the recording disagreeing with the running Caddy.
+    const at = deployScript.indexOf("function recreateCaddy(");
+    expect(at).toBeGreaterThan(-1);
+    const body = deployScript.slice(at, deployScript.indexOf("\n}\n", at));
+    expect(body).not.toContain("process.exit(");
+    expect(body).toContain("return { status: 1");
   });
 
   test("it compares a map target as an ADDRESS, not as a map entry", () => {

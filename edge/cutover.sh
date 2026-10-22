@@ -40,7 +40,7 @@ ENV_FILE="$STACK_DIR/.env"
 
 # ── 0. the box must be on the code that has the split ──────────────────────
 say "the box's checkout"
-cd "$STACK_DIR"
+cd "$STACK_DIR" || { echo "    cannot enter $STACK_DIR" >&2; exit 1; }
 git fetch --quiet origin main
 git checkout --quiet main
 git pull --quiet --ff-only origin main
@@ -88,13 +88,33 @@ say "running the switch"
 # The switch next to THIS script, not the one in the stack's checkout. The
 # two travel together, and the one in the checkout may be a version behind —
 # the cutover is the moment where a stale copy of the script matters most.
-sh "$SCRIPT_DIR/switch.sh"
-rc=$?
+#
+# BASH, explicitly: switch.sh uses `set -o pipefail`, `local` and arithmetic
+# under `set -euo pipefail`. Under `sh` (dash) it dies on its first line, and
+# `set -e` in this script would then exit before the .env restore below.
+rc=0
+if bash "$SCRIPT_DIR/switch.sh"; then
+	rc=0
+else
+	rc=$?
+fi
 
 if [ "$rc" != "0" ]; then
 	say "the switch failed; restoring the edge's public bindings"
-	[ -f "$ENV_FILE.pre-cutover" ] && mv "$ENV_FILE.pre-cutover" "$ENV_FILE"
-	echo "    the .env has been restored to $ENV_FILE.pre-cutover"
+	# An `[ -f ] && mv` returns 1 when the backup is missing, and `set -e`
+	# exits on that test — before the restore it was meant to perform.
+	if [ -f "$ENV_FILE.pre-cutover" ]; then
+		mv "$ENV_FILE.pre-cutover" "$ENV_FILE"
+		echo "    the .env has been restored from $ENV_FILE.pre-cutover"
+	else
+		# No backup existed (the .env was created by step 2). Removing the
+		# loopback bindings is the restore in that case; leaving them would
+		# move the edge off the public ports on the next restart.
+		for key in CADDY_BIND CADDY_HTTP_PORT CADDY_HTTPS_PORT; do
+			sed -i "/^$key=/d" "$ENV_FILE"
+		done
+		echo "    the loopback bindings were removed from $ENV_FILE (no pre-cutover backup existed)"
+	fi
 	exit "$rc"
 fi
 

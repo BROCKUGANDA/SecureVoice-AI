@@ -54,7 +54,11 @@ fi
 # ── 2. the edge-attach timer ─────────────────────────────────────────────────
 say "the edge-attach timer"
 if crontab -l 2>/dev/null | grep -q 'crucible-edge-attach'; then
-	crontab -l 2>/dev/null | grep -v 'crucible-edge-attach' | crontab -
+	# `grep -v` exits 1 when it filters the LAST line, and pipefail turns that
+	# into an exit before `crontab -` — the script stopped after clearing the
+	# crontab instead of finishing the retirement. Capture first, then install.
+	remaining="$(crontab -l 2>/dev/null | grep -v 'crucible-edge-attach' || true)"
+	printf '%s\n' "$remaining" | crontab -
 	echo "    removed from the crontab"
 else
 	echo "    (not in the crontab)"

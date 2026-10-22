@@ -1,3 +1,4 @@
+#!/bin/bash
 # A local proof that the front door routes by SNI, before the production
 # switch. Two TLS backends with different certificates, one front door, and
 # the question that matters: does a connection for name A land on backend A?
@@ -78,8 +79,7 @@ sleep 2
 say "which backend answers for which name?"
 fail=0
 for pair in "alpha.svalley.tech alpha" "beta.svalley.tech beta"; do
-	set -- $pair
-	name="$1"; want="$2"
+	read -r name want <<<"$pair"
 	cn="$(echo | openssl s_client -servername "$name" -connect 127.0.0.1:18443 2>/dev/null \
 		| openssl x509 -noout -subject 2>/dev/null || echo NONE)"
 	body="$(curl -sk --resolve "$name:18443:127.0.0.1" "https://$name:18443/" 2>/dev/null || echo none)"

@@ -332,9 +332,13 @@ precisely why the shared edge had to be scheduled, not merely implemented.
 **Step 1 — stand up the front door.**
 
 ```bash
-mkdir -p /srv/edge/edge.d
-cp ~/securevoice-ai/edge/nginx/edge.d/securevoice.*.map /srv/edge/edge.d/
-cp ~/securevoice-ai/edge/nginx/edge.conf /srv/edge/edge.conf
+# The compose file bind-mounts ./nginx/edge.conf and ./nginx/edge.d RELATIVE
+# to itself, so those are the paths that must exist. Copying edge.conf to
+# /srv/edge/edge.conf instead leaves the mount pointing at a path docker
+# creates as an empty directory, and nginx starts without its configuration.
+mkdir -p /srv/edge/nginx/edge.d
+cp ~/securevoice-ai/edge/nginx/edge.d/securevoice.*.map /srv/edge/nginx/edge.d/
+cp ~/securevoice-ai/edge/nginx/edge.conf /srv/edge/nginx/edge.conf
 cp ~/securevoice-ai/edge/compose.yml /srv/edge/compose.yml
 
 cd /srv/edge

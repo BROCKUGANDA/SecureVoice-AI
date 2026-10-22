@@ -231,14 +231,11 @@ product config and host-local edge config.** The fix (2026-10-12) removes the
 conflict instead of resolving it instance by instance:
 
 - The tracked `Caddyfile` is now the SAME BYTES on every machine. Its site
-  list is literal (`localhost`, `securevoiceai.me`) and ends with
-  `import sites.d/*.caddy`. The env-driven `{$SITE_ADDRESS:localhost}` block
+  list is literal (`localhost`, `securevoiceai.me`), and since 2026-10-22 it
+  is the WHOLE list: the host-local site directory that used to be imported
+  at the bottom of it is gone (failure mode #4). The env-driven `{$SITE_ADDRESS:localhost}` block
   is gone — besides colliding with the literal block (`ambiguous site
 definition`, measured), it was the reason the two copies had to diverge.
-- The box's own site blocks — `crucible.svalley.tech` and its `*.sslip.io`
-  redirect — live in an untracked `sites.d/crucible.caddy` (`.gitignore` keeps
-  only `sites.d/README.md`). Adding or editing a host-local site never touches
-  a tracked file again.
 - Skip-worktree is RETIRED, on the box and in deploy.yml. A promoted
   Caddyfile change now pulls and deploys like any other file.
 
@@ -246,8 +243,8 @@ definition`, measured), it was the reason the two copies had to diverge.
 repo does not know about — that is the only way to make the file dirty now.
 Run `git update-index --no-skip-worktree Caddyfile Caddyfile.platform` first
 (a lingering flag hides the dirtiness from `git diff`), then `git diff --
-Caddyfile`; anything worth keeping is a host-local site block that belongs in
-`sites.d/*.caddy`. Move it there (see `sites.d/README.md`), then:
+Caddyfile`; anything worth keeping is a site block that belongs in the tracked
+`Caddyfile`, in a reviewed change. Then:
 
 ```bash
 cd ~/securevoice-ai
@@ -255,9 +252,8 @@ git checkout -- Caddyfile Caddyfile.platform
 git pull --ff-only origin main
 ```
 
-Editing a file in `sites.d/` needs a Caddy process restart — `admin off` means
+Editing the `Caddyfile` needs a Caddy process restart — `admin off` means
 there is no reload endpoint: `docker compose up -d --force-recreate caddy`.
-The deploy recreates Caddy for free whenever the compose definition changes.
 
 ## Failure mode #3 — the shared `:local` image tag (RESOLVED 2026-10-12)
 
@@ -294,3 +290,124 @@ leaks (stacks, caches, images) — three of the same kind of failure, and the
 buildkit `graceful_stop` that killed three dev pushes on 2026-10-12 died on the
 same 79%-full disk. Check `df -h /` before believing any compose failure here
 is a code failure.
+
+## Failure mode #4 — the shared edge (RESOLVED 2026-10-22)
+
+**The failure.** One Caddy container served two products. It reached the other
+product's containers **by service name**, which only resolves from inside that
+product's Docker network, so it was hand-attached to a network this project's
+compose file does not own. `docker compose up` rebuilds a container from _its
+own_ compose definition, so every recreate dropped those attachments.
+
+On **2026-10-21** a traffic flip recreated the edge, the attachment was
+silently dropped, and the other product answered 502 for every request while
+every one of its own containers reported itself healthy. One product's deploy
+was the other product's outage.
+
+**The first fix** (this repository, commit `3edcbc4`) preserved the
+attachments across a recreate. It worked, and it was the wrong shape: it kept
+a cross-project capability alive and left the blast radius exactly where it
+was. It is superseded by the arrangement below.
+
+**The resolution.** One edge per project, behind a shared L4 front door.
+`docs/adr/009-isolated-edge-per-project.md` is the decision;
+`edge/README.md` is the topology.
+
+### The cutover, in order
+
+**The ordering constraint is the whole procedure:** the OTHER product must
+already have its own edge behind the front door before this product detaches.
+Skipping that step takes the other product offline. There is no ordering that
+lets both products be cut over independently on a shared host — which is
+precisely why the shared edge had to be scheduled, not merely implemented.
+
+**Step 0 — the other product's half (not this repository's job).**
+
+- That product stands up its own Caddy from its own `Caddyfile`, in its own
+  compose project, published on its own loopback port.
+- It ships its own map files into the front door's fragment directory:
+  `edge/nginx/edge.d/<project>.sni.map` and `<project>.host.map`.
+- It verifies its own names answer publicly.
+
+**Step 1 — stand up the front door.**
+
+```bash
+mkdir -p /srv/edge/edge.d
+cp ~/securevoice-ai/edge/nginx/edge.d/securevoice.*.map /srv/edge/edge.d/
+cp ~/securevoice-ai/edge/nginx/edge.conf /srv/edge/edge.conf
+cp ~/securevoice-ai/edge/compose.yml /srv/edge/compose.yml
+
+cd /srv/edge
+docker compose up -d
+docker compose exec router nginx -t     # validates BEFORE it would serve
+```
+
+**Step 2 — move this product's edge behind it.** In the host's `.env`:
+
+```ini
+CADDY_BIND=127.0.0.1
+CADDY_HTTP_PORT=8080
+CADDY_HTTPS_PORT=8443
+```
+
+Then recreate the edge so the new bindings take effect. **This is the step
+that needs a window**: the public `:443` moves from the edge to the front
+door, and there is a moment where the socket is being rebound.
+
+```bash
+cd ~/securevoice-ai
+docker compose up -d --no-deps caddy
+```
+
+**Step 3 — verify before detaching anything.**
+
+```bash
+bun scripts/deploy.mjs edge-status
+```
+
+The report must show: the front door's table matching the ports the edge
+actually publishes, and the public names answering. `edge-isolate` re-runs
+these as hard preconditions and refuses if any fails.
+
+**Step 4 — cut over.**
+
+```bash
+bun scripts/deploy.mjs edge-isolate --yes
+```
+
+It detaches the edge from the foreign networks, flips the deploy state to
+`isolated`, and re-probes the public path. It refuses without `--yes`,
+because the other product's half is not this repository's to verify.
+
+**Step 5 — the steady state.**
+
+- `bun scripts/deploy.mjs edge-status` reports `isolated`.
+- The edge is on `securevoice-ai_default` and nothing else.
+- The retired `sites.d/` directory on the box is now inert and can be removed
+  once the other product's site block has been moved into its own edge.
+- The deploy script now **refuses** to recreate the edge if a foreign
+  attachment reappears, instead of preserving it. That is the invariant, and
+  it is what stops the arrangement from drifting back.
+
+### If the cutover goes wrong
+
+The edge is detached with one command, and re-attaching is one command:
+
+```bash
+docker network connect <foreign-network> $(docker ps -q \
+  --filter label=com.docker.compose.service=caddy \
+  --filter label=com.docker.compose.project=securevoice-ai)
+```
+
+`edge-isolate` prints the exact command for each network it detached, and
+prints it again if the public path fails after the detach. **Keep that
+output.**
+
+### The standing rule
+
+**A container that is attached to a network it does not own is a configuration
+error, and it is reported rather than accommodated.** The previous behaviour
+— preserve it, because dropping it caused an outage — was a mitigation for a
+symptom that had a better fix. `bun scripts/deploy.mjs edge-status` answers
+"is this edge still shared?" in one command, and it is safe to run at any
+time, including during an incident.

@@ -667,6 +667,23 @@ jobs:
           docker run --rm -v "$PWD:/w" -w /w alpine:3 sh -c "apk add --no-cache caddy >/dev/null && \
             caddy validate --config Caddyfile && caddy validate --config Caddyfile.dev"
 
+      - name: Verify the shared front door's configuration
+        # The front door (edge/nginx/edge.conf) is what every public hostname
+        # on the box is served through, and NOTHING else in this repository can
+        # catch a syntax error in it: `caddy validate` reads the Caddyfile, not
+        # the front door's maps — and the maps are what its routing is made of.
+        #
+        # Two real errors were found by running this check, and neither was
+        # visible to any other gate: a map entry written without the
+        # terminating semicolon nginx's `map` requires (`nginx -t` refused the
+        # whole configuration), and a `$host` variable used in the `stream`
+        # context, where it does not exist.
+        #
+        # `nginx -t` validates the configuration AND everything it includes,
+        # which is the point — the maps are included by the config, so the maps
+        # are what has to be right.
+        run: bun scripts/edge-validate.mjs
+
       - name: Compose file parses
         # Parsed with the CI override too, so a typo in docker-compose.ci.yml is
         # caught here rather than as a port-binding failure halfway through the

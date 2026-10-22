@@ -114,23 +114,30 @@ const AI_IDENTITY: Record<Lang, string> = {
 };
 
 /**
- * Whether a reply names the caller as a machine, in the language the customer
- * hears. Each language is checked against a term that actually means AI there;
- * a Latin /AI/i test would pass an Arabic sentence that only said "the
- * intelligent assistant".
+ * Whether the speaker IDENTIFIES ITSELF as an AI, in the language the customer
+ * hears.
+ *
+ * The anchor is deliberate. A bare "AI" term is satisfied by "our AI flagged
+ * this transaction, I am calling about…" — a sentence that mentions AI and
+ * still lets the customer infer a human caller. Each pattern therefore needs a
+ * first-person or deictic opener ("I am", "this is", "أنا", "je suis", "mimi
+ * ni") within one sentence of the AI term. Over-injection is the safe failure:
+ * a valid disclosure phrased as "you are speaking with an AI" is repaired with
+ * one extra sentence, while an under-injection is the deception this exists to
+ * prevent.
  */
-const AI_IDENTITY_TERM: Record<Lang, RegExp> = {
-  en: /\bAI\b|artificial intelligence|automated assistant/i,
-  ar: /الذكاء الاصطناعي|مساعد آلي/,
-  hi: /\bAI\b|कृत्रिम बुद्धिमत्ता|स्वचालित/,
-  ur: /\bAI\b|اے آئی|مصنوعی ذہانت|خودکار/,
-  fr: /\bIA\b|intelligence artificielle|automatisé/i,
-  sw: /\bAI\b|akili bandia|kiotomatiki|otomatiki/i,
+const AI_SELF_IDENTIFICATION: Record<Lang, RegExp> = {
+  en: /\b(i am|i'm|this is)\b[^.!?\n]{0,60}\b(AI|artificial intelligence|automated)\b/i,
+  ar: /(أنا|انا|هذا)[^.!?\n]{0,60}(الذكاء الاصطناعي|آلي)/,
+  hi: /(मैं|यह)[^.!?\n]{0,60}(\bAI\b|कृत्रिम बुद्धिमत्ता|स्वचालित)/,
+  ur: /(میں|یہ)[^.!?\n]{0,60}(\bAI\b|اے آئی|مصنوعی ذہانت|خودکار)/,
+  fr: /\b(je suis|j'étais|voici)\b[^.!?\n]{0,60}\b(IA|intelligence artificielle|automatisé)\b/i,
+  sw: /\b(mimi ni|huyu ni)\b[^.!?\n]{0,60}\b(AI|akili bandia|kiotomatiki|otomatiki)\b/i,
 };
 
-/** True when `text` tells the customer they are speaking with an AI. */
+/** True when `text` tells the customer the speaker is an AI. */
 export function namesAi(text: string, lang: Lang): boolean {
-  return AI_IDENTITY_TERM[lang].test(text);
+  return AI_SELF_IDENTIFICATION[lang].test(text);
 }
 
 /**

@@ -187,6 +187,20 @@ describe("the opening also discloses that the caller is an AI", () => {
     }
   });
 
+  test("merely mentioning AI is not a self-identification", () => {
+    // A model can say "our AI flagged this" and still leave the customer
+    // believing a human is on the line. The anchor is what separates the two.
+    const r = auditAgentReply({
+      reply:
+        "This call is recorded to protect you. Our AI flagged the transaction, so I am calling about it.",
+      intent: "greeting",
+      isOpening: true,
+      lang: "en",
+    });
+    expect(r.reply).toContain(AI_IDENTITY_EN);
+    expect(r.guardrails).toContain("ai_identity_injected");
+  });
+
   test("a reply that already identifies the AI is left alone", () => {
     const r = auditAgentReply({
       reply: `${OPENING_DISCLOSURE_EN}. I am an automated AI assistant, not a human. May I confirm a transaction?`,

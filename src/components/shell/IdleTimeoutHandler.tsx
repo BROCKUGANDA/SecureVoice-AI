@@ -36,11 +36,29 @@ export function IdleTimeoutHandler({ onTimeout }: { onTimeout: () => void }) {
   const { data: session } = useSession();
   const isSignedIn = Boolean(session?.user);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const firedRef = useRef(false);
 
   useEffect(() => {
     if (!isSignedIn) return;
+    firedRef.current = false;
 
-    const onTimeout = () => {
+    const lockOut = () => {
+      // One sign-out per sign-in, and the timer is cleared on the way through.
+      //
+      // This guard is not defensive padding. Until 2026-10-23 this callback was
+      // named `onTimeout`, which shadowed the `onTimeout` prop in the enclosing
+      // effect scope, so the final statement of the body called ITSELF instead of
+      // the prop. Every frame fired a logout POST before recursing, and the stack
+      // gave up somewhere north of eight thousand frames — measured as 751
+      // `POST /api/auth/logout` inside one minute on production, which exhausted
+      // the edge rate-limit bucket and 429'd unrelated routes for other visitors.
+      // The prop never ran, so the screen never locked: the storm was the only
+      // thing the timeout actually did. Renaming alone would fix today's bug and
+      // leave the same blast radius one refactor away.
+      if (firedRef.current) return;
+      firedRef.current = true;
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+
       // Both session systems, for the same reason the Navbar does both: `signOut()`
       // alone revokes only Better Auth's session, and a magic-link session never
       // had one — the `sv_session` row and cookie survived an idle lockout. See the
@@ -61,7 +79,7 @@ export function IdleTimeoutHandler({ onTimeout }: { onTimeout: () => void }) {
 
     const reset = () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      timeoutRef.current = setTimeout(onTimeout, IDLE_TIMEOUT);
+      timeoutRef.current = setTimeout(lockOut, IDLE_TIMEOUT);
     };
 
     reset();
@@ -70,7 +88,7 @@ export function IdleTimeoutHandler({ onTimeout }: { onTimeout: () => void }) {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       EVENTS.forEach((e) => window.removeEventListener(e, reset));
     };
-  }, [isSignedIn, signOut, onTimeout]);
+  }, [isSignedIn, onTimeout]);
 
   return null;
 }

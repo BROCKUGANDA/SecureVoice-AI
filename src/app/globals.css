@@ -167,6 +167,9 @@
  * that makes the visible thumb slimmer than the gutter it lives in.
  */
 html {
+  /* Mirrors the `colorScheme` viewport export so the declaration survives a
+     stripped <meta>. This app is light-only: --paper is the only surface. */
+  color-scheme: only light;
   scrollbar-width: thin;
   scrollbar-color: #cdd4cb transparent;
 
@@ -319,6 +322,27 @@ html::-webkit-scrollbar-thumb:hover {
 [data-contrast="high"] a {
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+
+/* ——— Dark surfaces.
+     Every ink token above is calibrated against --paper (#fbfbf8), the only page
+     surface this app has. The sign-in view is the one full-viewport exception
+     (bg-[#0c110e] in src/views/Auth.tsx) and it opts in with data-surface="dark".
+     Without this scope, ink tokens read 3.86:1 there in normal mode and collapse
+     to 1.18:1 under high contrast — the accessibility toggle made the screen
+     literally unreadable. Ratios below are measured on #0c110e: AA body is 4.5:1,
+     the high-contrast tier targets AAA (7:1). ——— */
+[data-surface="dark"] {
+  --foreground: #ffffff;
+  --ink-2: #e8efe9;
+  --ink-3: #a8bcad;
+  --muted-foreground: #a8bcad;
+}
+[data-contrast="high"] [data-surface="dark"] {
+  --foreground: #ffffff;
+  --ink-2: #ffffff;
+  --ink-3: #e8efe9;
+  --muted-foreground: #e8efe9;
 }
 
 /* ——— Keyframes ——— */

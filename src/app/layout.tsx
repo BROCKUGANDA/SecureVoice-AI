@@ -185,6 +185,10 @@ export const viewport: Viewport = {
     { media: "(prefers-color-scheme: light)", color: "#fbfbf8" },
     { media: "(prefers-color-scheme: dark)", color: "#fbfbf8" },
   ],
+  // themeColor stops at the browser furniture; it does not tell the engine which
+  // schemes the page supports. Without this, a dark-OS visitor gets the UA's own
+  // dark canvas and auto-darkened native widgets on a site that has no dark theme.
+  colorScheme: "only light",
   width: "device-width",
   initialScale: 1,
 };

@@ -25,19 +25,30 @@ test.describe("SecureVoice AI - browser tier (Playwright)", () => {
   test("switches public views without a route change", async ({ page }) => {
     await expect(page).toHaveURL(/\/$/);
 
-    await page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: "Docs" }).click();
+    await page
+      .getByRole("navigation", { name: "Primary" })
+      .getByRole("button", { name: "Docs" })
+      .click();
     await expect(page.locator("h1")).toContainText("Integrate SecureVoice in an afternoon");
     await expect(page).toHaveURL(/\/$/);
 
-    await page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: "Security" }).click();
+    await page
+      .getByRole("navigation", { name: "Primary" })
+      .getByRole("button", { name: "Security" })
+      .click();
     await expect(page.locator("h1")).toContainText("Built for the regulator, proven in the region");
     await expect(page).toHaveURL(/\/$/);
 
-    await page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: "Overview" }).click();
+    await page
+      .getByRole("navigation", { name: "Primary" })
+      .getByRole("button", { name: "Overview" })
+      .click();
     await expect(page.locator("h1")).toContainText("Fraud detected.");
   });
 
-  test("enforces the view gate: signed-out click lands on auth, not the console", async ({ page }) => {
+  test("enforces the view gate: signed-out click lands on auth, not the console", async ({
+    page,
+  }) => {
     await page.getByRole("button", { name: "Explore the dashboard" }).click();
     await expect(page.locator("h1")).toContainText("Welcome to SecureVoice");
     await expect(page.getByRole("button", { name: "Simulate fraud alert" })).toHaveCount(0);
@@ -55,9 +66,15 @@ test.describe("SecureVoice AI - browser tier (Playwright)", () => {
     await expect(page.getByRole("button", { name: "Run the live simulation" })).toBeVisible();
   });
 
-  test("holds the pilot intake shut until the fields are valid, then posts them", async ({ page }) => {
+  test("holds the pilot intake shut until the fields are valid, then posts them", async ({
+    page,
+  }) => {
     await page.route("**/api/pilot", async (route) => {
-      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, ref: "SV-PW-0001" }) });
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ok: true, ref: "SV-PW-0001" }),
+      });
     });
 
     await page.getByRole("button", { name: "Book a pilot" }).click();

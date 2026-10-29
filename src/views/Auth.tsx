@@ -828,7 +828,10 @@ export function Auth() {
     // tight (py-5, mb-5, the banners at mb-4) so a 1440x900 screen fits with
     // room to spare and a 13-inch laptop still holds without inventing a
     // scroll region to do it.
-    <div className="relative flex h-[100dvh] flex-col items-center justify-center overflow-hidden bg-[#0c110e] px-6 py-5">
+    <div
+      data-surface="dark"
+      className="relative flex h-[100dvh] flex-col items-center justify-center overflow-hidden bg-[#0c110e] px-6 py-5"
+    >
       <GeoField />
       <Horizon />
 

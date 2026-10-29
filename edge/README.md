@@ -8,7 +8,7 @@ This directory holds the front door's configuration and **this project's**
 fragment of its routing table. The decision it implements is
 [`docs/adr/009-isolated-edge-per-project.md`](../docs/adr/009-isolated-edge-per-project.md);
 the cutover runbook is in
-[`docs/VPS-RECOVERY.md`](../docs/VPS-RECOVERY.md), failure mode #3.
+[`docs/VPS-RECOVERY.md`](../docs/VPS-RECOVERY.md), failure mode #4.
 
 ---
 

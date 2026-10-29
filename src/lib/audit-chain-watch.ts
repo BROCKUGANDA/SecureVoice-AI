@@ -57,25 +57,18 @@ export type ChainWatchReport = {
 export async function scanRecentChains(
   opts: { windowMinutes?: number; limit?: number } = {},
 ): Promise<ChainWatchReport> {
-  const windowMinutes = opts.windowMinutes ?? CHAIN_WATCH_WINDOW_MINUTES;
   const limit = opts.limit ?? CHAIN_WATCH_SAMPLE;
-  const since = new Date(Date.now() - windowMinutes * 60_000);
-
-  // One bounded query, deduped in memory. `distinct: ["callRef"]` with an
-  // `orderBy` on `createdAt` is rejected by Postgres (DISTINCT ON requires the
-  // ORDER BY to lead with the distinct column), and `groupBy` cannot carry the
-  // orgId without grouping by it too — the in-memory pass is the honest shape.
-  const rows = await dbAudit.auditLog.findMany({
-    where: { createdAt: { gte: since } },
-    orderBy: { createdAt: "desc" },
-    take: limit * 8,
-    select: { callRef: true, orgId: true },
+  // Fetch distinct chain identities before applying the sample limit. Capping
+  // raw rows first is unsafe: a busy call can consume the whole sample with
+  // adjacent audit entries and permanently displace other chains.
+  const grouped = await dbAudit.auditLog.groupBy({
+    by: ["callRef", "orgId"],
+    orderBy: { _max: { createdAt: "desc" } },
+    _max: { createdAt: true },
+    take: limit,
   });
-  const byRef = new Map<string, string | null>();
-  for (const row of rows) {
-    if (!byRef.has(row.callRef)) byRef.set(row.callRef, row.orgId ?? null);
-  }
-  const candidates = [...byRef.entries()].slice(0, limit);
+  const candidates = grouped.map((row) => [row.callRef, row.orgId ?? null] as const);
+
 
   const broken: ChainWatchBreak[] = [];
   for (const [callRef, orgId] of candidates) {

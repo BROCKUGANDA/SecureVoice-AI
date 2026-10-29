@@ -1,0 +1,123 @@
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      background: #fbfbf8;
+    }
+    #end-field {
+      position: absolute;
+      inset: 0;
+      background: #fbfbf8;
+    }
+    #end-lockup {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 226px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    #end-mark {
+      width: 132px;
+      height: 132px;
+    }
+    #end-name {
+      margin-top: 22px;
+      font-size: 54px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: #101812;
+    }
+    #end-sub {
+      margin-top: 10px;
+      font-size: 28px;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      color: #7c857f;
+    }
+    #end-claim {
+      position: absolute;
+      left: 300px;
+      right: 300px;
+      top: 560px;
+      text-align: center;
+      font-size: 42px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: #101812;
+    }
+    #end-proof {
+      position: absolute;
+      left: 300px;
+      right: 300px;
+      top: 654px;
+      text-align: center;
+      font-size: 28px;
+      color: #7c857f;
+    }
+    #end-cta {
+      position: absolute;
+      left: 300px;
+      right: 300px;
+      top: 760px;
+      text-align: center;
+      font-size: 32px;
+      font-weight: 600;
+      color: #0b7a55;
+    }
+  </style>
+  <div id="root" data-composition-id="endcard" data-width="1920" data-height="1080">
+    <div id="end-field" class="clip" data-start="0" data-duration="8.5">
+      <!-- The brand's OWN files: the vector shield from public/logo.svg and the
+           wordmark set in the site's own type. Nothing is redrawn. -->
+      <div id="end-lockup" class="clip" data-start="0.3" data-duration="4.6">
+        <img id="end-mark" src="assets/logo.svg" alt="SecureVoice AI" />
+        <div id="end-name">SecureVoice AI</div>
+        <div id="end-sub">FRAUD INTERVENTION</div>
+      </div>
+      <div id="end-claim" class="clip" data-start="1.4" data-duration="4.6" data-var-text="claim">
+        Fraud intervention in the language your customer speaks.
+      </div>
+      <div id="end-proof" class="clip" data-start="2.6" data-duration="3.4">
+        86.2% multi-run pass rate in English, 89.3% in Arabic
+      </div>
+      <!-- The call to action is the LAST thing on screen, held to the end. -->
+      <div id="end-cta" class="clip" data-start="5" data-duration="3.3" data-var-text="cta">
+        securevoiceai.me
+      </div>
+    </div>
+  </div>
+  <script>
+    const tl = gsap.timeline({ paused: true });
+    // The mark is carried in, not faded: it rises, then the claim wipes in
+    // beneath it, and the call to action takes the last beat.
+    tl.fromTo(
+      "#end-lockup",
+      { opacity: 0, y: 36 },
+      { opacity: 1, y: 0, duration: 0.9, ease: "power3.out" },
+      0.3,
+    );
+    tl.fromTo(
+      "#end-claim",
+      { opacity: 0, y: 22 },
+      { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" },
+      1.4,
+    );
+    tl.fromTo(
+      "#end-proof",
+      { opacity: 0, y: 16 },
+      { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" },
+      2.6,
+    );
+    tl.fromTo(
+      "#end-cta",
+      { opacity: 0, y: 16 },
+      { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" },
+      5,
+    );
+    window.__timelines["endcard"] = tl;
+  </script>
+</template>

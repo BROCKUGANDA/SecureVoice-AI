@@ -71,6 +71,7 @@ agent/policy/**/*.md
 # schedule that names them belong to that take, so the whole directory is excluded
 # rather than picked file by file.
 demo/walkthrough/source/assets/**
+demo-film/assets/**
 
 # The generated webfont sheet. `scripts/vendor-fonts.mjs` copies each @font-face
 # block verbatim out of a real build's CSS, and that CSS is minified — one

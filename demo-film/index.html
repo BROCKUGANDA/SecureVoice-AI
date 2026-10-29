@@ -1,15 +1,23 @@
 <!doctype html>
-<html lang="en">
+<html
+  lang="en"
+  data-composition-variables='[{"id":"claim","type":"string","label":"Claim line","default":"Fraud intervention in the language your customer speaks."},{"id":"cta","type":"string","label":"Call to action","default":"securevoiceai.me"}]'
+>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=1920, height=1080" />
     <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
     <style>
-      /* Placeholders: replace all three with the film's own palette and display face. */
       :root {
-        --ground: #000;
-        --ink: #ffffff;
-        --font-display: sans-serif;
+        --paper: #fbfbf8;
+        --ink: #101812;
+        --line: #e7eae3;
+        --primary: #0b7a55;
+        --green-deep: #085c3f;
+        --green-bright: #14a374;
+        --green-tint: #e9f5ef;
+        --ink-2: #4a534d;
+        --ink-3: #7c857f;
       }
       * {
         margin: 0;
@@ -18,25 +26,12 @@
       }
       html,
       body {
-        margin: 0;
         width: 1920px;
         height: 1080px;
         overflow: hidden;
-        background: var(--ground);
-      }
-      #root {
-        width: 100%;
-        height: 100%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-family: var(--font-display);
-      }
-      #title {
+        background: var(--paper);
         color: var(--ink);
-        font-size: 72px;
-        font-weight: 600;
-        letter-spacing: -0.03em;
+        font-family: Inter, system-ui, sans-serif;
       }
     </style>
   </head>
@@ -45,17 +40,58 @@
       id="root"
       data-composition-id="main"
       data-start="0"
-      data-duration="10"
+      data-duration="35"
       data-width="1920"
       data-height="1080"
     >
-      <h1 id="title" class="clip" data-start="0" data-duration="10" data-track-index="0">Title</h1>
+      <div
+        id="hook"
+        data-composition-id="hook"
+        data-composition-src="compositions/hook.html"
+        data-start="0"
+        data-duration="7.5"
+        data-track-index="1"
+        data-track-kind="graphics"
+        data-width="1920"
+        data-height="1080"
+      ></div>
+      <div
+        id="acting"
+        data-composition-id="acting"
+        data-composition-src="compositions/acting.html"
+        data-start="7.5"
+        data-duration="9"
+        data-track-index="2"
+        data-track-kind="graphics"
+        data-width="1920"
+        data-height="1080"
+      ></div>
+      <div
+        id="languages"
+        data-composition-id="languages"
+        data-composition-src="compositions/languages.html"
+        data-start="16.5"
+        data-duration="10"
+        data-track-index="3"
+        data-track-kind="graphics"
+        data-width="1920"
+        data-height="1080"
+      ></div>
+      <div
+        id="endcard"
+        data-composition-id="endcard"
+        data-composition-src="compositions/endcard.html"
+        data-start="26.5"
+        data-duration="8.5"
+        data-track-index="4"
+        data-track-kind="graphics"
+        data-width="1920"
+        data-height="1080"
+      ></div>
     </div>
     <script>
       const tl = gsap.timeline({ paused: true });
-      // Example: tl.fromTo("#title", { opacity: 0, filter: "blur(8px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.18, ease: "power4.out" }, 0);
       window.__timelines["main"] = tl;
-      tl.seek(0);
     </script>
   </body>
 </html>

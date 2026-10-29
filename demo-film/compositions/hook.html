@@ -1,0 +1,83 @@
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      background: #fbfbf8;
+    }
+    #hook-stage {
+      position: absolute;
+      inset: 0;
+    }
+    #hook-shot {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 1920px;
+      height: 1080px;
+      object-fit: cover;
+      object-position: center top;
+    }
+    #hook-band {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 152px;
+      background: #fbfbf8;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #hook-line {
+      font-size: 38px;
+      line-height: 1.25;
+      letter-spacing: -0.015em;
+      color: #101812;
+      text-align: center;
+    }
+  </style>
+  <div id="root" data-composition-id="hook" data-width="1920" data-height="1080">
+    <div id="hook-stage" class="clip" data-start="0" data-duration="7.5">
+      <img
+        id="hook-shot"
+        class="clip"
+        data-start="0"
+        data-duration="7.5"
+        src="assets/conversation-ar-replied.png"
+        alt=""
+      />
+      <div id="hook-band" class="clip" data-start="1.2" data-duration="5.2">
+        <p id="hook-line">A live card-fraud alert, answered in Arabic.</p>
+      </div>
+    </div>
+  </div>
+  <audio
+    id="hook-voice"
+    class="clip"
+    data-start="0.5"
+    data-duration="6.6"
+    src="assets/voice-ar.mp3"
+    data-volume="1"
+  ></audio>
+  <script>
+    const tl = gsap.timeline({ paused: true });
+    // The key image is already on screen at 0 s — frame 0 is the thumbnail on a
+    // social player, so it must not enter from nothing. Only the slow push
+    // carries the eye to the reply.
+    tl.fromTo(
+      "#hook-shot",
+      { scale: 1.0 },
+      { scale: 1.06, duration: 7.5, ease: "none" },
+      0,
+    );
+    tl.fromTo(
+      "#hook-line",
+      { opacity: 0, y: 20 },
+      { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" },
+      1.4,
+    );
+    window.__timelines["hook"] = tl;
+  </script>
+</template>

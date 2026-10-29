@@ -256,7 +256,13 @@ for (const c of CONVERSATIONS) {
         `--use-file-for-fake-audio-capture=${wav}%noloop`,
       ],
     });
-    const ctx = await micBrowser.newContext({ viewport: { width: W, height: H } });
+    const ctx = await micBrowser.newContext({
+      viewport: { width: W, height: H },
+      // Record the panel as VIDEO: the film's centrepiece has to show the product
+      // ACTING (the level meter moving, the transcript filling, the reply
+      // arriving), and a camera move over a frozen screenshot is not that.
+      recordVideo: { dir: OUT, size: { width: W, height: H } },
+    });
     const page = await ctx.newPage();
     await openLiveDemo(page);
     // Push to talk: the same control starts and stops the recording.
@@ -277,6 +283,34 @@ for (const c of CONVERSATIONS) {
       console.log("  spoken transcript: " + said.replace(/\s+/g, " ").slice(0, 110));
     }
     await micBrowser.close();
+    // Playwright finalises the recording when the context closes. Convert it to
+    // the mp4 the composition can time, and drop the webm.
+    const recFile = fs
+      .readdirSync(OUT)
+      .filter((f) => f.endsWith(".webm"))
+      .map((f) => path.join(OUT, f))
+      .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0];
+    if (recFile) {
+      const mp4 = path.join(OUT, "conversation-video.mp4");
+      execFileSync(
+        "ffmpeg",
+        [
+          "-y",
+          "-i",
+          recFile,
+          "-c:v",
+          "libx264",
+          "-pix_fmt",
+          "yuv420p",
+          "-movflags",
+          "+faststart",
+          mp4,
+        ],
+        { stdio: "ignore" },
+      );
+      fs.unlinkSync(recFile);
+      console.log("  recorded the live turn as video: conversation-video.mp4");
+    }
     fs.unlinkSync(wav);
   }
 }

@@ -180,8 +180,8 @@ sites.d/
 
 # HyperFrames build output — check reports and render state, regenerated on
 # every `hyperframes check` / `render`. The composition source itself
-# (demo/walkthrough/source/) is committed; this is not.
-demo/walkthrough/source/.hyperframes/
+# (demo-film/) is committed; this is not.
+demo-film/.hyperframes/
 
 # Deploy-local backups. When main begins tracking a path the box already holds as
 # an untracked stray, the roll moves that copy here instead of deleting it, so the

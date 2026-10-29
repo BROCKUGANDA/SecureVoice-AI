@@ -45,6 +45,9 @@ function shippedCopy(): string[] {
   return [
     join("src", "lib", "deck.ts"),
     join("src", "lib", "scenario.ts"),
+    join("src", "lib", "scenario-fr.ts"),
+    join("src", "lib", "scenario-sw.ts"),
+    join("src", "lib", "scenario-ur.ts"),
     join("src", "app", "llms.txt", "route.ts"),
     join("src", "components", "seo", "JsonLd.tsx"),
     join("src", "lib", "commercial.ts"),
@@ -131,7 +134,8 @@ const BANNED: { readonly pattern: RegExp; readonly why: string }[] = [
     why: "a compliance verdict is not the platform's to assert — it needs counsel and external evidence. The qualified position is already written in the FAQ (src/lib/commercial.ts:613): 'built to UAE Central Bank expectations' and 'the platform itself is not a licensed financial institution'. Naming a regulator is fine; claiming to satisfy it is not",
   },
   {
-    pattern: /immutable (AES-256 )?storage|storage[^.]{0,20}is immutable|\bWORM\b|object lock/i,
+    pattern:
+      /immutable (AES-256 )?storage|storage[^.]{0,20}is immutable|\bWORM\b|object lock|stockage infalsifiable|hifadhi isiyoweza kubadilishwa|ناقابلِ تبدیلی اسٹوریج/i,
     why: "the real control is a Postgres row trigger (no_modify_audit) plus hash-linked rows, which makes the record TAMPER-EVIDENT and append-only — not immutable storage. There is no WORM or object-lock tier, and crypto-shredding (src/lib/privacy/crypto-shred.ts) deliberately destroys per-case payloads on erasure, so the claim names a property the tree both does not implement and intentionally reverses. 'Immutable audit log' about the append-only chain is accurate and is NOT banned here",
   },
 ];
@@ -252,6 +256,18 @@ describe("published claims — nothing shipped that the tree refutes", () => {
     expect(matched.length).toBe(BANNED.length);
     const missed = BANNED.filter((b) => !b.pattern.test(fabricated)).map((b) => b.why);
     expect(missed, `these bans matched nothing: ${missed.join(" | ")}`).toEqual([]);
+
+    // Locale packs are shipped narration too; keep their immutable-storage mutations
+    // covered independently of the English control phrase above.
+    const storageBan = BANNED.find((b) => b.why.startsWith("the real control"));
+    expect(storageBan).toBeDefined();
+    for (const localized of [
+      "stockage infalsifiable",
+      "hifadhi isiyoweza kubadilishwa",
+      "ناقابلِ تبدیلی اسٹوریج",
+    ]) {
+      expect(storageBan!.pattern.test(localized)).toBe(true);
+    }
   });
 
   /**

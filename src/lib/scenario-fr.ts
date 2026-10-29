@@ -52,7 +52,7 @@ export const FR_PACKS: Record<ScenarioKind, FrLine[]> = {
     (m) =>
       `Transfert chaud vers une spécialiste humaine (Sara H.) — contexte complet transmis : statut de la vérification, événement de fraude confirmé, confirmation de l'action, indicateurs de sentiment. Dossier ${m.caseId} créé.`,
     // e16 · audit
-    "Journal d'audit scellé — enregistrement de l'appel, transcription intégrale, méthode de vérification et horodatage de l'action écrits sur un stockage infalsifiable (AES-256).",
+    "Journal d'audit scellé — enregistrement de l'appel, transcription intégrale, méthode de vérification et horodatage de l'action ajoutés au registre d'audit chaîné par hachage, que la base de données interdit de modifier.",
     // e17 · outcome
     (m) =>
       `RÉSOLU — du signal de fraude à une mesure de protection, staged dans la limite de cas de 60 secondes (simulation guidée, temps comprimé). Perte estimée évitée : ${m.preventedLoss.en}. Ancienne méthode : 38 minutes.`,
@@ -77,7 +77,7 @@ export const FR_PACKS: Record<ScenarioKind, FrLine[]> = {
     "C'est fait — le retrait a été refusé et votre carte est bloquée. Je vous passe ma collègue Sara, spécialiste anti-fraude, qui va sécuriser votre compte et émettre votre carte de remplacement. Merci de rester en ligne.",
     (m) =>
       `Transfert chaud vers une spécialiste humaine (Sara H.) — contexte complet transmis : statut de la vérification, événement de fraude confirmé, confirmation de l'action, indicateurs de sentiment. Dossier ${m.caseId} créé.`,
-    "Journal d'audit scellé — enregistrement de l'appel, transcription intégrale, méthode de vérification et horodatage de l'action écrits sur un stockage infalsifiable (AES-256).",
+    "Journal d'audit scellé — enregistrement de l'appel, transcription intégrale, méthode de vérification et horodatage de l'action ajoutés au registre d'audit chaîné par hachage, que la base de données interdit de modifier.",
     (m) =>
       `RÉSOLU — du signal de fraude à une mesure de protection, staged dans la limite de cas de 60 secondes (simulation guidée, temps comprimé). Perte estimée évitée : ${m.preventedLoss.en}. Ancienne méthode : 38 minutes.`,
   ],
@@ -101,7 +101,7 @@ export const FR_PACKS: Record<ScenarioKind, FrLine[]> = {
     "C'est fait — le virement est suspendu et votre argent est en sécurité. Je vous passe ma collègue Sara, spécialiste anti-fraude, qui va sécuriser votre compte et déposer le signalement. Merci de rester en ligne.",
     (m) =>
       `Transfert chaud vers une spécialiste humaine (Sara H.) — contexte complet transmis : statut de la vérification, événement de fraude confirmé, confirmation de l'action, indicateurs de sentiment. Dossier ${m.caseId} créé.`,
-    "Journal d'audit scellé — enregistrement de l'appel, transcription intégrale, méthode de vérification et horodatage de l'action écrits sur un stockage infalsifiable (AES-256).",
+    "Journal d'audit scellé — enregistrement de l'appel, transcription intégrale, méthode de vérification et horodatage de l'action ajoutés au registre d'audit chaîné par hachage, que la base de données interdit de modifier.",
     (m) =>
       `RÉSOLU — du signal de fraude à une mesure de protection, staged dans la limite de cas de 60 secondes (simulation guidée, temps comprimé). Perte estimée évitée : ${m.preventedLoss.en}. Ancienne méthode : 38 minutes.`,
   ],
@@ -141,7 +141,7 @@ export const FR_PACKS: Record<ScenarioKind, FrLine[]> = {
     (m) =>
       `Transfert chaud vers une spécialiste humaine (Sara H.) — contexte complet transmis : statut de la vérification, événement de fraude confirmé, confirmation de l'action, indicateurs de sentiment. Dossier ${m.caseId} créé.`,
     // e16 · audit
-    "Journal d'audit scellé — enregistrement de l'appel, transcription intégrale, méthode de vérification et horodatage de l'action écrits sur un stockage infalsifiable (AES-256).",
+    "Journal d'audit scellé — enregistrement de l'appel, transcription intégrale, méthode de vérification et horodatage de l'action ajoutés au registre d'audit chaîné par hachage, que la base de données interdit de modifier.",
     // e17 · outcome
     (m) =>
       `RÉSOLU — du signal de fraude à une mesure de protection, staged dans la limite de cas de 60 secondes (simulation guidée, temps comprimé). Perte estimée évitée : ${m.preventedLoss.en}. Ancienne méthode : 38 minutes.`,
@@ -185,7 +185,7 @@ export const FR_PACKS: Record<ScenarioKind, FrLine[]> = {
     (m) =>
       `Alerte envoyée à la console opérateur — dossier ${m.caseId} · P1 · le client a répondu NO par SMS, en attente d'une revue humaine.`,
     // e16 · audit
-    "Journal d'audit scellé — tentative d'appel, détection du répondeur, SMS envoyé, réponse du client, décision de l'analyseur et ticket de revue humaine écrits sur un stockage infalsifiable (AES-256).",
+    "Journal d'audit scellé — tentative d'appel, détection du répondeur, SMS envoyé, réponse du client, décision de l'analyseur et ticket de revue humaine ajoutés au registre d'audit chaîné par hachage, que la base de données interdit de modifier.",
     // e17 · outcome
     (m) =>
       `ESCALADÉ — l'appel vocal a échoué ; le client a été joint par SMS de repli et transmis à une revue anti-fraude humaine en 66 secondes (temps de démo, compressé). Rien n'a été bloqué sans un humain. Montant examiné : ${m.preventedLoss.en}.`,

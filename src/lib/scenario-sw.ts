@@ -54,7 +54,7 @@ export const SW_PACKS: Record<ScenarioKind, SwLine[]> = {
     (m) =>
       `Uhamisho wa moja kwa moja kwa mtaalamu wa binadamu (Sara H.) — muktadha wote umepitishwa: hali ya uthibitisho, tukio la udanganyifu lililothibitishwa, uhakikisho wa hatua, na alama za hisia. Kesi ${m.caseId} imefunguliwa.`,
     // e16 · audit
-    "Kumbukumbu za ukaguzi zimefungwa — rekodi ya simu, nakala kamili ya mazungumzo, njia ya uthibitisho na wakati wa hatua zimeandikwa kwenye hifadhi isiyoweza kubadilishwa (AES-256).",
+    "Kumbukumbu za ukaguzi zimefungwa — rekodi ya simu, nakala kamili ya mazungumzo, njia ya uthibitisho na wakati wa hatua zimeongezwa kwenye rekodi ya ukaguzi iliyounganishwa kwa heshi, ambayo hifadhidata hairuhusu mtu yeyote kuhariri.",
     // e17 · outcome
     (m) =>
       `IMETATULIWA — kutoka kirudhi cha udanganyifu hadi hatua ya kinga ndani ya muda wa kesi wa sekunde 60 (simulation, muda uliogandamishwa). Hasara iliyokadiriwa kuzuiwa: ${m.preventedLoss.en}. Njia ya zamani: dakika 38..`,
@@ -79,7 +79,7 @@ export const SW_PACKS: Record<ScenarioKind, SwLine[]> = {
     "Imekamilika — utoaji umekataliwa na kadi yako imezuiwa. Nikuunganisha na mshirika wangu Sara, mtaalamu wa udanganyifu, ambaye atalinda akaunti yako na kutoa kadi mpya. Tafadhali endelea kwenye simu.",
     (m) =>
       `Uhamisho wa moja kwa moja kwa mtaalamu wa binadamu (Sara H.) — muktadha wote umepitishwa: hali ya uthibitisho, tukio la udanganyifu lililothibitishwa, uhakikisho wa hatua, na alama za hisia. Kesi ${m.caseId} imefunguliwa.`,
-    "Kumbukumbu za ukaguzi zimefungwa — rekodi ya simu, nakala kamili ya mazungumzo, njia ya uthibitisho na wakati wa hatua zimeandikwa kwenye hifadhi isiyoweza kubadilishwa (AES-256).",
+    "Kumbukumbu za ukaguzi zimefungwa — rekodi ya simu, nakala kamili ya mazungumzo, njia ya uthibitisho na wakati wa hatua zimeongezwa kwenye rekodi ya ukaguzi iliyounganishwa kwa heshi, ambayo hifadhidata hairuhusu mtu yeyote kuhariri.",
     (m) =>
       `IMETATULIWA — kutoka kirudhi cha udanganyifu hadi hatua ya kinga ndani ya muda wa kesi wa sekunde 60 (simulation, muda uliogandamishwa). Hasara iliyokadiriwa kuzuiwa: ${m.preventedLoss.en}. Njia ya zamani: dakika 38..`,
   ],
@@ -103,7 +103,7 @@ export const SW_PACKS: Record<ScenarioKind, SwLine[]> = {
     "Imekamilika — uhamishaji umesimishwa na pesa zako ziko salama. Nikuunganisha na mshirika wangu Sara, mtaalamu wa udanganyifu, ambaye atalinda akaunti yako na kufungua ripoti. Tafadhali endelea kwenye simu.",
     (m) =>
       `Uhamisho wa moja kwa moja kwa mtaalamu wa binadamu (Sara H.) — muktadha wote umepitishwa: hali ya uthibitisho, tukio la udanganyifu lililothibitishwa, uhakikisho wa hatua, na alama za hisia. Kesi ${m.caseId} imefunguliwa.`,
-    "Kumbukumbu za ukaguzi zimefungwa — rekodi ya simu, nakala kamili ya mazungumzo, njia ya uthibitisho na wakati wa hatua zimeandikwa kwenye hifadhi isiyoweza kubadilishwa (AES-256).",
+    "Kumbukumbu za ukaguzi zimefungwa — rekodi ya simu, nakala kamili ya mazungumzo, njia ya uthibitisho na wakati wa hatua zimeongezwa kwenye rekodi ya ukaguzi iliyounganishwa kwa heshi, ambayo hifadhidata hairuhusu mtu yeyote kuhariri.",
     (m) =>
       `IMETATULIWA — kutoka kirudhi cha udanganyifu hadi hatua ya kinga ndani ya muda wa kesi wa sekunde 60 (simulation, muda uliogandamishwa). Hasara iliyokadiriwa kuzuiwa: ${m.preventedLoss.en}. Njia ya zamani: dakika 38..`,
   ],
@@ -143,7 +143,7 @@ export const SW_PACKS: Record<ScenarioKind, SwLine[]> = {
     (m) =>
       `Uhamisho wa moja kwa moja kwa mtaalamu wa binadamu (Sara H.) — muktadha wote umepitishwa: hali ya uthibitisho, tukio la udanganyifu lililothibitishwa, uhakikisho wa hatua, na alama za hisia. Kesi ${m.caseId} imefunguliwa.`,
     // e16 · audit
-    "Kumbukumbu za ukaguzi zimefungwa — rekodi ya simu, nakala kamili ya mazungumzo, njia ya uthibitisho na wakati wa hatua zimeandikwa kwenye hifadhi isiyoweza kubadilishwa (AES-256).",
+    "Kumbukumbu za ukaguzi zimefungwa — rekodi ya simu, nakala kamili ya mazungumzo, njia ya uthibitisho na wakati wa hatua zimeongezwa kwenye rekodi ya ukaguzi iliyounganishwa kwa heshi, ambayo hifadhidata hairuhusu mtu yeyote kuhariri.",
     // e17 · outcome
     (m) =>
       `IMETATULIWA — kutoka kirudhi cha udanganyifu hadi hatua ya kinga ndani ya muda wa kesi wa sekunde 60 (simulation, muda uliogandamishwa). Hasara iliyokadiriwa kuzuiwa: ${m.preventedLoss.en}. Njia ya zamani: dakika 38..`,
@@ -187,7 +187,7 @@ export const SW_PACKS: Record<ScenarioKind, SwLine[]> = {
     (m) =>
       `Tahadhari ya konsoli ya mwendeshi imetumwa — kesi ${m.caseId} · P1 · mteja amejibu kwa SMS «NO», anasubiri ukaguzi wa binadamu.`,
     // e16 · audit
-    "Kumbukumbu za ukaguzi zimefungwa — jaribio la simu, ugunduzi wa ujumbe wa kisanduku, SMS iliyotumwa, jibu la mteja, uamuzi wa kichambuzi na tikiti ya ukaguzi wa binadamu zimeandikwa kwenye hifadhi isiyoweza kubadilishwa (AES-256).",
+    "Kumbukumbu za ukaguzi zimefungwa — jaribio la simu, ugunduzi wa ujumbe wa kisanduku, SMS iliyotumwa, jibu la mteja, uamuzi wa kichambuzi na tikiti ya ukaguzi wa binadamu zimeongezwa kwenye rekodi ya ukaguzi iliyounganishwa kwa heshi, ambayo hifadhidata hairuhusu mtu yeyote kuhariri.",
     // e17 · outcome
     (m) =>
       `IMEPANDISHWA — simu ya sauti imeshindwa; mteja amefikiwa kwa SMS ya mbadala na kesi ikapelekwa kwa ukaguzi wa udanganyifu wa binadamu kwa sekunde 66 (muda wa onyesho, umepunguzwa). Hakuna kitu kilichozuiwa bila binadamu. Kiasi kinachokaguliwa: ${m.preventedLoss.en}.`,

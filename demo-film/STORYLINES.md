@@ -16,7 +16,7 @@ thing).
 
 ## A · "The line stayed open" — RECOMMENDED
 
-*Device:* the result first. *Form:* one continuous take, no cuts.
+_Device:_ the result first. _Form:_ one continuous take, no cuts.
 
 **What the viewer sees and feels:** the film opens on the agent already speaking — the
 real Arabic reply, mid-sentence — and the camera pulls back to reveal a browser tab where
@@ -43,7 +43,7 @@ accent; the site's own type; the real panel is the only material.
 
 ## B · "Sixty seconds, then a human"
 
-*Device:* a number lands. *Form:* cut on the beat.
+_Device:_ a number lands. _Form:_ cut on the beat.
 
 **What the viewer sees and feels:** the real SLA clock against the real frames — a signal,
 the agent calling, the customer saying no, the freeze staged, a specialist taking over.
@@ -70,7 +70,7 @@ frames, not screens — honest, but weaker than A.
 
 ## C · "Six languages, one outcome"
 
-*Device:* one object across apps. *Form:* match cuts.
+_Device:_ one object across apps. _Form:_ match cuts.
 
 **What the viewer sees and feels:** the same card question asked in six languages; each
 gets its own agent voice; the outcome never changes. It feels like one product speaking
@@ -101,8 +101,8 @@ no music is needed under them.
   FR-FR, SW-KE**.
 - Intent chips the agent actually produced: `intent: deny_fraud`, `action: card_freeze`,
   `routed by rules`.
-- The agent's real reply: disclosure, apology, *"I have flagged this transaction as fraud
+- The agent's real reply: disclosure, apology, _"I have flagged this transaction as fraud
   and placed a temporary restriction on your card while a human fraud specialist reviews
-  it."*
+  it."_
 - Agent-testing evidence (from `evidence/guardrails/`): **86.2 %** multi-run pass rate in
   English, **89.3 %** in Arabic; tool-call criterion **87.5 %** / **100 %**.

@@ -1,0 +1,103 @@
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      background: #fbfbf8;
+    }
+    #lang-stage {
+      position: absolute;
+      inset: 0;
+    }
+    #lang-shot {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 1920px;
+      height: 1080px;
+      object-fit: cover;
+      object-position: center top;
+    }
+    #lang-band {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 152px;
+      background: #fbfbf8;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #lang-title {
+      font-size: 44px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: #101812;
+      text-align: center;
+    }
+  </style>
+  <div id="root" data-composition-id="languages" data-width="1920" data-height="1080">
+    <div id="lang-stage" class="clip" data-start="0" data-duration="10">
+      <div id="lang-band" class="clip" data-start="0" data-duration="10">
+        <div id="lang-title">Six languages. One decision.</div>
+      </div>
+      <!-- Six real turns, cut on the beat. Every frame is the same panel, so the
+           cut lands on the layout — the match cut carries the eye. -->
+      <img
+        id="lang-en"
+        class="clip"
+        data-start="0.2"
+        data-duration="1.5"
+        src="assets/conversation-en-panel.png"
+        alt=""
+      />
+      <img
+        id="lang-ar"
+        class="clip"
+        data-start="1.7"
+        data-duration="1.5"
+        src="assets/conversation-ar-panel.png"
+        alt=""
+      />
+      <img
+        id="lang-hi"
+        class="clip"
+        data-start="3.2"
+        data-duration="1.5"
+        src="assets/conversation-hi-panel.png"
+        alt=""
+      />
+      <img
+        id="lang-ur"
+        class="clip"
+        data-start="4.7"
+        data-duration="1.5"
+        src="assets/conversation-ur-panel.png"
+        alt=""
+      />
+      <img
+        id="lang-fr"
+        class="clip"
+        data-start="6.2"
+        data-duration="1.5"
+        src="assets/conversation-fr-panel.png"
+        alt=""
+      />
+      <img
+        id="lang-sw"
+        class="clip"
+        data-start="7.7"
+        data-duration="1.5"
+        src="assets/conversation-sw-panel.png"
+        alt=""
+      />
+    </div>
+  </div>
+  <script>
+    const tl = gsap.timeline({ paused: true });
+    tl.fromTo("#lang-band", { opacity: 0 }, { opacity: 1, duration: 0.4, ease: "power2.out" }, 0);
+    window.__timelines["languages"] = tl;
+  </script>
+</template>

@@ -5,15 +5,33 @@
  * from invented UI loses everyone who uses it. So every frame in the film comes
  * from the live origin at securevoiceai.me, not from a mockup.
  *
- * Usage: node scripts/walkthrough/capture-real.mjs
+ * Usage: node scripts/walkthrough/capture-real.mjs [--base-url https://host]
+ *
+ * The origin is a CLI ARGUMENT, not an env var. This is a one-shot developer
+ * script, not a deployed service, and an env var it reads would have to be
+ * documented in .env.example — where it would tell every operator about a knob
+ * only the film capture ever uses. An argument says the same thing without
+ * pretending to be deployment configuration.
  */
 import fs from "node:fs";
 import path from "node:path";
 
 const { chromium } = await import("playwright");
 
-const BASE = process.env.FILM_BASE_URL || "https://securevoiceai.me";
-const OUT = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")), "..", "..", "demo-film", "assets");
+const baseArg = process.argv.find((a) => a.startsWith("--base-url="));
+const baseFlag = process.argv.indexOf("--base-url");
+const BASE = (
+  baseArg?.slice("--base-url=".length) ||
+  (baseFlag >= 0 ? process.argv[baseFlag + 1] : undefined) ||
+  "https://securevoiceai.me"
+).replace(/\/+$/, "");
+const OUT = path.resolve(
+  path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")),
+  "..",
+  "..",
+  "demo-film",
+  "assets",
+);
 const W = 1920;
 const H = 1080;
 
@@ -67,9 +85,7 @@ await capturePage(BASE + "/security", "security");
   await shoot(page, "demo-idle", { settle: 300 });
 
   // Run the simulation if a control is present.
-  const runBtn = page
-    .getByRole("button", { name: /simulate fraud alert/i })
-    .first();
+  const runBtn = page.getByRole("button", { name: /simulate fraud alert/i }).first();
   if (await runBtn.count()) {
     await runBtn.click();
     console.log("  started the live simulation");

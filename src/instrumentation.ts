@@ -61,6 +61,25 @@ export async function register() {
     });
   }
 
+  // Velocity-breaker alerts → the operator inbox.
+  //
+  // `setAlertSink()` documented "configure a sink at boot" and no production
+  // code did, so an `auto_pause` — the sticky breaker that silences a tenant's
+  // fraud calling until a human resumes it — reached stderr and nothing else.
+  // The inbox, dedupe and escalation ladder all existed; only the wiring was
+  // missing.
+  try {
+    const { installAbuseAlertSink } = await import("@/lib/abuse/alert-sink");
+    installAbuseAlertSink();
+    logWarn("[abuse] breaker alerts route to the operator inbox", {
+      detail: "auto_pause pages at 5-minute SLA; velocity warnings arrive as info.",
+    });
+  } catch (err) {
+    logError("[abuse] alert sink install failed — auto-pauses will log only", {
+      error: err instanceof Error ? err.message : err,
+    });
+  }
+
   // Axiom log shipping. Registered HERE, not imported by `safe-log` itself,
   // because `safe-log` is bundled into the edge proxy and the browser bundle
   // (`src/proxy.ts`, `src/lib/languages.ts`) where `server-only` and

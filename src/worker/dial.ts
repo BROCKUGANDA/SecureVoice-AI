@@ -53,6 +53,7 @@ import { sweepExpiredSmsCases } from "@/lib/sms-verdict";
 import { sweepExpiredFreezeWindows } from "@/lib/freeze-window";
 import { sweepSlaBreaches } from "@/lib/sla-breach";
 import { advanceEscalations } from "@/lib/notifications";
+import { auditChainWatchTick } from "@/lib/audit-chain-watch";
 import { resolveCasePhone } from "@/lib/compliance/pii-vault";
 import { logError, logInfo, logWarn } from "@/lib/validation/safe-log";
 import { flag } from "@/lib/flags";
@@ -969,6 +970,23 @@ async function maybeSweep(): Promise<void> {
       });
   } catch (err) {
     logError("[dial-worker] escalation sweep failed", {
+      error: err instanceof Error ? err.message : err,
+    });
+  }
+  try {
+    // The tamper watch. `verifyChain()` was checked only when an operator opened
+    // that one case in the console; an altered chain elsewhere stayed broken in
+    // silence. The sweep verifies a bounded sample of recent chains and pages
+    // the inbox on a break. Scheduled inside the module (every 10 minutes), so
+    // this one-second loop only pays for a timestamp comparison on most ticks.
+    const chains = await auditChainWatchTick();
+    if (chains && chains.broken.length > 0)
+      logError("[dial-worker] audit-chain sweep found broken chains", {
+        checked: chains.checked,
+        broken: chains.broken.map((b) => b.callRef),
+      });
+  } catch (err) {
+    logError("[dial-worker] audit-chain sweep failed", {
       error: err instanceof Error ? err.message : err,
     });
   }

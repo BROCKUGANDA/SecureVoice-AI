@@ -477,6 +477,43 @@ export type ChainVerification =
   | { ok: false; brokenAt: string; expected: string; actual: string; rows: number };
 
 /**
+ * Broken-chain detections, counted HERE for the same reason append failures are.
+ *
+ * `verifyChain()` had no reporter either. The console route shows a broken chain
+ * to whoever opens that one case, and nothing watched the rest: a chain that had
+ * been edited (or spliced) stayed broken until a human happened to look. A
+ * security property that is checked only when someone asks is a property nobody
+ * is checking.
+ *
+ * Monotonic per process, exported to `/api/metrics`, and the worker's
+ * `auditChainWatchTick()` moves it without a human opening the console. Rate
+ * limited, because a burst of broken chains must not bury the log that names
+ * them.
+ */
+let chainBreaks = 0;
+let lastBreakLoggedAt = 0;
+
+/** Broken chains detected since process start. Monotonic; never resets. */
+export function auditChainBreaks(): number {
+  return chainBreaks;
+}
+
+const CHAIN_BREAK_LOG_INTERVAL_MS = 5_000;
+
+function noteChainBreak(callRef: string, v: Extract<ChainVerification, { ok: false }>): void {
+  chainBreaks++;
+  const now = Date.now();
+  if (now - lastBreakLoggedAt < CHAIN_BREAK_LOG_INTERVAL_MS) return;
+  lastBreakLoggedAt = now;
+  logError("[audit-chain] verification FAILED — the record has been altered", {
+    callRef,
+    brokenAt: v.brokenAt,
+    rows: v.rows,
+    totalBreaks: chainBreaks,
+  });
+}
+
+/**
  * Walk a call's audit chain by FOLLOWING the prev-hash links (genesis → each
  * child), not by createdAt order — two rows can share a millisecond timestamp,
  * which makes timestamp-ordered verification ambiguous. Also detects a fork
@@ -484,6 +521,15 @@ export type ChainVerification =
  * link in the chain.
  */
 export async function verifyChain(
+  callRef: string,
+  orgId: string | null | undefined,
+): Promise<ChainVerification> {
+  const result = await verifyChainCore(callRef, orgId);
+  if (!result.ok) noteChainBreak(callRef, result);
+  return result;
+}
+
+async function verifyChainCore(
   callRef: string,
   orgId: string | null | undefined,
 ): Promise<ChainVerification> {

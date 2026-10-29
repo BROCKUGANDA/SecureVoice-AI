@@ -202,3 +202,8 @@ demo/walkthrough/source/.hyperframes/
 # language, paid for with vendor quota and listened to once. Audio blobs do not
 # belong in git, and the same ids can be re-synthesized on demand.
 .voice-audition/
+
+# Playwright
+test-results/
+playwright-report/
+blob-report/

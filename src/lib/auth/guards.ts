@@ -13,12 +13,20 @@ import "server-only";
  *     1. session      — is there a live, unexpired, un-revoked session?
  *     2. capability   — does the LIVE role hold the capability?
  *     3. step-up      — has the person at the keyboard re-authenticated?
+ *     4. second factor — does the account hold a working TOTP enrolment?
  *
  * Session first, because a capability check against an absent session has no
- * subject. Capability second, because step-up is not a privilege. Step-up last,
+ * subject. Capability second, because step-up is not a privilege. Step-up third,
  * because prompting someone to re-enter their password before telling them the
  * action is not theirs to perform is a way to collect credentials for a denied
- * request.
+ * request. Second factor last, for the same reason: it is only demanded of a
+ * caller who has already proved they are allowed to make the attempt.
+ *
+ * Step-up alone used to be enough, and step-up accepts a re-entered password or
+ * a magic link — neither is a second factor. A stolen password therefore
+ * satisfied every privileged action in the product. See
+ * `src/lib/auth/two-factor-gate.ts` for the evidence test (flag AND a usable
+ * factor row, shared with the money path).
  *
  * ── `requireAuth` vs the existing console session guards ──────────────────────────────
  * `requireSignedIn` / `requireOperator` in `src/lib/credits.ts` are session-backed
@@ -42,6 +50,7 @@ import {
 import { resolveIdentityForAccount, type Identity } from "@/lib/auth/identity";
 import { assertCapability, authorizedDb, CapabilityError, type RbacClient } from "@/lib/auth/rbac";
 import { requireStepUp, type StepUpCheck } from "@/lib/auth/stepup";
+import { privilegedTwoFactorBlocker } from "@/lib/auth/two-factor-gate";
 import { normalizeEmail, verifyPassword } from "@/lib/auth/password";
 import { issueSession, type IssuedSession } from "@/lib/auth/session";
 import {
@@ -135,12 +144,16 @@ export async function requireCapability(
 export type PrivilegedAuthed = Authed & { stepUp: StepUpCheck };
 
 /**
- * Require a live session, the role capability, AND a fresh step-up for a
- * privileged action.
+ * Require a live session, the role capability, a fresh step-up, AND a working
+ * second factor for a privileged action.
  *
  * The capability comes from the action's declared mapping, so a caller cannot
  * forget it: `requirePrivileged(cookie, "commit_freeze")` cannot be satisfied
  * by a role that lacks `case:write`.
+ *
+ * The second-factor check runs AFTER step-up on purpose — the caller has
+ * already proved the action is theirs to attempt, so the 428 it returns is
+ * advice ("enrol a factor"), not a probe of somebody else's privileges.
  */
 export async function requirePrivileged(
   cookieHeader: string | null | undefined,
@@ -159,6 +172,21 @@ export async function requirePrivileged(
       status: 428,
       error: stepUp.error,
       code: stepUp.reason,
+    };
+  }
+  const secondFactor = await privilegedTwoFactorBlocker(authed.identity);
+  if (secondFactor) {
+    return {
+      ok: false,
+      // 428 as well, with its own machine-readable code: the console has to be
+      // able to tell "re-confirm it's you" (which it can prompt for) apart from
+      // "enrol a second factor" (which is a Settings trip), and both apart from
+      // "you are not the Owner". `error` carries the actionable hint because
+      // the route serialises `{error, code}` — a bare `two_factor_required` in
+      // the message would tell an operator nothing they can act on.
+      status: secondFactor.status,
+      error: secondFactor.hint,
+      code: secondFactor.error,
     };
   }
   return { ...authed, stepUp };

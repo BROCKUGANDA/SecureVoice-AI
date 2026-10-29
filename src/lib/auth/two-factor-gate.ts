@@ -1,6 +1,7 @@
 import "server-only";
 /**
- * Two-factor is a precondition of spending money, not a suggestion.
+ * Two-factor is a precondition of spending money and of every privileged
+ * action, not a suggestion.
  *
  * ## The gap this closes
  *
@@ -16,6 +17,16 @@ import "server-only";
  * Paddle, so a stolen cookie with no second factor could start a subscription,
  * raise a negotiated invoice, and mint a customer-portal session where plans are
  * changed and cancelled.
+ *
+ * ## Why the privileged actions use the same gate
+ *
+ * `requirePrivileged` demands a fresh step-up, and step-up accepts a re-entered
+ * password or a magic link — neither of which is a second factor. So a password
+ * alone satisfied `commit_freeze`, `invite_admin`, `export_bulk_data`,
+ * `rotate_producer_key` and `change_byok_credential`. Step-up answers "is the
+ * person present?"; TOTP answers "do they hold a separate factor?". Both are
+ * required now, which is why `privilegedTwoFactorBlocker` shares this module's
+ * evidence test (flag AND usable factor row) rather than inventing a second one.
  *
  * ## What "turned on and it works" means
  *
@@ -75,6 +86,36 @@ export type TwoFactorDenial = {
  * re-reading the same cookie.
  */
 export async function moneyTwoFactorBlocker(identity: Identity): Promise<TwoFactorDenial | null> {
+  return twoFactorBlocker(identity, "money");
+}
+
+/**
+ * The same precondition for the actions in `PRIVILEGED_ACTIONS` (stepup.ts):
+ * committing a freeze, inviting an admin, exporting an organisation's records,
+ * rotating a machine key, replacing an upstream billing credential.
+ *
+ * Step-up proves the person is present; it does not prove they hold a second
+ * factor. A password alone — replayed by whoever stole it — satisfied every
+ * privileged action in the product. With this gate, presence is not enough:
+ * the account must have a working TOTP enrolment, the same evidence the money
+ * path demands.
+ *
+ * The demo exemption is shared with the money gate on purpose (one definition
+ * of "is this the demo"), so the judged walkthrough still commits its staged
+ * freeze. Nothing else is exempt.
+ */
+export async function privilegedTwoFactorBlocker(
+  identity: Identity,
+): Promise<TwoFactorDenial | null> {
+  return twoFactorBlocker(identity, "privileged");
+}
+
+type TwoFactorPurpose = "money" | "privileged";
+
+async function twoFactorBlocker(
+  identity: Identity,
+  purpose: TwoFactorPurpose,
+): Promise<TwoFactorDenial | null> {
   if (isDemoAccount(identity.email)) return null;
 
   // `Identity.accountId` is the internal Account row id, NOT the Better Auth
@@ -88,7 +129,7 @@ export async function moneyTwoFactorBlocker(identity: Identity): Promise<TwoFact
   });
   const userId = account?.userId ?? (isUuid(identity.accountId) ? identity.accountId : null);
   if (!userId) {
-    return denial();
+    return denial(purpose);
   }
 
   const user = await db.user.findUnique({
@@ -106,18 +147,21 @@ export async function moneyTwoFactorBlocker(identity: Identity): Promise<TwoFact
     logWarn("[two-factor] user flag set with no usable factor row", { userId });
   }
 
-  return denial();
+  return denial(purpose);
 }
 
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
-function denial(): TwoFactorDenial {
+function denial(purpose: TwoFactorPurpose): TwoFactorDenial {
   return {
     status: 428,
     error: TWO_FACTOR_REQUIRED,
-    hint: "Enable two-factor authentication in Settings → Security and verify a code before any payment action.",
+    hint:
+      purpose === "money"
+        ? "Enable two-factor authentication in Settings → Security and verify a code before any payment action."
+        : "Enable two-factor authentication in Settings → Security and verify a TOTP code before this action. A re-entered password is not a second factor.",
   };
 }
 

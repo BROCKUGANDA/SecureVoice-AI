@@ -290,7 +290,7 @@ const LAYERS = [
     en: "Analytics & Audit Layer",
     ar: "التحليلات والتدقيق",
     body: "Call recording + bilingual transcription · conversation analytics · compliance reporting · performance monitoring",
-    chip: "immutable · AES-256",
+    chip: "tamper-evident · hash-chained",
   },
 ];
 

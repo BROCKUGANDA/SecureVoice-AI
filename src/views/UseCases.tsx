@@ -263,7 +263,7 @@ const USE_CASES: {
       "Executes the approved treatment strategy exactly — no deviation, no improvisation",
       "Six speech languages in the code — EN · AR · HI · UR · FR · SW; the live agent plane is configured for EN/AR/HI, the continuity pipeline adds UR/FR/SW, and only EN and AR have a recorded end-to-end conversation",
       "Permitted calling hours enforced by configuration; every opt-out honoured and logged",
-      "Every call audited with an immutable trail",
+      "Every call audited with a tamper-evident, hash-chained trail",
     ],
     inScope: [
       "Scheduled, routine calls about an outstanding or expiring obligation",

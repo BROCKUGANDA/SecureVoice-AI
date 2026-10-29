@@ -342,11 +342,24 @@ export async function GET(req: Request) {
   //
   // Per-process and monotonic: alert on the rate across scrapes rather than
   // the absolute value.
+  // The worker and the HTTP process have different heaps. Read the durable
+  // notification aggregate so worker-only detections are visible to scrapes;
+  // retain the local value as a fallback if the aggregate query is unavailable.
+  let sharedChainBreaks = auditChainBreaks();
+  try {
+    const aggregate = await db.notification.aggregate({
+      where: { alertType: "audit_chain_broken" },
+      _sum: { count: true },
+    });
+    sharedChainBreaks = Math.max(sharedChainBreaks, aggregate._sum.count ?? 0);
+  } catch {
+    // Metrics must remain available while the database is degraded.
+  }
   push(
     "sv_audit_chain_breaks_total",
-    "Broken audit chains detected by verifyChain() since this process started.",
+    "Broken audit chains detected by verifyChain() across application processes.",
     "counter",
-    auditChainBreaks(),
+    sharedChainBreaks,
   );
 
   // ── scrape self-timing ──────────────────────────────────────────────────

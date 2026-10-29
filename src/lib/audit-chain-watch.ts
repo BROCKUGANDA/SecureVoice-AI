@@ -71,14 +71,18 @@ export async function scanRecentChains(
     take: limit * 8,
     select: { callRef: true, orgId: true },
   });
-  const byRef = new Map<string, string | null>();
+  const byTenantRef = new Map<string, { callRef: string; orgId: string | null }>();
   for (const row of rows) {
-    if (!byRef.has(row.callRef)) byRef.set(row.callRef, row.orgId ?? null);
+    const orgId = row.orgId ?? null;
+    // A call reference is only unique within an organisation. Keep the tenant
+    // in the identity so one organisation cannot hide another's chain.
+    const key = `${orgId ?? ""}\u0000${row.callRef}`;
+    if (!byTenantRef.has(key)) byTenantRef.set(key, { callRef: row.callRef, orgId });
   }
-  const candidates = [...byRef.entries()].slice(0, limit);
+  const candidates = [...byTenantRef.values()].slice(0, limit);
 
   const broken: ChainWatchBreak[] = [];
-  for (const [callRef, orgId] of candidates) {
+  for (const { callRef, orgId } of candidates) {
     const v = await verifyChain(callRef, orgId);
     if (!v.ok) broken.push({ callRef, orgId, brokenAt: v.brokenAt });
   }

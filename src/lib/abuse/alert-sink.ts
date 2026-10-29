@@ -50,7 +50,10 @@ export function abuseAlertToNotification(alert: AbuseAlert): NotifyInput {
       ? `Calling paused for ${alert.orgId}: ${alert.reason}`
       : `Velocity warning for ${alert.orgId}: ${alert.reason}`,
     body: alert.detail,
-    windowMinutes: 15,
+    // Each emitted auto-pause has a new id (a resumed tenant can pause
+    // again), so a later episode cannot fold into an acknowledged page.
+    caseRef: paused ? alert.id : undefined,
+    windowMinutes: paused ? 0 : 15,
     at: new Date(alert.at),
   };
 }

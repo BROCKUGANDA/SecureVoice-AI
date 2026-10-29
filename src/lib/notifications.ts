@@ -52,13 +52,17 @@ export function dedupeKeyFor(input: {
   alertType: string;
   at?: Date;
   windowMinutes?: number;
+  caseRef?: string | null;
 }): string {
   const windowMinutes = input.windowMinutes ?? 15;
   const bucket =
     windowMinutes > 0
       ? Math.floor((input.at ?? new Date()).getTime() / (windowMinutes * 60_000))
       : 0;
-  return `${input.orgId ?? "default"}:${input.alertType}:${bucket}`;
+  // A case-specific alert must never fold into an unrelated case for the same
+  // tenant and time bucket. Alerts without a caseRef retain burst aggregation.
+  const casePart = input.caseRef ? `:${input.caseRef}` : "";
+  return `${input.orgId ?? "default"}:${input.alertType}${casePart}:${bucket}`;
 }
 
 export type NotifyInput = {

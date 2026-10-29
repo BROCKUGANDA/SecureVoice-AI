@@ -35,6 +35,11 @@ export const CHAIN_WATCH_WINDOW_MINUTES = 60;
 /** How many distinct call chains one sweep verifies (each is 1–2 queries). */
 export const CHAIN_WATCH_SAMPLE = 25;
 
+// A cursor prevents a tenant with a high write rate from winning every sweep.
+// It is intentionally process-local: the worker is the scheduler, and a
+// restart simply starts a fresh eligibility pass.
+let candidateCursor = 0;
+
 export type ChainWatchBreak = {
   callRef: string;
   orgId: string | null;
@@ -61,21 +66,21 @@ export async function scanRecentChains(
   const limit = opts.limit ?? CHAIN_WATCH_SAMPLE;
   const since = new Date(Date.now() - windowMinutes * 60_000);
 
-  // One bounded query, deduped in memory. `distinct: ["callRef"]` with an
-  // `orderBy` on `createdAt` is rejected by Postgres (DISTINCT ON requires the
-  // ORDER BY to lead with the distinct column), and `groupBy` cannot carry the
-  // orgId without grouping by it too — the in-memory pass is the honest shape.
-  const rows = await dbAudit.auditLog.findMany({
+  // Group before sampling: a busy chain must not consume the sample slots for
+  // every other eligible chain. The pair is deliberately (orgId, callRef):
+  // references are only tenant-local and may legitimately be reused.
+  const rows = await dbAudit.auditLog.groupBy({
+    by: ["callRef", "orgId"],
     where: { createdAt: { gte: since } },
-    orderBy: { createdAt: "desc" },
-    take: limit * 8,
-    select: { callRef: true, orgId: true },
+    _max: { createdAt: true },
+    orderBy: { _max: { createdAt: "desc" } },
   });
-  const byRef = new Map<string, string | null>();
-  for (const row of rows) {
-    if (!byRef.has(row.callRef)) byRef.set(row.callRef, row.orgId ?? null);
-  }
-  const candidates = [...byRef.entries()].slice(0, limit);
+  if (rows.length > 0) candidateCursor %= rows.length;
+  const candidates = Array.from({ length: Math.min(limit, rows.length) }, (_, i) => {
+    const row = rows[(candidateCursor + i) % rows.length]!;
+    return [row.callRef, row.orgId] as const;
+  });
+  candidateCursor = rows.length > 0 ? (candidateCursor + candidates.length) % rows.length : 0;
 
   const broken: ChainWatchBreak[] = [];
   for (const [callRef, orgId] of candidates) {
@@ -140,4 +145,5 @@ export async function auditChainWatchTick(now = Date.now()): Promise<ChainWatchR
 /** Test seam: forget the schedule so a tick can run immediately. */
 export function resetChainWatchSchedule(): void {
   lastRunAt = 0;
+  candidateCursor = 0;
 }

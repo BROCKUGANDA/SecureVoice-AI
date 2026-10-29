@@ -76,10 +76,25 @@ export function installAbuseAlertSink(): void {
     // Loaded lazily: this runs on the dial hot path, and pulling the Prisma
     // client into the module graph of every route that can dial buys nothing
     // until an alert actually fires.
+    // Retry transient notification failures independently of the dial request.
+    // notify() is the durable inbox write; the bounded retries cover pooler or
+    // cold-start races without allowing alert delivery to affect the dial gate.
     void import("@/lib/notifications")
-      .then(({ notify }) => notify(notification))
+      .then(async ({ notify }) => {
+        let lastError: unknown;
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          try {
+            await notify(notification);
+            return;
+          } catch (err) {
+            lastError = err;
+            if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** attempt));
+          }
+        }
+        throw lastError;
+      })
       .catch((err) => {
-        logError("[abuse] alert delivery failed — no inbox row was written", {
+        logError("[abuse] alert delivery failed after retries — no inbox row was written", {
           orgId: alert.orgId,
           action: alert.action,
           error: err instanceof Error ? err.message : String(err),

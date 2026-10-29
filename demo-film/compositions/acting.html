@@ -1,0 +1,90 @@
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      background: #fbfbf8;
+    }
+    #acting-stage {
+      position: absolute;
+      inset: 0;
+    }
+    #acting-video {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 1920px;
+      height: 1080px;
+      object-fit: cover;
+      object-position: center top;
+    }
+    #acting-card {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 108px;
+      text-align: center;
+    }
+    #acting-title {
+      font-size: 40px;
+      font-weight: 600;
+      letter-spacing: -0.015em;
+      color: #101812;
+    }
+    #acting-sub {
+      margin-top: 12px;
+      font-size: 28px;
+      color: #4a534d;
+    }
+  </style>
+  <div id="root" data-composition-id="acting" data-width="1920" data-height="1080">
+    <!-- The stage is a plain container, not a timed element: a timed <video>
+         inside a timed wrapper makes the frame extractor and the visibility
+         window disagree, and the clip then shows the wrong source frames. -->
+    <div id="acting-stage">
+      <video
+        id="acting-video"
+        class="clip"
+        data-start="0"
+        data-duration="9"
+        data-media-start="6"
+        src="assets/conversation-video.mp4"
+        muted
+        playsinline
+      ></video>
+      <div id="acting-card" class="clip" data-start="4.4" data-duration="4.6">
+        <div id="acting-title">A caller says it was not them.</div>
+        <div id="acting-sub">The agent hears them, then stages a reversible hold for a human.</div>
+      </div>
+    </div>
+    <audio
+      id="acting-voice"
+      class="clip"
+      data-start="6.4"
+      data-duration="2.6"
+      src="assets/voice-en.mp3"
+      data-volume="1"
+    ></audio>
+    <!-- The caller speaking, in the caller's own voice — the sound of the
+         action on screen, not a voice-over laid on top of it. -->
+    <audio
+      id="acting-caller"
+      class="clip"
+      data-start="0.6"
+      data-duration="2"
+      src="assets/voice-en-question.mp3"
+      data-volume="1"
+    ></audio>
+  </div>
+  <script>
+    const tl = gsap.timeline({ paused: true });
+    tl.fromTo(
+      "#acting-card",
+      { opacity: 0, y: 24 },
+      { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" },
+      4.4,
+    );
+    window.__timelines["acting"] = tl;
+  </script>
+</template>

@@ -66,12 +66,7 @@
     // The key image is already on screen at 0 s — frame 0 is the thumbnail on a
     // social player, so it must not enter from nothing. Only the slow push
     // carries the eye to the reply.
-    tl.fromTo(
-      "#hook-shot",
-      { scale: 1.0 },
-      { scale: 1.06, duration: 7.5, ease: "none" },
-      0,
-    );
+    tl.fromTo("#hook-shot", { scale: 1.0 }, { scale: 1.06, duration: 7.5, ease: "none" }, 0);
     tl.fromTo(
       "#hook-line",
       { opacity: 0, y: 20 },

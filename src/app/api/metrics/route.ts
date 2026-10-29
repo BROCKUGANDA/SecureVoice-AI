@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import { admissionSnapshot } from "@/lib/admission";
 import { capacitySnapshot } from "@/lib/capacity";
 import { queueDepth } from "@/lib/scale/queue";
-import { auditAppendFailures } from "@/lib/audit-chain";
+import { auditAppendFailures, auditChainBreaks } from "@/lib/audit-chain";
 import { llmBreakerState } from "@/lib/llm";
 import { getPoolStatus } from "@/lib/elevenlabs/pool";
 import { degradedSnapshot, rungSnapshot } from "@/lib/voice/rung-counter";
@@ -332,6 +332,21 @@ export async function GET(req: Request) {
     "Terminal audit-chain append failures since this process started.",
     "counter",
     auditAppendFailures(),
+  );
+
+  // Broken chains DETECTED, counted by `verifyChain()` itself. Distinct from
+  // append failures above: an append failure is a record that was never
+  // written, a break is a record that was written and then ALTERED. The
+  // worker's audit-chain sweep moves this without anyone opening the console,
+  // so a non-zero value here is a security incident with a timestamp.
+  //
+  // Per-process and monotonic: alert on the rate across scrapes rather than
+  // the absolute value.
+  push(
+    "sv_audit_chain_breaks_total",
+    "Broken audit chains detected by verifyChain() since this process started.",
+    "counter",
+    auditChainBreaks(),
   );
 
   // ── scrape self-timing ──────────────────────────────────────────────────

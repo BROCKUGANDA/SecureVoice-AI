@@ -44,6 +44,7 @@ function shippedCopy(): string[] {
     .map((f) => join("src", "views", f));
   return [
     join("src", "lib", "deck.ts"),
+    join("src", "lib", "scenario.ts"),
     join("src", "app", "llms.txt", "route.ts"),
     join("src", "components", "seo", "JsonLd.tsx"),
     join("src", "lib", "commercial.ts"),
@@ -124,6 +125,14 @@ const BANNED: { readonly pattern: RegExp; readonly why: string }[] = [
   {
     pattern: /specialist (joins|arrives|calls back)[^.]{0,30}\b(30|45|60)\s?(s|sec|seconds)\b/i,
     why: "both handoff tools set ETA_SECS = 120, and with no specialist line configured the case is queued rather than bridged",
+  },
+  {
+    pattern: /satisfies (the )?(CBUAE|Central Bank of the UAE|UAE Central Bank|DFSA|DIFC)/i,
+    why: "a compliance verdict is not the platform's to assert — it needs counsel and external evidence. The qualified position is already written in the FAQ (src/lib/commercial.ts:613): 'built to UAE Central Bank expectations' and 'the platform itself is not a licensed financial institution'. Naming a regulator is fine; claiming to satisfy it is not",
+  },
+  {
+    pattern: /immutable (AES-256 )?storage|storage[^.]{0,20}is immutable|\bWORM\b|object lock/i,
+    why: "the real control is a Postgres row trigger (no_modify_audit) plus hash-linked rows, which makes the record TAMPER-EVIDENT and append-only — not immutable storage. There is no WORM or object-lock tier, and crypto-shredding (src/lib/privacy/crypto-shred.ts) deliberately destroys per-case payloads on erasure, so the claim names a property the tree both does not implement and intentionally reverses. 'Immutable audit log' about the append-only chain is accurate and is NOT banned here",
   },
 ];
 
@@ -237,7 +246,8 @@ describe("published claims — nothing shipped that the tree refutes", () => {
       "multi-AZ 99.99% uptime, connects in about one second and sub-second turn-taking, " +
       "test suite complete with over ninety percent pass, the agent executes the freeze and the " +
       "account frozen in 61 seconds, with a one-word path to a human and a specialist joins " +
-      "the call within 30 seconds, hosted at securevoice.ai with inbound on api.securevoice.ae.";
+      "the call within 30 seconds, hosted at securevoice.ai with inbound on api.securevoice.ae, " +
+      "an audit trail that satisfies CBUAE written to immutable AES-256 storage.";
     const matched = BANNED.filter((b) => b.pattern.test(fabricated));
     expect(matched.length).toBe(BANNED.length);
     const missed = BANNED.filter((b) => !b.pattern.test(fabricated)).map((b) => b.why);

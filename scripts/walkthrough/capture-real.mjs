@@ -146,7 +146,12 @@ const CONVERSATIONS = [
   { lang: "ar", label: "العربية", line: "هذه العملية ليست مني", prefix: "conversation-ar" },
   { lang: "hi", label: "हिन्दी", line: "यह लेनदेन मेरा नहीं है", prefix: "conversation-hi" },
   { lang: "ur", label: "اردو", line: "یہ لین دین میرا نہیں ہے", prefix: "conversation-ur" },
-  { lang: "fr", label: "Français", line: "Cette transaction n'est pas la mienne", prefix: "conversation-fr" },
+  {
+    lang: "fr",
+    label: "Français",
+    line: "Cette transaction n'est pas la mienne",
+    prefix: "conversation-fr",
+  },
   { lang: "sw", label: "Kiswahili", line: "Hili si jambo langu", prefix: "conversation-sw" },
 ];
 

@@ -51,7 +51,7 @@ import {
 import { AUTH_AUDIT_INTENTS, auditAuthEvent } from "@/lib/auth/audit";
 import type { SessionRecord } from "@/lib/auth/session";
 
-export type StepUpMethod = "password" | "magic_link";
+export type StepUpMethod = "password" | "magic_link" | "totp";
 
 export type StepUpGrant = {
   at: number;

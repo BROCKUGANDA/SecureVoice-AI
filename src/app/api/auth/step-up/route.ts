@@ -5,6 +5,7 @@ import { issueStepUp } from "@/lib/auth/stepup";
 import { verifyPassword } from "@/lib/auth/password";
 import { db } from "@/lib/db";
 import { STEP_UP_WINDOW_MS } from "@/lib/auth/constants";
+import { auth } from "@/lib/better-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -55,11 +56,12 @@ export const dynamic = "force-dynamic";
 const stepUpSchema = z
   .object({
     password: z.string().min(1).max(200).optional(),
+    totp: z.string().trim().regex(/^\d{6}$/).optional(),
     /** Alternative credential: redeem a fresh magic link as the step-up proof. */
     magicToken: z.string().trim().min(10).max(512).optional(),
   })
-  .refine((v) => Boolean(v.password) || Boolean(v.magicToken), {
-    message: "password or magicToken is required",
+  .refine((v) => Boolean(v.password) || Boolean(v.magicToken) || Boolean(v.totp), {
+    message: "password, magicToken, or totp is required",
   });
 
 export async function POST(req: Request) {
@@ -83,9 +85,20 @@ export async function POST(req: Request) {
   }
 
   let verified: { ok: true } | { ok: false; error: string };
-  let method: "password" | "magic_link";
+  let method: "password" | "magic_link" | "totp";
 
-  if (parsed.data.password) {
+  if (parsed.data.totp) {
+    method = "totp";
+    try {
+      const result = await auth.api.verifyTOTP({
+        body: { code: parsed.data.totp },
+        headers: req.headers,
+      });
+      verified = result?.status === true ? { ok: true } : { ok: false, error: "That TOTP code is not valid." };
+    } catch {
+      verified = { ok: false, error: "That TOTP code is not valid." };
+    }
+  } else if (parsed.data.password) {
     method = "password";
     // The password is checked against the ACCOUNT, not against a claim in the
     // request, so a step-up proves possession of the credential rather than

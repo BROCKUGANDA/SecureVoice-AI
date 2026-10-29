@@ -174,6 +174,16 @@ export async function requirePrivileged(
       code: stepUp.reason,
     };
   }
+  // Enrolment alone is not proof of possession: privileged actions require
+  // this session's fresh step-up to have verified a TOTP code.
+  if (stepUp.grant.method !== "totp") {
+    return {
+      ok: false,
+      status: 428,
+      error: "Verify a TOTP code before this privileged action.",
+      code: "two_factor_required",
+    };
+  }
   const secondFactor = await privilegedTwoFactorBlocker(authed.identity);
   if (secondFactor) {
     return {

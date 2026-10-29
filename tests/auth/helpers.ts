@@ -61,11 +61,18 @@ export type Fixture = {
  * Create an account directly (no invite) for a test that is not exercising
  * provisioning. Bypasses `acceptInvite` deliberately — this is fixture setup, not
  * the code path under test.
+ *
+ * `totp` defaults to TRUE because every privileged action now requires a
+ * working second factor (`requirePrivileged` → `privilegedTwoFactorBlocker`).
+ * A fixture operator is meant to be able to act; the refusal path is not
+ * skipped, it is covered head-on in `tests/auth/privileged-2fa.test.ts`, which
+ * passes `totp: false` explicitly. Without this default, forty unrelated tests
+ * would be testing the 2FA refusal instead of the thing they are named for.
  */
 export async function makeAccount(
   role: Role,
   prefix: string,
-  opts: { orgId?: string; password?: string | null; name?: string } = {},
+  opts: { orgId?: string; password?: string | null; name?: string; totp?: boolean } = {},
 ): Promise<Fixture> {
   const email = testEmail(prefix);
   const orgId = opts.orgId ?? testOrg(prefix);
@@ -78,7 +85,29 @@ export async function makeAccount(
     passwordHash:
       opts.password === null ? undefined : await hashPassword(opts.password ?? TEST_PASSWORD),
   });
+  if (opts.totp !== false) {
+    // `createIdentity` writes the Better Auth shape (Account → User), so the
+    // factor attaches to the User behind the Account — the same resolution the
+    // gate performs in production.
+    const account = await db.account.findUnique({
+      where: { id: identity.accountId },
+      select: { userId: true },
+    });
+    if (account?.userId) await enrolTotp(account.userId);
+  }
   return { identity, email, orgId, role };
+}
+
+/**
+ * Give a user a working second factor: the flag AND the row the challenge is
+ * answered from. Both halves are required by the gate, so a fixture that set
+ * only one would be testing the refusal path by accident.
+ */
+export async function enrolTotp(userId: string): Promise<void> {
+  await db.user.update({ where: { id: userId }, data: { twoFactorEnabled: true } });
+  await db.twoFactor.create({
+    data: { userId, secret: "JBSWY3DPEHPK3PXP".repeat(2), backupCodes: "1111,2222" },
+  });
 }
 
 /** An account in a specific org — for multi-member revocation tests. */
@@ -249,6 +278,17 @@ export async function makeExpiredInvite(
  */
 export async function cleanupRun(): Promise<void> {
   const suffix = `-${RUN}-`;
+  // Factors first: every fixture account is enrolled by default now, and a
+  // TwoFactor row outliving its run would accumulate in the shared test
+  // database across every suite that uses these fixtures.
+  const users = await db.user
+    .findMany({ where: { email: { contains: suffix } }, select: { id: true } })
+    .catch(() => [] as { id: string }[]);
+  if (users.length > 0) {
+    await db.twoFactor
+      .deleteMany({ where: { userId: { in: users.map((u) => u.id) } } })
+      .catch(() => {});
+  }
   await db.account.deleteMany({ where: { email: { contains: suffix } } }).catch(() => {});
   await db.idempotencyKey
     .deleteMany({

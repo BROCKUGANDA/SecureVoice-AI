@@ -174,7 +174,7 @@ export async function requirePrivileged(
       code: stepUp.reason,
     };
   }
-  const secondFactor = await privilegedTwoFactorBlocker(authed.identity);
+  const secondFactor = await privilegedTwoFactorBlocker(authed.identity, stepUp.grant);
   if (secondFactor) {
     return {
       ok: false,

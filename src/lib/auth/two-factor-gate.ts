@@ -60,6 +60,7 @@ import "server-only";
 import { db } from "@/lib/db";
 import { isDemoAccount } from "@/lib/demo-account";
 import type { Identity } from "@/lib/auth/identity";
+import type { StepUpGrant } from "@/lib/auth/stepup";
 import { logWarn } from "@/lib/validation/safe-log";
 
 /** Machine-readable refusal, sibling to `step_up_required`. */
@@ -106,7 +107,11 @@ export async function moneyTwoFactorBlocker(identity: Identity): Promise<TwoFact
  */
 export async function privilegedTwoFactorBlocker(
   identity: Identity,
+  stepUp: StepUpGrant,
 ): Promise<TwoFactorDenial | null> {
+  // Enrollment is not proof that this request supplied the factor. The grant
+  // must be the fresh, session-bound result of verifying a TOTP code.
+  if (stepUp.method !== "totp") return denial("privileged");
   return twoFactorBlocker(identity, "privileged");
 }
 

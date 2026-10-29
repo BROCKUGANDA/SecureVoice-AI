@@ -5,17 +5,19 @@ import { issueStepUp } from "@/lib/auth/stepup";
 import { verifyPassword } from "@/lib/auth/password";
 import { db } from "@/lib/db";
 import { STEP_UP_WINDOW_MS } from "@/lib/auth/constants";
+import { auth } from "@/lib/better-auth";
 
 export const dynamic = "force-dynamic";
 
 /**
  * POST /api/auth/step-up — re-authenticate to unlock a privileged action.
  *
- * Body: { password }
+ * Body: { password } or { magicToken } or { totp }
  *
  * Requires a LIVE session (so this cannot be used to obtain one) and verifies
- * the account's password. On success it records a short-lived grant BOUND TO
- * THIS SESSION (src/lib/auth/stepup.ts).
+ * the supplied credential. On success it records a short-lived grant BOUND TO
+ * THIS SESSION (src/lib/auth/stepup.ts). A TOTP grant is required for
+ * privileged actions.
  *
  * A grant is not a privilege: `requirePrivileged` still checks the role's
  * capability, so a grant held by an Auditor does not permit a card freeze.
@@ -57,9 +59,11 @@ const stepUpSchema = z
     password: z.string().min(1).max(200).optional(),
     /** Alternative credential: redeem a fresh magic link as the step-up proof. */
     magicToken: z.string().trim().min(10).max(512).optional(),
+    /** TOTP is the required second factor for privileged actions. */
+    totp: z.string().trim().regex(/^\d{6}$/).optional(),
   })
-  .refine((v) => Boolean(v.password) || Boolean(v.magicToken), {
-    message: "password or magicToken is required",
+  .refine((v) => [v.password, v.magicToken, v.totp].filter(Boolean).length === 1, {
+    message: "exactly one step-up credential is required",
   });
 
 export async function POST(req: Request) {
@@ -79,13 +83,32 @@ export async function POST(req: Request) {
   }
   const parsed = stepUpSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: "password or magicToken is required" }, { status: 422 });
+    return NextResponse.json(
+      { error: "exactly one of password, magicToken, or totp is required" },
+      { status: 422 },
+    );
   }
 
   let verified: { ok: true } | { ok: false; error: string };
-  let method: "password" | "magic_link";
+  let method: "password" | "magic_link" | "totp";
 
-  if (parsed.data.password) {
+  if (parsed.data.totp) {
+    method = "totp";
+    try {
+      // Better Auth verifies the code against the encrypted enrolled secret and
+      // the live session supplied in these headers. Only the successful result
+      // is converted into our session-bound privileged grant.
+      const result = await auth.api.verifyTOTP({
+        body: { code: parsed.data.totp },
+        headers: req.headers,
+      });
+      verified = result.status
+        ? { ok: true }
+        : { ok: false, error: "That TOTP code is not valid." };
+    } catch {
+      verified = { ok: false, error: "That TOTP code is not valid." };
+    }
+  } else if (parsed.data.password) {
     method = "password";
     // The password is checked against the ACCOUNT, not against a claim in the
     // request, so a step-up proves possession of the credential rather than

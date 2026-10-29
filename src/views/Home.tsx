@@ -77,9 +77,9 @@ const FEATURES = [
   },
   {
     icon: FileCheck2,
-    en: "An audit trail that satisfies CBUAE",
-    ar: "سجل تدقيق يلبي أنظمة المصرف المركزي",
-    body: "Every call audited and sealed with verification method, actions, and handoff reason into immutable AES-256 storage.",
+    en: "An audit trail built to CBUAE expectations",
+    ar: "سجل تدقيق مبني على توقعات المصرف المركزي",
+    body: "Every call sealed into an append-only, hash-chained audit record — verification method, actions, and handoff reason. Each row links to the hash of the one before it and the database rejects updates, so a gap or an edit is detectable. Personal data stays crypto-shreddable on erasure request.",
   },
 ];
 

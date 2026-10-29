@@ -54,6 +54,7 @@
     <script>
       const tl = gsap.timeline({ paused: true });
       // Example: tl.fromTo("#title", { opacity: 0, filter: "blur(8px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.18, ease: "power4.out" }, 0);
+      window.__timelines = window.__timelines || {};
       window.__timelines["main"] = tl;
       tl.seek(0);
     </script>

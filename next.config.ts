@@ -227,10 +227,21 @@ const nextConfig: NextConfig = {
   },
   async headers() {
     return [
+      // File-convention icon routes ship week-to-week build metadata but
+      // never change for a given build — give them the static-asset cache.
       {
-        source: "/(.*)",
-        headers: securityHeaders,
+        source: "/icon.svg",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
       },
+      {
+        source: "/apple-icon.png",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+      },
+      {
+        source: "/favicon.ico",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+      },
+      { source: "/(.*)", headers: securityHeaders },
     ];
   },
 };

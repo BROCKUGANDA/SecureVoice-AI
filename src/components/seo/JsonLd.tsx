@@ -103,6 +103,15 @@ export function JsonLd({ origin = siteOrigin() }: { origin?: string }) {
               addressRegion: "Dubai",
               addressCountry: COMPANY.countryCode,
             },
+            parentOrganization: {
+              "@type": "Organization",
+              name: "AI AZIMARA",
+              url: "https://aiazimara.com/#organization",
+            },
+            areaServed: [
+              { "@type": "Country", name: "United Arab Emirates" },
+              { "@type": "City", name: "Dubai" },
+            ],
             ...(COMPANY.sameAs.length ? { sameAs: [...COMPANY.sameAs] } : {}),
           },
           {

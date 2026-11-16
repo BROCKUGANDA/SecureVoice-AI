@@ -131,14 +131,23 @@ export const metadata: Metadata = {
     follow: true,
     googleBot: { index: true, follow: true, "max-image-preview": "large" },
   },
-  alternates: { canonical: "/" },
+  alternates: {
+    canonical: "/",
+    languages: {
+      "en-AE": "/",
+      "en-GB": "/",
+      "ar-AE": "/",
+      en: "/",
+      "x-default": "/",
+    },
+  },
 
   openGraph: {
     type: "website",
     url: "/",
     siteName: COMPANY.name,
-    locale: "en_GB",
-    alternateLocale: ["ar_AE"],
+    locale: "en_AE",
+    alternateLocale: ["en_GB", "ar_AE"],
     title: `${COMPANY.name} — Real-Time Fraud Intervention`,
     description:
       "38 minutes → 60 seconds. A multilingual AI voice agent for UAE banks and insurers: verifies identity, holds the card or the claim payout, and hands off to a human. Plans from $2,500/month.",
@@ -168,6 +177,16 @@ export const metadata: Metadata = {
     capable: true,
     title: COMPANY.name,
     statusBarStyle: "black-translucent",
+  },
+  referrer: "strict-origin-when-cross-origin",
+  other: {
+    "geo.region": "AE-DU",
+    "geo.placename": "Dubai — Dubai International Financial Centre, Sheikh Zayed Road",
+    "geo.position": "25.2138;55.2773",
+    "geo.country": "AE",
+    ICBM: "25.2138, 55.2773",
+    "content-language": "en",
+    "article:modified_time": "2026-11-15",
   },
   formatDetection: { telephone: false, address: false, email: false },
 };

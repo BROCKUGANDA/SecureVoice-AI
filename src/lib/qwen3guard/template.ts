@@ -118,6 +118,7 @@ export function parseVerdict(raw: string): ModerationVerdict {
     Controversial: "controversial",
   };
   const verdict = verdictMap[safety[1] as string];
+  if (!verdict) return { verdict: "invalid", categories: [], refusal: false };
 
   const categoriesLine = CATEGORIES_RE.exec(raw);
   if (!categoriesLine) return { verdict: "invalid", categories: [], refusal: false };

@@ -830,7 +830,7 @@ describe("POST /api/auth/magic-link", () => {
       const OUTAGE = "Sign-in email could not be sent. Please try again shortly.";
       const ack = Ack202Body.safeParse(JSON.parse(snap.text));
       if (ack.success) {
-        const carried = ack.data.ok ? ack.data.message : ack.data.error;
+        const carried = "ok" in ack.data && ack.data.ok ? ack.data.message : (ack.data as { error: string }).error;
         expect(carried).toBe(NEUTRAL);
       } else {
         expect(parse(snap.text, MessageBody).error).toBe(OUTAGE);

@@ -217,6 +217,9 @@ describe("authorization coverage", () => {
       "/api/tts/stream",
       "/api/v1/interventions",
       "/api/v1/interventions/[id]",
+      "/api/v1/moderation/check",
+      "/api/v1/moderation/results/[id]",
+      "/api/console/moderation",
       "/api/onboarding",
       "/v1/conformance/run",
     ]);

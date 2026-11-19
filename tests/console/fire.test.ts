@@ -63,6 +63,16 @@ import { POST as retiredPost } from "@/app/api/interventions/route";
 // above the mock. Same discipline as tests/tenancy/probe-registry.ts.
 
 process.env.ELEVENLABS_DRY_RUN = "true";
+// The destination vault and the BYOK sealer derive their keys from this one
+// secret, and the file's assertions about at-rest PII (the case row carries a
+// token, not a number) are only reachable with it set. Without it the vault
+// falls SAFE — the case keeps the raw number — and the vault-invariant asserts
+// below fail for an environment reason, not a code one. Set it here for the
+// same reason WEBHOOK_SECRET and CONSOLE_INGEST_SECRET are set: a developer's
+// `.env` commonly does not carry it, and this file must pass identically
+// standalone and in the full suite.
+process.env.AUTH_SECRET =
+  process.env.AUTH_SECRET || "console-fire-gate-secret-not-a-production-key";
 // `||=`, not `??=`: developer `.env` files commonly carry an EMPTY placeholder,
 // and the route treats an empty secret as unconfigured (`if (!secret)` → 503),
 // which would turn this whole file red for an environment reason rather than a
@@ -333,7 +343,19 @@ test("console fire: a fired signal enters the case state machine and lands on th
   expect(row!.currency).toBe("AED");
 
   // The phone came from the ENROLLED row, not from anything the operator typed.
-  expect(row!.phone).toBe(PHONE.live);
+  // Since destination vaulting landed, a successfully vaulted case row carries NO
+  // readable number by design: the destination lives in the vault and the row holds
+  // only the token and the org-scoped index (src/lib/compliance/pii-vault.ts). The
+  // honest assertion is therefore the production resolver — `resolveCasePhone`,
+  // the exact path the dial worker takes — which proves the vault roundtrip
+  // matters to a phone that can actually be dialled, not just that a token exists.
+  const { resolveCasePhone } = await import("@/lib/compliance/pii-vault");
+  expect(await resolveCasePhone(row, row!.orgId)).toBe(PHONE.live);
+  // And the row leaks nothing: the plaintext column is empty. A vaulting path
+  // that fell back to storing the number would defeat the vault, and this is the
+  // assertion that notices it.
+  expect(row!.phone).toBeNull();
+  expect(row!.customerPhoneToken).toBeTruthy();
   expect(row!.consentRecordId).toBe(CONSENT.live);
 }, 180_000);
 

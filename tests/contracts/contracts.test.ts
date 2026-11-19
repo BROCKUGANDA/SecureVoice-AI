@@ -300,8 +300,10 @@ describe("OpenAPI document", () => {
     expect(map.get(PUBLIC_INGEST_PATH)).toBe(APP_INGEST_PATH);
 
     for (const documented of Object.keys(json.paths)) {
-      const resolved = map.get(documented) ?? documented;
-      const routeFile = `src/app${resolved}/route.ts`;
+      const resolved =
+        map.get(documented) ?? map.get(documented.replace(/\{(\w+)\}/g, ":$1")) ?? documented;
+      // OpenAPI `{param}` is Next's `[param]` in the filesystem.
+      const routeFile = `src/app${resolved.replace(/[\{:](\w+)/g, "[$1]")}/route.ts`;
       expect(
         existsSync(fileURLToPath(new URL(`../../${routeFile}`, import.meta.url))),
         `no route file for ${documented} (resolved ${routeFile})`,
@@ -332,8 +334,8 @@ describe("OpenAPI document", () => {
   test("no phantom verbs: every documented operation is exported by the route", () => {
     const map = rewrites();
     for (const [path, item] of Object.entries<Record<string, unknown>>(json.paths)) {
-      const resolved = map.get(path) ?? path;
-      const file = `src/app${resolved}/route.ts`;
+      const resolved = map.get(path) ?? map.get(path.replace(/\{(\w+)\}/g, ":$1")) ?? path;
+      const file = `src/app${resolved.replace(/[\{:](\w+)/g, "[$1]")}/route.ts`;
       const abs = fileURLToPath(new URL(`../../${file}`, import.meta.url));
       const source = existsSync(abs) ? readFileSync(abs, "utf8") : "";
       for (const verb of Object.keys(item)) {

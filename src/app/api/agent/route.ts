@@ -16,6 +16,7 @@ import { SAFETY_EXIT } from "@/lib/compliance/safety-exit";
 import { checkBadActor, recordStrike } from "@/lib/abuse/bad-actor";
 import { detectInjectionAttempt } from "@/lib/llm-guard";
 import { screenForMemory } from "@/lib/memory-guard";
+import { moderateContent, outcomeIsClean, type ModerationOutcome } from "@/lib/qwen3guard/moderate";
 import { SUPPORTED_LANGS, MAX_AGENT_TEXT_CHARS } from "@/lib/config";
 import { makeFailure, type FailureCode, type FailureInit } from "@/lib/failures/envelope";
 import { logError, parseJson } from "@/lib/validation/safe-log";
@@ -512,19 +513,61 @@ export async function POST(req: NextRequest) {
   // anonymous caller or an operator with no stored key.
   const profile = await getProfile();
   const orgId = profile?.orgId ?? null;
+
+  // 4a. Model-based input moderation (Qwen3Guard). Layered AFTER the
+  //     deterministic injection screens above, never instead of them. An
+  //     UNSAFE transcript does not hang up on the caller — that would let a
+  //     fraudster end the bank's call at will — it (a) counts against the
+  //     source like the other hostile screens and (b) keeps the reply on the
+  //     deterministic scripted line instead of drafting. A model-layer outage
+  //     or kill switch is the documented degraded mode: the deterministic
+  //     guards above are the answer, and the outcome is recorded with its own
+  //     source so the trail never reads as "the classifier said Safe".
+  const inputModeration = await moderateContent({
+    stage: "input",
+    text,
+    orgId,
+    caseRef: callRef,
+    conversationId: typeof parsed.data.convId === "string" ? parsed.data.convId : null,
+  });
+  const inputUnsafe = inputModeration.source === "model" && !outcomeIsClean(inputModeration);
+  if (inputUnsafe) recordStrike(`agent:${callerId}`, 3);
+
   const tenantLlm = profile ? await resolveLlmCredentials(profile.userId) : null;
-  const drafted = secretAsk
-    ? null
-    : await draftAgentReply({
-        text,
-        lang,
-        intent,
-        scriptedReply: scriptedWithExit,
-        providerOverride: tenantLlm ?? undefined,
-        orgId,
-      });
+  const drafted =
+    secretAsk || inputUnsafe
+      ? null
+      : await draftAgentReply({
+          text,
+          lang,
+          intent,
+          scriptedReply: scriptedWithExit,
+          providerOverride: tenantLlm ?? undefined,
+          orgId,
+        });
+
+  // 4b. Output moderation. The draft is inspected BEFORE the compliance audit
+  //     and BEFORE anything can persist or speak it; an UNSAFE draft is
+  //     discarded in favour of the scripted line (which the compliance audit
+  //     then audits like any other reply). Degraded/kill-switch/flag-off keep
+  //     the draft — `llm-guard.spokenOutputIsSafe` and the speech gate remain
+  //     the deterministic backstop on every downstream boundary.
+  let outputModeration: ModerationOutcome | null = null;
+  if (drafted != null) {
+    outputModeration = await moderateContent({
+      stage: "output",
+      text: drafted,
+      userText: text,
+      orgId,
+      caseRef: callRef,
+      conversationId: typeof parsed.data.convId === "string" ? parsed.data.convId : null,
+    });
+  }
+  const outputUnsafe = outputModeration != null && !outcomeIsClean(outputModeration);
+  const replyForAudit = drafted != null && !outputUnsafe ? drafted : scriptedWithExit;
+
   const audited = auditAgentReply({
-    reply: drafted ?? scriptedWithExit,
+    reply: replyForAudit,
     intent,
     // A greeting is not the only way a call opens: the browser demo's first
     // turn is often "that transaction is not mine". The server knows which
@@ -555,6 +598,23 @@ export async function POST(req: NextRequest) {
         escalate: sentimentResult.escalate,
         escalationReason: sentimentResult.reason,
         guardrails: audited.guardrails,
+        moderation: {
+          input: {
+            verdict: inputModeration.verdict,
+            source: inputModeration.source,
+            categories: inputModeration.categories,
+          },
+          ...(outputModeration
+            ? {
+                output: {
+                  verdict: outputModeration.verdict,
+                  source: outputModeration.source,
+                  categories: outputModeration.categories,
+                  discarded: outputUnsafe,
+                },
+              }
+            : {}),
+        },
         latencyMs: Date.now() - started,
       },
     });
@@ -596,7 +656,7 @@ export async function POST(req: NextRequest) {
     intent,
     action: audited.refused || sentimentResult.escalate ? "human_handoff" : baseAction,
     reply: audited.reply,
-    llm: drafted != null,
+    llm: drafted != null && !outputUnsafe,
     guardrails: audited.guardrails,
     sentiment: sentimentResult.sentiment,
     escalate: sentimentResult.escalate,

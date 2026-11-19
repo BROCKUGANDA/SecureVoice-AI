@@ -19,6 +19,7 @@ import {
 } from "@/lib/tts-quota";
 import { fetchUpstreamBinary } from "@/lib/elevenlabs/egress";
 import { prepareSpeech } from "@/lib/compliance/speech-gate";
+import { moderateContent, outcomeIsClean } from "@/lib/qwen3guard/moderate";
 import { env, maxTtsChars, SUPPORTED_LANGS } from "@/lib/config";
 import { logError } from "@/lib/validation/safe-log";
 
@@ -101,6 +102,26 @@ export async function POST(req: NextRequest) {
   // The language lives on the request, not inside the optional speech object.
   // Omitting it made every non-English stream run the English tipping-off
   // pattern and speak a prohibited sentence unchanged.
+  //
+  // Model moderation runs BEFORE the deterministic gate and before any quota
+  // spend — a TTS send path is a mandatory moderation boundary. Content the
+  // classifier refuses is never synthesised. In fail_closed mode a
+  // model-layer failure also refuses rather than speaking unmoderated text;
+  // in degraded mode the deterministic gate below is the documented backstop.
+  const sendModeration = await moderateContent({
+    stage: "speech",
+    text: requestedText,
+    caseRef: callRef,
+  });
+  if (
+    sendModeration.verdict === "unsafe" ||
+    (env.qwen3guardFailureMode === "fail_closed" && !outcomeIsClean(sendModeration))
+  ) {
+    return NextResponse.json(
+      { error: "Text was not approved for speech by the safety layer" },
+      { status: 422 },
+    );
+  }
   const gated = prepareSpeech(requestedText, { ...parsed.data.speech, lang });
   if (!gated.text) {
     return NextResponse.json(

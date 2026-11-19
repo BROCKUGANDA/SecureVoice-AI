@@ -58,7 +58,7 @@ export type {
 
 // ── port metadata ────────────────────────────────────────────────────────────
 
-/** Every port in the WP-18 brief. The registry must bind all nine. */
+/** Every port in the WP-18 brief. The registry must bind all ten. */
 export const PORT_NAMES = [
   "RiskSignalSource",
   "ConversationProvider",
@@ -69,6 +69,7 @@ export const PORT_NAMES = [
   "AuditSink",
   "Clock",
   "IdGenerator",
+  "KnowledgeSource",
 ] as const;
 
 export type PortName = (typeof PORT_NAMES)[number];
@@ -90,6 +91,7 @@ export const DECLARED_ADAPTERS: Record<PortName, readonly string[]> = {
   AuditSink: ["postgres-append-only"],
   Clock: ["system"],
   IdGenerator: ["system"],
+  KnowledgeSource: ["pinecone-documents", "pgvector-transcripts"],
 };
 
 // ── determinism ──────────────────────────────────────────────────────────────
@@ -377,6 +379,50 @@ export interface AuditSink {
 }
 
 export type { AuditEntry, ChainVerification };
+
+// ── knowledge retrieval ─────────────────────────────────────────────────────
+
+/**
+ * One retrieved item from an internal or external knowledge system.
+ *
+ * `source` names WHERE the text came from (a document id for the Pinecone
+ * knowledge base, a caseRef for the pgvector transcript index) so the answer
+ * that cites it carries provenance, per the register's source-attribution
+ * requirement.
+ */
+export type KnowledgeHit = {
+  source: string;
+  score: number;
+  text: string;
+  chunkIndex?: number;
+};
+
+export type KnowledgeSearchResult = {
+  ok: boolean;
+  hits: KnowledgeHit[];
+  error?: string;
+};
+
+/**
+ * The internal/external knowledge seam (WP-18).
+ *
+ * The contract is the one BOTH production adapters already speak — the
+ * Pinecone document index (`@/lib/knowledge/documents` searchDocuments) and
+ * the pgvector transcript index (`@/lib/knowledge/transcript-embeddings`
+ * searchTranscripts) — so the fake is proven against the same refusals the
+ * real adapters emit:
+ *
+ *   - an EMPTY orgId is refused (`org_id_required`), never treated as "all
+ *     tenants": a tenant predicate that is absent is not an authorisation;
+ *   - an unconfigured or unreachable backend is `{ ok: false, error }` — the
+ *     caller fails open for a live call, but the failure is NAMED;
+ *   - hits are tenant-scoped by construction, never by caller discipline.
+ */
+export interface KnowledgeSource {
+  readonly adapterId: string;
+  readonly mode: AdapterMode;
+  search(orgId: string, query: string, topK?: number): Promise<KnowledgeSearchResult>;
+}
 
 // ── the descriptor ───────────────────────────────────────────────────────────
 

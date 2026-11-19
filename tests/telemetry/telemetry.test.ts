@@ -270,6 +270,7 @@ describe("span targets", () => {
       answered_to_first_agent_word: 1_200,
       caller_stop_to_agent_audio: 1_500,
       tool_request_to_response: 300,
+      moderation_check: 1_500,
       fraud_confirmed_to_webhook_delivered: 2_000,
       signal_received_to_freeze_staged: 60_000,
     };
@@ -277,8 +278,8 @@ describe("span targets", () => {
     for (const [name, target] of Object.entries(expected)) {
       expect(SPAN_TARGETS[name as SpanName]).toBe(target);
     }
-    expect(SPAN_DEFINITIONS).toHaveLength(8);
-    expect(SPAN_NAMES).toHaveLength(8);
+    expect(SPAN_DEFINITIONS).toHaveLength(9);
+    expect(SPAN_NAMES).toHaveLength(9);
   });
 
   test("every span judges met / missed / no_data with the target attached", () => {
@@ -489,7 +490,7 @@ describe("the recorder", () => {
 describe("window summaries", () => {
   test("an empty window yields one no_data row per span — none omitted, none zeroed", () => {
     const rows = summariseWindow([]);
-    expect(rows).toHaveLength(8);
+    expect(rows).toHaveLength(9);
     for (const row of rows) {
       expect(row.samples).toBe(0);
       expect(row.p50Ms).toBeNull();
@@ -613,14 +614,14 @@ describe("the SLO evidence gate", () => {
     expect(reasons.length).toBeGreaterThan(0);
     expect(reasons.join(" ")).toContain(String(REQUIRED_INTERVENTIONS));
     // Every span row exists and is honestly empty.
-    expect(report.spans).toHaveLength(8);
+    expect(report.spans).toHaveLength(9);
     for (const row of report.spans) {
       expect(row.value_kind).toBe("not_measured");
       expect(row.p95_ms).toBeNull();
       expect(row.verdict).toBe("no_data");
       expect(row.target_p95_ms).toBeGreaterThan(0);
     }
-    expect(report.spans_not_measured).toHaveLength(8);
+    expect(report.spans_not_measured).toHaveLength(9);
     expect(report.all_targets_met).toBeNull();
     expect(report.worst).toBeNull();
   });
@@ -663,7 +664,7 @@ describe("the SLO evidence gate", () => {
       missing: false,
       records: neverFinished,
     });
-    expect(report.interventions_seen).toBe(7);
+    expect(report.interventions_seen).toBe(8);
     expect(report.interventions_measured).toBe(0);
     expect(report.meets_30_intervention_threshold).toBe(false);
     expect(exitCode).toBe(1);

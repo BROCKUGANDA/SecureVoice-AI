@@ -51,6 +51,7 @@ export async function POST(req: NextRequest) {
     req.headers.get("x-agent-tool-secret"),
     conversation_id,
     ALLOWED_STATES,
+    { outcome },
   );
   if (!guard.ok) {
     return failure(

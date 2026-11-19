@@ -38,7 +38,13 @@ import { dependencyUnavailable, type Failure } from "./envelope";
 
 // ── Dependencies and their declared fallbacks ─────────────────────────────────
 
-export const DEPENDENCIES = ["conversation_plane", "telephony", "llm", "redis"] as const;
+export const DEPENDENCIES = [
+  "conversation_plane",
+  "telephony",
+  "llm",
+  "redis",
+  "moderation",
+] as const;
 export type Dependency = (typeof DEPENDENCIES)[number];
 
 export type FallbackChannel =
@@ -48,7 +54,9 @@ export type FallbackChannel =
   | "queued"
   | "alert"
   | "scripted_reply"
-  | "in_process_limits";
+  | "in_process_limits"
+  /** Moderation model unavailable ⇒ the deterministic guard layer answers. */
+  | "deterministic_guards";
 
 export type FallbackDecl = {
   /** What we actually do. */
@@ -106,6 +114,15 @@ export const FALLBACKS: Record<Dependency, FallbackDecl> = {
     degraded: true,
     preservesIntervention: true,
     retryAfterSec: 5,
+  },
+  moderation: {
+    channel: "deterministic_guards",
+    secondary: "scripted_reply",
+    declared: "moderation model down → deterministic guard layer answers; never recorded as Safe",
+    alerts: true,
+    degraded: true,
+    preservesIntervention: true,
+    retryAfterSec: 10,
   },
 };
 

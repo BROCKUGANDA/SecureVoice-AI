@@ -17,7 +17,7 @@ test.describe("SecureVoice AI - browser tier (Playwright)", () => {
     await expect(page.locator("h1")).toContainText("Fraud detected.");
     await expect(page.locator("h1")).toContainText("Call placed.");
     await expect(page.getByRole("button", { name: "Run the live simulation" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Explore the dashboard" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Explore the dashboard" }).first()).toBeVisible();
     await expect(page.getByRole("button", { name: "Sign in to run the platform" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Skip to content" })).toBeAttached();
   });
@@ -56,7 +56,19 @@ test.describe("SecureVoice AI - browser tier (Playwright)", () => {
 
   test("flips the document language and the copy from the labelled toggle", async ({ page }) => {
     await expect(page.locator("html")).toHaveAttribute("lang", "en");
-    const langGroup = page.locator('[role="group"][aria-label="Language"]');
+    // The language control exists TWICE, partitioned by breakpoint in
+    // src/components/shell/Navbar.tsx: the cluster in the bar is `hidden
+    // sm:flex`, the one in the mobile panel is `sm:hidden`. Below 640px the
+    // cluster is display:none, so this spec now opens the hamburger menu and
+    // drives the panel copy instead — one test, every device width.
+    const desktop = page.locator('[role="group"][aria-label="Language"]');
+    const langGroup = (await desktop.isVisible().catch(() => false))
+      ? desktop
+      : page.locator("#mobile-menu [role='group'][aria-label='Language']");
+    if (!(await desktop.isVisible().catch(() => false))) {
+      await page.getByRole("button", { name: "Open menu" }).click();
+      await expect(langGroup).toBeVisible();
+    }
 
     await langGroup.getByRole("button", { name: "AR" }).click();
     await expect(page.locator("html")).toHaveAttribute("lang", "ar");

@@ -86,15 +86,26 @@ test("the console preview asks for the product voice, not the browser's", () => 
   expect(DASHBOARD).not.toContain("new SpeechSynthesisUtterance");
 });
 
-test("dev mode voices every language, and keeps agent and customer distinct", () => {
-  // The invariant the deleted table test used to hold, now held by the resolver.
+test("dev mode voices every language; distinct personas where the library offers them", () => {
+  // The invariant: a language never speaks in ANOTHER language's slot. The
+  // dev library has a second persona only for ar/hi/ur, so those stay
+  // distinct; en/fr/sw have exactly one persona (`jam`), and the customer
+  // line reuses it rather than borrowing the Hindi slug (`kazi`) — the old
+  // table kept them distinct by sending an English demo customer out in the
+  // Hindi dev voice, the exact cross-language borrow the resolver exists to
+  // end. One persona across languages is honest; a mislabeled slot is not.
   for (const lang of LANGS) {
     expect(deliveryVoice(lang, "agent").length).toBeGreaterThan(0);
     expect(deliveryVoice(lang, "customer").length).toBeGreaterThan(0);
-    expect({
-      lang,
-      same: deliveryVoice(lang, "agent") === deliveryVoice(lang, "customer"),
-    }).toEqual({ lang, same: false });
+  }
+  for (const lang of ["ar", "hi", "ur"] as const) {
+    expect(deliveryVoice(lang, "agent")).not.toBe(deliveryVoice(lang, "customer"));
+  }
+  for (const lang of ["en", "fr", "sw"] as const) {
+    expect(deliveryVoice(lang, "customer")).toBe(deliveryVoice(lang, "agent"));
+    // ...and never the Hindi slug: that is the borrow, whatever it buys.
+    expect(deliveryVoice(lang, "customer")).not.toBe("kazi");
+    expect(deliveryVoice(lang, "customer")).not.toBe("douji");
   }
 });
 

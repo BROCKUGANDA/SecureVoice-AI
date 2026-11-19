@@ -107,18 +107,18 @@ describe("pilot → operator notification", () => {
    * The regression this pins: an unset variable used to mean NO email. The
    * enquiry was stored, the response was 200, the console listed it, and no mail
    * was ever sent — a lead is the one thing on this site with no second channel,
-   * so "nobody configured the mailbox" has to mean the public support mailbox
+   * so "nobody configured the mailbox" has to mean the founder's direct line
    * rather than nobody.
    *
    * Found in production on 2026-10-14: PILOT_NOTIFY_EMAIL was absent from the
    * box's .env, so every pilot lead to date was a row and a lie.
    */
-  test("an unset PILOT_NOTIFY_EMAIL falls back to the public support mailbox", async () => {
+  test("an unset PILOT_NOTIFY_EMAIL falls back to the founder's direct line", async () => {
     // The expected address is read from the same module the route imports, so
-    // this asserts the CONTRACT (falls back to the published support mailbox)
+    // this asserts the CONTRACT (falls back to the published founder mailbox)
     // rather than hard-coding an address that a deployment may legitimately
-    // override with NEXT_PUBLIC_SUPPORT_EMAIL.
-    const { SUPPORT_EMAIL } = await import("@/lib/public-config");
+    // override with NEXT_PUBLIC_FOUNDER_EMAIL.
+    const { FOUNDER_EMAIL } = await import("@/lib/public-config");
 
     const previous = process.env.PILOT_NOTIFY_EMAIL;
     process.env.PILOT_NOTIFY_EMAIL = "";
@@ -148,7 +148,7 @@ describe("pilot → operator notification", () => {
       // — which is how this read green locally and red in CI on a fresh database.
       // A missing notification is still a null row, so the gate keeps its teeth.
       const row = await db.emailOutbox.findFirst({
-        where: { toEmail: SUPPORT_EMAIL, kind: "pilot_request", subject: { contains: mark } },
+        where: { toEmail: FOUNDER_EMAIL, kind: "pilot_request", subject: { contains: mark } },
       });
       expect(row).not.toBeNull();
       expect(row?.subject).toContain(mark);

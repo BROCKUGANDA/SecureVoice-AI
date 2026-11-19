@@ -257,6 +257,17 @@ test("the same request on a paid standard tenant is not refused on plan grounds"
   const { POST } = await import("@/app/api/console/settings/route");
   sessionOrgId = await orgWithTier("standard");
 
+  // The test's premise — "this environment has no AUTH_SECRET, so the handler's
+  // next step throws" — was environment-dependent: on a box whose .env carries
+  // AUTH_SECRET (any real dev machine), encryptSecret succeeded and the handler
+  // proceeded to the profile write, which failed with P2025 because this fixture
+  // creates no profile row. That failure is equally non-plan evidence, but the
+  // assertion keyed on the wrong string. Deleting AUTH_SECRET for the duration
+  // of the request makes the premise true BY CONSTRUCTION instead of by
+  // accident of the runner's .env, and restores it in the finally below.
+  const previousSecret = process.env.AUTH_SECRET;
+  delete process.env.AUTH_SECRET;
+
   let status = 0;
   let body: Record<string, unknown> = {};
   let thrown: unknown = null;
@@ -272,6 +283,9 @@ test("the same request on a paid standard tenant is not refused on plan grounds"
     body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
   } catch (err) {
     thrown = err;
+  } finally {
+    if (previousSecret === undefined) delete process.env.AUTH_SECRET;
+    else process.env.AUTH_SECRET = previousSecret;
   }
 
   // The gate is what is under test, and it passed: the request reached the handler's

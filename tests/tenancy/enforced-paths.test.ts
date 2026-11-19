@@ -231,8 +231,19 @@ describe("the database-enforced path", () => {
     //     worker-facing by construction: the carrier names a recording, not a
     //     tenant, and the row it resolves carries its own org.
     //
-    // Anything past 28 has to be argued for, not assumed.
-    expect(unscoped.length).toBeLessThanOrEqual(28);
+    //   · `v1/moderation/results/[id]` — a moderation decision is resolved by
+    //     id with the producer key's orgId as an explicit WHERE predicate; the
+    //     404-not-403 semantics (foreign rows indistinguishable from missing
+    //     ones) need the predicate inline, and the platform-internal signature
+    //     path legitimately has no tenant.
+    //   · `console/moderation` — GET reads go through `scopedDb`, but the POST
+    //     writes a new policy version and toggles the platform kill switch, the
+    //     latter being a PlatformSwitch row that deliberately carries no orgId.
+    //
+    // IT IS NOW 30, and the two additions are named above because a number that
+    // moves silently is the thing this ratchet exists to prevent. Anything past
+    // 30 has to be argued for, not assumed.
+    expect(unscoped.length).toBeLessThanOrEqual(30);
     console.log(
       `[tenancy] database-enforced handlers: ${enforced.length} (${enforced.join(", ")}); still application-scoped only: ${unscoped.length}`,
     );

@@ -81,6 +81,40 @@
       "ok": true
     },
     {
+      "dependency": "moderation",
+      "declared": "moderation model down → deterministic guard layer answers; never recorded as Safe",
+      "channel": "deterministic_guards",
+      "secondary": "scripted_reply",
+      "alerts": true,
+      "degraded": true,
+      "preservesIntervention": true,
+      "retryAfterSec": 10,
+      "lifecycle": [
+        "closed",
+        "open",
+        "half_open",
+        "closed",
+        "open",
+        "half_open",
+        "open",
+        "closed"
+      ],
+      "transitionsObserved": [
+        "closed",
+        "closed>open",
+        "closed>open>half_open",
+        "closed>open>half_open>closed",
+        "closed>open>half_open>closed>open",
+        "closed>open>half_open>closed>open>half_open",
+        "closed>open>half_open>closed>open>half_open>open",
+        "closed>open>half_open>closed>open>half_open>open>half_open>closed",
+        "closed"
+      ],
+      "fallbackInvoked": true,
+      "primaryInvokedWhileOpen": false,
+      "ok": true
+    },
+    {
       "dependency": "redis",
       "declared": "Redis down → conservative in-process limits logged as degraded",
       "channel": "in_process_limits",
@@ -515,7 +549,7 @@
         "file": "src/lib/billing/ledger.ts",
         "transactions": 1,
         "regions": [
-          "352-352"
+          "373-373"
         ],
         "findings": []
       },
@@ -537,8 +571,8 @@
         "file": "src/lib/outbox.ts",
         "transactions": 2,
         "regions": [
-          "351-369",
-          "412-418"
+          "430-448",
+          "491-497"
         ],
         "findings": []
       },
@@ -567,7 +601,7 @@
         "file": "src/lib/tenancy/guard.ts",
         "transactions": 1,
         "regions": [
-          "565-565"
+          "572-572"
         ],
         "findings": []
       }
@@ -708,8 +742,8 @@
     "result": "pass",
     "areas": 7,
     "checks": {
-      "total": 484,
-      "passed": 484,
+      "total": 494,
+      "passed": 494,
       "failed": 0
     },
     "matrixRows": {
@@ -717,8 +751,8 @@
       "ok": 9
     },
     "breakers": {
-      "total": 4,
-      "ok": 4
+      "total": 5,
+      "ok": 5
     },
     "failedChecks": []
   },
@@ -787,13 +821,19 @@
       "area": "breaker",
       "name": "declaration:every-dependency-covered",
       "ok": true,
-      "detail": "conversation_plane,telephony,llm,redis"
+      "detail": "conversation_plane,telephony,llm,redis,moderation"
     },
     {
       "area": "breaker",
       "name": "declaration:llm",
       "ok": true,
       "detail": "LLM down → scripted replies"
+    },
+    {
+      "area": "breaker",
+      "name": "declaration:moderation",
+      "ok": true,
+      "detail": "moderation model down → deterministic guard layer answers; never recorded as Safe"
     },
     {
       "area": "breaker",
@@ -858,6 +898,60 @@
     {
       "area": "breaker",
       "name": "llm:probe-closes-on-success",
+      "ok": true,
+      "detail": "closed"
+    },
+    {
+      "area": "breaker",
+      "name": "moderation:503-with-retry-after",
+      "ok": true,
+      "detail": "10"
+    },
+    {
+      "area": "breaker",
+      "name": "moderation:declared-fallback-present",
+      "ok": true,
+      "detail": "moderation model down → deterministic guard layer answers; never recorded as Safe"
+    },
+    {
+      "area": "breaker",
+      "name": "moderation:failed-probe-reopens",
+      "ok": true,
+      "detail": "re-opened with a fresh cooldown"
+    },
+    {
+      "area": "breaker",
+      "name": "moderation:fallback-invoked-while-open",
+      "ok": true,
+      "detail": "fallback:deterministic_guards"
+    },
+    {
+      "area": "breaker",
+      "name": "moderation:half-open-admits-probes",
+      "ok": true,
+      "detail": "probes=2"
+    },
+    {
+      "area": "breaker",
+      "name": "moderation:lifecycle-reaches-half-open",
+      "ok": true,
+      "detail": "closed / closed>open / closed>open>half_open / closed>open>half_open>closed / closed>open>half_open>closed>open / closed>open>half_open>closed>open>half_open / closed>open>half_open>closed>open>half_open>open / closed>open>half_open>closed>open>half_open>open>half_open>closed / closed"
+    },
+    {
+      "area": "breaker",
+      "name": "moderation:opens-at-threshold",
+      "ok": true,
+      "detail": "closed>open"
+    },
+    {
+      "area": "breaker",
+      "name": "moderation:primary-not-attempted-while-open",
+      "ok": true,
+      "detail": "primaryCalls=1"
+    },
+    {
+      "area": "breaker",
+      "name": "moderation:probe-closes-on-success",
       "ok": true,
       "detail": "closed"
     },
@@ -2351,9 +2445,9 @@
     },
     {
       "area": "gate",
-      "name": "evidence-covers-4-breakers",
+      "name": "evidence-covers-5-breakers",
       "ok": true,
-      "detail": "4"
+      "detail": "5"
     },
     {
       "area": "gate",
@@ -2365,7 +2459,7 @@
       "area": "gate",
       "name": "evidence-digest-is-sha256",
       "ok": true,
-      "detail": "b93125e5734b97c9"
+      "detail": "b33a8498118cb4a9"
     },
     {
       "area": "gate",
@@ -2377,7 +2471,7 @@
       "area": "gate",
       "name": "evidence-is-byte-identical-across-builds",
       "ok": true,
-      "detail": "71314 chars"
+      "detail": "73445 chars"
     },
     {
       "area": "gate",
@@ -3629,5 +3723,5 @@
     }
   ],
   "digestAlgorithm": "sha256",
-  "digest": "d8af992794373b6259e34badb5e983a4d7426c52e0bd8ce31972bfdafcb27a74"
+  "digest": "58958268f42cf3cef322e4d0ba29d68976e986379c6e0befefabaa13887833db"
 }

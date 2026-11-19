@@ -9,6 +9,7 @@ import { env } from "@/lib/config";
 import { abuseConfig } from "@/lib/abuse/config";
 import { isE164 } from "@/lib/twilio";
 import { llmBreakerState } from "@/lib/llm";
+import { moderationHealth } from "@/lib/qwen3guard/moderate";
 import { getPoolStatus } from "@/lib/elevenlabs/pool";
 import { storageConfigured } from "@/lib/storage/s3";
 import { flag } from "@/lib/flags";
@@ -204,6 +205,24 @@ export async function GET() {
   // the instance out of service. A failed check here is degraded, not fatal:
   // the platform can still serve webhook traffic, auth, and the console even
   // when live sends are blocked by config.
+  // Moderation subsystem: flag state, breaker and failure mode. Never fatal —
+  // the deterministic guard layer answers when the model layer is down (the
+  // declared `moderation` fallback), so a gateway outage degrades the check
+  // rather than pulling the instance from service.
+  await timed("moderation", false, async () => {
+    const health = moderationHealth();
+    return {
+      name: "moderation",
+      ok: true,
+      fatal: false,
+      detail:
+        `${health.flagOn ? "flag_on" : "flag_off"}` +
+        ` · breaker=${health.breaker.state} fails=${health.breaker.consecutiveFailures}` +
+        ` · mode=${health.failureMode}` +
+        ` · model=${health.model}` +
+        ` · cache=${health.cacheEntries}`,
+    };
+  });
   await timed("dial_readiness", false, async () => {
     const issues: string[] = [];
 

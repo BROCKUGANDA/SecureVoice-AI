@@ -148,15 +148,24 @@ test("the transcript path survives the redial — a reconnect that lost its list
 });
 
 test("the redial re-opens the CALL's language, not the default", () => {
-  // Urdu and Swahili have no nova-2 model and must go as `multi`; a reconnect that
-  // rebuilt the URL from a default would drop an Urdu customer back to English
-  // pinning mid-call, which is the exact defect the language work removed.
+  // Urdu pins to nova-3 (nova-2 has no Urdu model, and `multi` on it is
+  // Spanish+English only, which cannot transcribe Urdu at all); Swahili has
+  // no Deepgram streaming model and goes as `multi`. A reconnect that rebuilt
+  // the URL from a default would drop an Urdu customer onto the wrong model
+  // or language mid-call, which is the exact defect the language work removed.
   const ws = open("ur");
-  expect(ws.url).toContain("language=multi");
+  expect(ws.url).toContain("language=ur");
+  expect(ws.url).toContain("model=nova-3");
   ws.handShake();
 
   ws.drop();
-  expect(latest().url).toContain("language=multi");
+  expect(latest().url).toContain("language=ur");
+  expect(latest().url).toContain("model=nova-3");
+
+  const swahili = open("sw");
+  expect(swahili.url).toContain("language=multi");
+  expect(swahili.url).toContain("model=nova-2");
+  swahili.handShake();
 
   const arabic = new DeepgramLiveClient("test-key");
   const ar = arabic.start("ar") as unknown as FakeWebSocket;

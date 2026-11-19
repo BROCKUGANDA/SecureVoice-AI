@@ -154,6 +154,12 @@ beforeEach(() => {
 const DenialBody = z.strictObject({ error: z.string(), code: z.string() });
 // … and without one (validation refusals).
 const MessageBody = z.strictObject({ error: z.string() });
+// … the magic-link 202 acknowledgement, which has two shipped shapes: the
+// unconfigured-mailer branch carries the neutral sentence in `error`, the
+// configured-send branch in `message` beside `ok: true`. See the test below.
+const Ack202Body = z
+  .strictObject({ error: z.string() })
+  .or(z.strictObject({ ok: z.literal(true), message: z.string() }));
 
 /**
  * Read a response exactly once. A `Response` body is a stream, so the text, the
@@ -800,22 +806,42 @@ describe("POST /api/auth/magic-link", () => {
     // developer's `.env` gained a mail provider key. It is reproduced here
     // rather than papered over with an env deletion in tests/preload.ts,
     // because asserting both branches keeps the outage path covered.
+    //
+    // The 202 body has TWO shipped shapes, both uniform to the client: the
+    // unconfigured-mailer branch answers `{ error: NEUTRAL }` (the neutral
+    // sentence travels in the error field), and the configured-send branch
+    // answers `{ ok: true, message: NEUTRAL }`. The client reads neither —
+    // it renders its own NEUTRAL_MAGIC_LINK copy from the status alone — so
+    // what is asserted here is the sentence and the token's absence, not
+    // which field carries the sentence.
+    //
+    // The explicit timeout, and why: with a key present the request path
+    // includes ONE synchronous provider call (render + Resend HTTPS send), and
+    // on a cold pool that has exceeded bun's 5s default — the failure looked
+    // like a flaky route when it was a benchmark against the wrong clock. The
+    // send path stays covered; only the timer is honest.
     const address = `probe-${Date.now().toString(36)}@nowhere.test`;
     const snap = await snapshot(await magicLinkPost(json({ email: address })));
 
     expect([202, 503]).toContain(snap.status);
-    const parsed = parse(snap.text, MessageBody);
-    expect(parsed.error).toBe(
-      snap.status === 202
-        ? "If that address belongs to an account, a sign-in link is on its way."
-        : "Sign-in email could not be sent. Please try again shortly.",
-    );
+    const NEUTRAL = "If that address belongs to an account, a sign-in link is on its way.";
+    const OUTAGE = "Sign-in email could not be sent. Please try again shortly.";
+    const ack = Ack202Body.safeParse(JSON.parse(snap.text));
+    if (ack.success) {
+      const carried =
+        "ok" in ack.data && ack.data.ok ? ack.data.message : (ack.data as { error: string }).error;
+      expect(carried).toBe(NEUTRAL);
+    } else {
+      expect(parse(snap.text, MessageBody).error).toBe(OUTAGE);
+    }
     expectNoEcho(snap, [address, "token", "expiresAt"]);
-  });
+  }, 20_000);
 
   test("a registered-looking and an unknown address get byte-identical answers", async () => {
     // The account oracle, closed. An endpoint that answered differently for a
     // known address would tell an attacker which addresses are staff at a bank.
+    // Same provider-call caveat as the test above: with a key present each
+    // request carries one synchronous send, so the timer is explicit.
     const known = `probe-${Date.now().toString(36)}@nowhere.test`;
     const unknown = `probe-${Date.now().toString(36)}@also-nowhere.test`;
     const a = await snapshot(await magicLinkPost(json({ email: known })));
@@ -823,7 +849,7 @@ describe("POST /api/auth/magic-link", () => {
 
     expect(a.status).toBe(b.status);
     expect(a.text).toBe(b.text);
-  });
+  }, 20_000);
 });
 
 // ═════════════════════════════════════════════════════════════════════════════

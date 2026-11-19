@@ -100,8 +100,9 @@ export async function POST(req: NextRequest) {
 }
 
 async function transcribe(audioB64: string, mime: string, lang?: string): Promise<string> {
-  // Vendor chain: ElevenLabs Scribe (if configured) → Deepgram nova-2 (fast,
-  // independent vendor) → z-ai dev backend. First non-empty transcript wins.
+  // Vendor chain: ElevenLabs Scribe (if configured) → Deepgram (nova-2;
+  // ur pinned to nova-3 — see transcribeDeepgram) → z-ai dev backend. First
+  // non-empty transcript wins.
   if (env.elevenLabsApiKey && !env.elevenLabsDryRun) {
     try {
       const text = await transcribeElevenLabs(audioB64, mime);
@@ -130,14 +131,19 @@ async function transcribe(audioB64: string, mime: string, lang?: string): Promis
 
 /** Deepgram nova-2 — low-latency fallback with a language hint when we know
  *  it. nova-2 has NO Swahili/Urdu model: pinning an unsupported code errors
- *  the whole request, so those (and anything unmapped) fall to `multi`
- *  (code-switching detection) instead of a hard failure. */
+ *  the whole request. Urdu pins to nova-3 (which serves it — the same
+ *  per-language model decision the streaming client makes in
+ *  `resolveDeepgramTarget`); Swahili has no Deepgram streaming model at all
+ *  and falls to `multi` (code-switching detection) instead of a hard
+ *  failure. */
 const DEEPGRAM_LANGS = new Set(["en", "ar", "fr", "hi", "es", "de", "it", "pt", "nl", "ru"]);
 
 async function transcribeDeepgram(audioB64: string, mime: string, lang?: string): Promise<string> {
   const buf = Buffer.from(audioB64, "base64");
-  const dgLang = lang ? (DEEPGRAM_LANGS.has(lang) ? lang : "multi") : undefined;
-  const params = new URLSearchParams({ model: env.deepgramSttModel, smart_format: "true" });
+  const isUr = lang === "ur";
+  const dgLang = lang ? (isUr ? "ur" : DEEPGRAM_LANGS.has(lang) ? lang : "multi") : undefined;
+  const model = isUr ? (process.env.DEEPGRAM_MODEL_UR ?? "nova-3") : env.deepgramSttModel;
+  const params = new URLSearchParams({ model, smart_format: "true" });
   if (dgLang) params.set("language", dgLang);
   const r = await fetch(`${env.deepgramBaseUrl}/listen?${params.toString()}`, {
     method: "POST",

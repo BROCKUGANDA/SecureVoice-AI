@@ -43,6 +43,7 @@ import type {
   ConversationRequest,
   ConversationVerdict,
   IdGenerator,
+  KnowledgeSource,
   NotificationAck,
   NotificationChannel,
   NotificationEnvelope,
@@ -70,6 +71,7 @@ import {
   createDeterministicPaymentProvider,
   createFixtureSignalSource,
   createInMemoryAuditSink,
+  createInMemoryKnowledgeSource,
   createInMemorySecretStore,
   createRecordingTelephony,
   createScriptedConversationProvider,
@@ -82,6 +84,7 @@ import {
   createManualInvoiceProvider,
   MANUAL_INVOICE_PROVIDER_ID,
 } from "@/lib/payments/manual-invoice";
+import { pineconeKnowledgeSource } from "@/lib/knowledge/knowledge-source";
 import { placeInterventionCall, sendInterventionSms, type DeliveryLang } from "@/lib/twilio";
 import { firstMessageForLanguage, placeOutboundCall } from "@/lib/elevenlabs/outbound-call";
 
@@ -199,6 +202,17 @@ export const PORT_BINDINGS: Record<PortName, PortBinding> = {
     bound: ["system"],
     notBound: [],
   },
+  KnowledgeSource: {
+    port: "KnowledgeSource",
+    real: "pinecone-documents",
+    fake: "in-memory org-scoped index",
+    // pgvector-transcripts is the SECOND internal knowledge system: it answers
+    // through `@/lib/knowledge/transcript-embeddings`, is consumed on the same
+    // grounding path in `@/lib/llm`, and is probed by the seams suite directly
+    // rather than double-bound here — one real binding per port.
+    bound: ["pinecone-documents", "pgvector-transcripts"],
+    notBound: [],
+  },
 };
 
 // ── the registry ─────────────────────────────────────────────────────────────
@@ -216,6 +230,10 @@ export type RegistryOptions = {
   signals?: readonly RiskSignal[];
   /** Secrets for the in-memory store. Ignored unless `offline`. */
   secrets?: Record<string, string>;
+  /** Knowledge documents for the in-memory source. Ignored unless `offline`. */
+  knowledgeDocs?: Readonly<
+    { orgId: string; source: string; text: string; chunkIndex?: number }[]
+  >;
 };
 
 export const DEFAULT_OFFLINE_SEED = "wp18-offline-seed";
@@ -235,6 +253,7 @@ export type Registry = {
   auditSink(): AuditSink;
   clock(): Clock;
   idGenerator(): IdGenerator;
+  knowledgeSource(): KnowledgeSource;
   describe(port: PortName): PortDescriptor;
   descriptors(): PortDescriptor[];
 };
@@ -298,6 +317,7 @@ export function createRegistry(options: RegistryOptions = {}): Registry {
     auditSink: () => bindings.AuditSink.adapter as AuditSink,
     clock: () => clock,
     idGenerator: () => ids,
+    knowledgeSource: () => bindings.KnowledgeSource.adapter as KnowledgeSource,
     describe: descriptorFor,
     descriptors: () => PORT_NAMES.map(descriptorFor),
   };
@@ -348,6 +368,10 @@ function offlineBindings(
       deps.ids,
       `seeded ULIDs from seed "${seed}"; same seed replays the same sequence forever`,
     ),
+    KnowledgeSource: bind(
+      createInMemoryKnowledgeSource(options.knowledgeDocs ?? []),
+      "in-memory org-scoped index; the same org_id_required refusal the real adapters emit, term-coverage scoring, no embedding model",
+    ),
   };
 }
 
@@ -387,6 +411,10 @@ function realBindings(clock: Clock, ids: IdGenerator): Record<PortName, Binding<
     IdGenerator: bind(
       ids,
       "system ULIDs: 48-bit millisecond prefix plus 80 bits from crypto.randomBytes, bumped within a millisecond",
+    ),
+    KnowledgeSource: bind(
+      pineconeKnowledgeSource(),
+      "Pinecone document index via @/lib/knowledge/documents; org_id_required refusal carried through, hits keep document provenance",
     ),
   };
 }

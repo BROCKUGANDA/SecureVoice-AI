@@ -112,6 +112,23 @@ export const FLAG_NAMES = [
    * (`VOICE_STREAM_HOST`/`VOICE_STREAM_PORT`) and a separate worker process.
    */
   "twilioMediaStreams",
+
+  /* ── Safety ────────────────────────────────────────────────────────────── */
+
+  /**
+   * Qwen3Guard model-based moderation at every content boundary (input,
+   * output, speech, tool, ingest). See `src/lib/qwen3guard/`.
+   *
+   * Defaults OFF for a reason that is about data flow, not capability:
+   * enabling it sends conversation content to the configured moderation
+   * gateway (by default the OVH Kepler endpoint). A deployment must choose
+   * that egress deliberately. The deterministic guard layer
+   * (`llm-guard.ts`, `compliance/policy.ts`, `speech-gate.ts`) runs with or
+   * without this flag and is NEVER disabled by it — this flag adds a
+   * classifier, it does not remove a control. When ON, a moderation-model
+   * failure degrades per `QWEN3GUARD_FAILURE_MODE`, never to "Safe".
+   */
+  "qwen3guard",
 ] as const;
 
 export type FlagName = (typeof FLAG_NAMES)[number];
@@ -153,6 +170,7 @@ export const FLAG_CONSUMERS: Record<FlagName, readonly FlagConsumer[]> = {
   twilioMediaStreams: [
     { where: "src/worker/dial.ts", via: 'flag("twilioMediaStreams")', kind: "src" },
   ],
+  qwen3guard: [{ where: "src/lib/qwen3guard/moderate.ts", via: 'flag("qwen3guard")', kind: "src" }],
 };
 
 /**
@@ -169,6 +187,7 @@ const DEFAULTS: Record<FlagName, boolean> = {
   consoleLiveFeed: false,
   seedDemo: false,
   twilioMediaStreams: false,
+  qwen3guard: false,
 };
 
 /** Why a flag resolved the way it did — surfaced by `describeFlag()`. */
@@ -293,7 +312,7 @@ export const INVARIANTS: readonly Invariant[] = [
       "The platform never asks a caller for a PIN, password, OTP, CVV or card number, and a caller who asks the agent for one gets a fixed per-language refusal instead of a drafted reply.",
     enforcedAt: [
       { file: "src/lib/compliance/policy.ts", line: 182, identifier: "asksForCredential" },
-      { file: "src/app/api/agent/route.ts", line: 495, identifier: "callerRequestsSecret" },
+      { file: "src/app/api/agent/route.ts", line: 496, identifier: "callerRequestsSecret" },
     ],
     provedBy: [
       {

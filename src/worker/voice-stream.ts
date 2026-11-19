@@ -29,11 +29,8 @@ import { db } from "@/lib/db";
 import type { TtsLang } from "@/lib/elevenlabs/client";
 import { resolveTtsModel } from "@/lib/elevenlabs/client";
 import { markVoiceFailed } from "@/lib/elevenlabs/sms-fallback";
-import {
-  DeepgramLiveClient,
-  preconnectDeepgram,
-  type UtteranceEndEvent,
-} from "@/lib/voice/deepgram-client";
+import { preconnectDeepgram, type UtteranceEndEvent } from "@/lib/voice/deepgram-client";
+import { asrProviderFor, createLiveAsrClient, type LiveAsrClient } from "@/lib/voice/live-asr";
 import { withFirstChunkDeadline } from "@/lib/voice/first-audio-deadline";
 import { installProcessCrashHandlers } from "@/lib/process-crash-handlers";
 import {
@@ -57,6 +54,7 @@ import { BACKCHANNEL_TEXT, shouldPlayBackchannel } from "@/lib/voice/backchannel
 import { SAFETY_EXIT } from "@/lib/compliance/safety-exit";
 import { NEVER_ASK_LINE, callerRequestsSecret } from "@/lib/compliance/never-ask";
 import { detectInjectionAttempt } from "@/lib/llm-guard";
+import { moderateContent, outcomeIsClean } from "@/lib/qwen3guard/moderate";
 import { startPrewarm } from "./prewarm";
 import type { AgentRole } from "@/lib/ai/router";
 import { routeAgentIntent } from "@/lib/ai/router";
@@ -108,6 +106,14 @@ export function voiceCallHardCapMs(): number {
 const BACKCHANNEL_DELAY_MS = 250;
 
 /**
+ * How long an identical final transcript is treated as a provider duplicate
+ * rather than a fresh turn. 2 s sits above delivery jitter and below a human
+ * repeating an answer ("yes" ... pause ... "yes") — and the barrier only
+ * suppresses IDENTICAL text, so "yes" then "no" always routes.
+ */
+const DUPLICATE_FINAL_WINDOW_MS = 2_000;
+
+/**
  * Shared secret for the internal pre-warm endpoint. Unset means the endpoint
  * accepts any request on the private compose network (the port is `expose`d,
  * never published); set means the dial worker must present the same value.
@@ -115,10 +121,12 @@ const BACKCHANNEL_DELAY_MS = 250;
 const PREWARM_SECRET = process.env.VOICE_PREWARM_SECRET ?? "";
 
 type CallState = {
-  deepgram: DeepgramLiveClient | null;
+  asr: LiveAsrClient | null;
   tts: ElevenLabsStream | null;
   ended: boolean;
   lastFinal: string;
+  /** When `lastFinal` landed — the duplicate-final suppression window key. */
+  lastFinalAt?: number;
   /**
    * The language this call is conducted in, carried from the dial job.
    *
@@ -228,7 +236,7 @@ function getOrCreateCall(callSid: string, lang: TtsLang = "en"): CallState {
   let state = calls.get(callSid);
   if (!state) {
     state = {
-      deepgram: null,
+      asr: null,
       tts: null,
       ended: false,
       lastFinal: "",
@@ -270,7 +278,7 @@ async function resolveCaseRef(callSid: string): Promise<string | null> {
   const known = caseRefByCallSid.get(callSid);
   if (known !== undefined) return known;
   const row = await db.case
-    .findFirst({ where: { callSid }, select: { caseRef: true } })
+    .findFirst({ where: { callSid }, select: { caseRef: true, orgId: true } })
     .catch((err: unknown) => {
       logError("[voice-stream] case lookup by call sid failed", {
         callSid,
@@ -280,7 +288,14 @@ async function resolveCaseRef(callSid: string): Promise<string | null> {
     });
   const ref = row?.caseRef ?? null;
   caseRefByCallSid.set(callSid, ref);
+  orgIdByCallSid.set(callSid, row?.orgId ?? null);
   return ref;
+}
+
+/** Tenant of the call, resolved with (and cached alongside) the case ref. */
+const orgIdByCallSid = new Map<string, string | null>();
+function resolveOrgId(callSid: string): string | null {
+  return orgIdByCallSid.get(callSid) ?? null;
 }
 
 /**
@@ -325,6 +340,50 @@ async function safeTtsStream(
   // term substitution because it is the one transformation that is tenant-scoped
   // rather than universal, and running it inside the gate's own pipeline would
   // mean passing a per-call flag this worker does not carry.
+  //
+  // MODEL MODERATION FIRST (Qwen3Guard): the speech boundary is the mandatory
+  // one — unmoderated text must never become audio. Unsafe ⇒ emergency
+  // fallback (a real sentence, not silence), exactly like a vishing refusal.
+  // In fail_closed mode a model-layer failure also refuses; in degraded mode
+  // the deterministic gate below is the backstop and the outage is recorded.
+  const speechCaseRef = (ws as WebSocket & { __caseRef?: string }).__caseRef ?? null;
+  const speechCallSid =
+    (ws as WebSocket & { __callSid?: string }).__callSid ?? `vs-${randomUUID()}`;
+  const speechModeration = await moderateContent({
+    stage: "speech",
+    text,
+    caseRef: speechCaseRef,
+    conversationId: speechCallSid,
+    orgId: resolveOrgId(speechCallSid),
+  });
+  if (
+    speechModeration.verdict === "unsafe" ||
+    (env.qwen3guardFailureMode === "fail_closed" && !outcomeIsClean(speechModeration))
+  ) {
+    logWarn("[voice-stream] utterance refused by the moderation model", {
+      callSid: (ws as WebSocket & { __callSid?: string }).__callSid ?? "unknown",
+      lang: state.lang,
+      verdict: speechModeration.verdict,
+      source: speechModeration.source,
+      categories: speechModeration.categories,
+    });
+    await auditAppend({
+      callRef: speechCaseRef ?? `vs-${randomUUID()}`,
+      action: "consent",
+      intent: "moderation_unsafe_speech",
+      callerId: "system-voice-stream",
+      redactedText: "utterance refused before synthesis by the moderation model",
+      meta: {
+        lang: state.lang,
+        verdict: speechModeration.verdict,
+        source: speechModeration.source,
+        categories: speechModeration.categories,
+      },
+    }).catch(() => {});
+    state.tts = null;
+    await playEmergencyFallback(state, ws);
+    return;
+  }
   const gate = prepareSpeech(sanitizeShariah(text), { lang: state.lang });
 
   if (!gate.vishing.ok || !gate.text) {
@@ -729,7 +788,27 @@ async function handleTranscript(
   if (state.ended) return;
 
   if (isFinal) {
+    // DUPLICATE-FINAL SUPPRESSION. Deepgram can deliver the same final twice
+    // (reconnect redelivery, provider-side retries). The previous behaviour
+    // stored `lastFinal` and never read it, so a duplicate routed a SECOND
+    // full turn — the register's duplicate-transcript case, and on the fraud
+    // branch a second soft-freeze attempt. A duplicate is the SAME text
+    // arriving within a short window: a caller genuinely repeating themselves
+    // takes longer than that, and a repeat after the window routes normally.
+    const now = Date.now();
+    const isDuplicate =
+      text.trim().length > 0 &&
+      text === state.lastFinal &&
+      now - (state.lastFinalAt ?? 0) < DUPLICATE_FINAL_WINDOW_MS;
     state.lastFinal = text;
+    state.lastFinalAt = now;
+    if (isDuplicate) {
+      logWarn("[voice-stream] duplicate final transcript suppressed", {
+        callSid: (ws as WebSocket & { __callSid?: string }).__callSid ?? "unknown",
+        windowMs: DUPLICATE_FINAL_WINDOW_MS,
+      });
+      return;
+    }
   }
 
   // Barge-in: the caller is talking over the AI. Stop the AI's turn in-flight —
@@ -770,6 +849,38 @@ async function handleTranscript(
       callerId: "system-voice-stream",
       redactedText: "instruction-shaped caller speech detected and neutralised",
       meta: { lang: state.lang },
+    }).catch(() => {});
+  }
+
+  // RULE 1b — model-based input moderation (Qwen3Guard). Layered AFTER the
+  // deterministic screens, never instead of them. This plane routes through a
+  // keyword classifier with no prompt to hijack, so an UNSAFE transcript does
+  // not change routing — it is recorded, and the turn is answered with the
+  // holding line the router would have chosen anyway. A model-layer outage is
+  // the documented degraded mode: the deterministic guards above and the
+  // speech gate below remain the enforcement, and the outcome row carries its
+  // own `source` so evidence never reads as "the model said Safe".
+  const moderationCaseRef =
+    (ws as WebSocket & { __caseRef?: string }).__caseRef ?? `vs-${randomUUID()}`;
+  const inputModeration = await moderateContent({
+    stage: "input",
+    text,
+    caseRef: moderationCaseRef,
+    conversationId: callSid,
+    orgId: resolveOrgId(callSid),
+  });
+  if (inputModeration.source === "model" && !outcomeIsClean(inputModeration)) {
+    void auditAppend({
+      callRef: moderationCaseRef,
+      action: "consent",
+      intent: "moderation_unsafe_input",
+      callerId: "system-voice-stream",
+      redactedText: "caller speech refused by the moderation model",
+      meta: {
+        lang: state.lang,
+        categories: inputModeration.categories,
+        verdict: inputModeration.verdict,
+      },
     }).catch(() => {});
   }
 
@@ -1004,7 +1115,10 @@ function handlePrewarm(url: URL, req: IncomingMessage, res: ServerResponse): voi
   // Warm the phrases and pre-connect the ASR socket. Neither is awaited: the
   // reply is about the request being accepted, not the synthesis finishing.
   startPrewarm(lang, callSid);
-  preconnectDeepgram(lang, env.deepgramApiKey ?? "");
+  // Only Deepgram has a socket to park: parking one for a language the
+  // factory serves with ElevenLabs (Swahili) parks a stream nothing adopts —
+  // and a parked socket still bills.
+  if (asrProviderFor(lang) === "deepgram") preconnectDeepgram(lang, env.deepgramApiKey ?? "");
   res.writeHead(202, { "content-type": "application/json" });
   res.end(
     JSON.stringify({
@@ -1218,10 +1332,13 @@ function createServer(listenPort: number = PORT, listenHost: string = HOST) {
         });
     }, hardCapMs);
 
-    const deepgram = new DeepgramLiveClient(env.deepgramApiKey ?? "");
-    state.deepgram = deepgram;
+    // The factory picks the vendor by language: Swahili has no Deepgram
+    // streaming model, so with an ElevenLabs key configured the call gets the
+    // Scribe-backed client; everything else is Deepgram, as before.
+    const asr = createLiveAsrClient(lang);
+    state.asr = asr;
 
-    deepgram.onTranscript((text, isFinal) => {
+    asr.onTranscript((text, isFinal) => {
       // Any inbound speech means the caller is alive: restart the dead-air
       // clock so a nudge never fires over someone mid-answer.
       if (!state.ended) armNudge();
@@ -1260,7 +1377,7 @@ function createServer(listenPort: number = PORT, listenHost: string = HOST) {
     // caller hung up, and `stop()` has cleared the listener by then) and on a pooled
     // socket whose listeners were cleared when its call went elsewhere — both find no
     // open turn and write nothing.
-    deepgram.onUtteranceEnd((event) => {
+    asr.onUtteranceEnd((event) => {
       try {
         onCallerStopObserved(state, callSid, event);
       } catch (err) {
@@ -1287,7 +1404,7 @@ function createServer(listenPort: number = PORT, listenHost: string = HOST) {
     // and it is the correct instruction when a verification cannot be completed.
     // Authoring new compliance copy under incident conditions — and translating it
     // into five languages nobody here speaks — is how a safety line ends up wrong.
-    deepgram.onAsrEvent((event) => {
+    asr.onAsrEvent((event) => {
       if (state.ended) return;
 
       void auditAppend({
@@ -1349,7 +1466,7 @@ function createServer(listenPort: number = PORT, listenHost: string = HOST) {
     // Started for its effect, and the socket is deliberately not retained: a
     // reconnect replaces it inside the client, so a reference held here would be a
     // dead socket by the time anyone wanted to act on it.
-    deepgram.start(lang);
+    asr.start(lang);
 
     // T+0 opening greeting. This worker was previously purely reactive — silent
     // until the first inbound transcript — which left the caller facing dead air
@@ -1402,7 +1519,7 @@ function createServer(listenPort: number = PORT, listenHost: string = HOST) {
         const msg = JSON.parse(data.toString());
         if (msg.event === "media" && msg.media?.payload) {
           const buf = Buffer.from(msg.media.payload, "base64");
-          deepgram.sendMulaw(buf);
+          asr.sendMulaw(buf);
         }
       } catch {
         // ignore malformed frames
@@ -1441,13 +1558,13 @@ function createServer(listenPort: number = PORT, listenHost: string = HOST) {
       // CallState now precisely so this handler can reach it.
       if (state.backchannelTimer) clearTimeout(state.backchannelTimer);
       state.backchannelTimer = null;
-      deepgram.stop();
+      state.asr?.stop();
       // Cancel the vendor stream, do not just forget it. `state.tts = null`
       // alone left an in-flight synthesis running: the ElevenLabs socket kept
       // streaming and billing, each chunk was pushed into a closed WebSocket,
       // and the turn's promise resolved long after the caller had hung up.
       state.tts?.cancel();
-      state.deepgram = null;
+      state.asr = null;
       state.tts = null;
       calls.delete(callSid);
       caseRefByCallSid.delete(callSid);

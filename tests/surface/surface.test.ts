@@ -824,13 +824,22 @@ describe("origin resolution", () => {
   test("falls back to localhost so a dev build still emits valid output", () => {
     const savedUrl = process.env.NEXT_PUBLIC_SITE_URL;
     const savedHost = process.env.SITE_ADDRESS;
+    const savedBase = process.env.APP_BASE_URL;
+    const savedNextBase = process.env.NEXT_PUBLIC_APP_URL;
     try {
       delete process.env.NEXT_PUBLIC_SITE_URL;
       process.env.SITE_ADDRESS = "localhost";
+      // env.appBaseUrl is the step-4 fallback, so a dev build must have the
+      // prod base vars cleared too — a developer's .env carries them, and
+      // then this test measures production instead of the fallback.
+      delete process.env.APP_BASE_URL;
+      delete process.env.NEXT_PUBLIC_APP_URL;
       expect(sitemapOrigin()).toBe("http://localhost:3000");
     } finally {
       restore("NEXT_PUBLIC_SITE_URL", savedUrl);
       restore("SITE_ADDRESS", savedHost);
+      restore("APP_BASE_URL", savedBase);
+      restore("NEXT_PUBLIC_APP_URL", savedNextBase);
     }
   });
 });

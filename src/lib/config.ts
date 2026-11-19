@@ -306,6 +306,62 @@ export const env = {
     const raw = Number(process.env.GROQ_MAX_TOKENS);
     return Number.isFinite(raw) && raw > 0 ? raw : 160;
   },
+
+  /* Qwen3Guard (model-based moderation classifier). See src/lib/qwen3guard/.
+   *
+   * The endpoint is the deployment's OpenAI-compatible moderation gateway; the
+   * default is the OVH AI Endpoints Kepler gateway, which serves
+   * Qwen3Guard-Gen keyless. A deployment that points this elsewhere carries its
+   * own authorisation via QWEN3GUARD_API_KEY.
+   *
+   * FAILURE MODE is a deliberate switch, not a resilience guess:
+   *   - "degraded"    — model unavailable ⇒ deterministic guards only, event
+   *                     recorded, content never marked Safe by the model layer.
+   *                     Correct for ordinary conversation.
+   *   - "fail_closed" — model unavailable ⇒ refuse (tool arguments) / do not
+   *                     speak (TTS). Correct for high-risk paths.
+   */
+  get qwen3guardBaseUrl(): string {
+    const raw = process.env.QWEN3GUARD_BASE_URL;
+    return (raw && raw.trim()) || "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1";
+  },
+  get qwen3guardModel(): string {
+    return process.env.QWEN3GUARD_MODEL || "Qwen3Guard-Gen-8B";
+  },
+  get qwen3guardApiKey(): string | undefined {
+    return process.env.QWEN3GUARD_API_KEY;
+  },
+  get qwen3guardTimeoutMs(): number {
+    const raw = Number(process.env.QWEN3GUARD_TIMEOUT_MS);
+    return Number.isFinite(raw) && raw > 0 ? raw : 2_500;
+  },
+  get qwen3guardRetries(): number {
+    const raw = Number(process.env.QWEN3GUARD_RETRIES);
+    return Number.isFinite(raw) && raw >= 0 ? Math.min(raw, 3) : 1;
+  },
+  get qwen3guardConcurrency(): number {
+    const raw = Number(process.env.QWEN3GUARD_CONCURRENCY);
+    return Number.isFinite(raw) && raw > 0 ? Math.min(raw, 8) : 2;
+  },
+  get qwen3guardFailureMode(): "degraded" | "fail_closed" {
+    return process.env.QWEN3GUARD_FAILURE_MODE === "fail_closed" ? "fail_closed" : "degraded";
+  },
+  get qwen3guardCacheTtlMs(): number {
+    const raw = Number(process.env.QWEN3GUARD_CACHE_TTL_MS);
+    return Number.isFinite(raw) && raw > 0 ? raw : 10 * 60_000;
+  },
+  /**
+   * Per-tenant moderation quota: max model-backed moderation calls per
+   * calendar day (UTC). 0 = unlimited (default — the metering ships first,
+   * enforcement is the operator's choice). Exceeding it degrades to
+   * deterministic guards (never Safe for high-risk tools), exactly like a
+   * gateway outage: the quota is a spend brake, not a correctness one.
+   */
+  get qwen3guardDailyCallsPerTenant(): number {
+    const raw = Number(process.env.QWEN3GUARD_DAILY_CALLS_PER_TENANT);
+    return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 0;
+  },
+
   get geminiApiKey(): string | undefined {
     return process.env.GEMINI_API_KEY;
   },

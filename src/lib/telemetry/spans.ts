@@ -34,9 +34,11 @@ export type SpanDefinition = {
 };
 
 /**
- * The eight spans from the WP-7 brief. Order is the order the operator reads
- * them: intake, then the call, then the conversation, then the tools, then the
- * bank's side, then the whole intervention.
+ * The spans from the WP-7 brief, plus `moderation_check` — the Qwen3Guard
+ * classifier budget added when moderation became a mandatory lifecycle stage.
+ * Order is the order the operator reads them: intake, then the call, then the
+ * conversation, then the tools, then the safety classifier, then the bank's
+ * side, then the whole intervention.
  */
 export const SPAN_DEFINITIONS = [
   { name: "signal_received_to_accepted", label: "signal received → accepted", targetP95Ms: 300 },
@@ -57,6 +59,11 @@ export const SPAN_DEFINITIONS = [
     targetP95Ms: 1_500,
   },
   { name: "tool_request_to_response", label: "tool request → tool response", targetP95Ms: 300 },
+  {
+    name: "moderation_check",
+    label: "moderation request → verdict",
+    targetP95Ms: 1_500,
+  },
   {
     name: "fraud_confirmed_to_webhook_delivered",
     label: "fraud confirmed → bank webhook delivered",

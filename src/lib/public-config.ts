@@ -6,20 +6,26 @@
 /**
  * Contact addresses across the public surface.
  *
- * These are Namecheap Private Email mailboxes on `securevoiceai.me` (the domain
- * the platform actually sends from), NOT a personal address and NOT the
- * `securevoice.ai` lookalike, which resolves to an unrelated third party.
+ *   support@ / legal@ are Namecheap Private Email mailboxes on
+ *   `securevoiceai.me` (the domain the platform sends from), NOT a personal
+ *   address and NOT the `securevoice.ai` lookalike, which resolves to an
+ *   unrelated third party.
  *
- *   support@  — product, billing, security and privacy questions; the reply-to
- *               on every transactional email, so a bounce reaches a monitored box
- *   legal@    — DPAs, PDPL/GDPR requests, terms and law-enforcement contact
- *   founder@  — direct line published on the deck and the pitch material
+ *   FOUNDER is the founder's own mailbox on `aiazimara.com` — the direct line
+ *   published on the deck and the pitch material. It is the destination for
+ *   pilot and contact-form submissions: a lead is the one thing on this site
+ *   with no other channel, so it lands in the mailbox the founder actually
+ *   reads. The `aiazimara.com` domain is a verified Resend sending domain and
+ *   its MX (Namecheap Private Email) has been live since the domain was parked;
+ *   `founder@securevoiceai.me` used to hold this constant and remains a real
+ *   mailbox, but the founder line is the personal one.
  *
  * Override any of them with NEXT_PUBLIC_*_EMAIL at build time.
  */
 export const SUPPORT_EMAIL = process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? "support@securevoiceai.me";
 export const LEGAL_EMAIL = process.env.NEXT_PUBLIC_LEGAL_EMAIL ?? "legal@securevoiceai.me";
-export const FOUNDER_EMAIL = process.env.NEXT_PUBLIC_FOUNDER_EMAIL ?? "founder@securevoiceai.me";
+export const FOUNDER_EMAIL =
+  process.env.NEXT_PUBLIC_FOUNDER_EMAIL ?? "founder@aiazimara.com";
 
 /**
  * Fallback origin for server-rendered API examples.

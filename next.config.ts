@@ -221,6 +221,8 @@ const nextConfig: NextConfig = {
   async rewrites() {
     return [
       { source: "/v1/interventions", destination: "/api/v1/interventions" },
+      { source: "/v1/moderation/check", destination: "/api/v1/moderation/check" },
+      { source: "/v1/moderation/results/:id", destination: "/api/v1/moderation/results/:id" },
       { source: "/v1/enroll", destination: "/api/enroll" },
       { source: "/v1/status", destination: "/api/status" },
     ];

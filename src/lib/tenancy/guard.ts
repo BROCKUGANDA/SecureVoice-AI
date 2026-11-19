@@ -89,6 +89,13 @@ export const TENANTED_MODELS = [
   // `customerId` being globally UNIQUE means an unscoped read resolves anyone's.
   "PaddleCustomer",
   "PaddleSubscription",
+  // Qwen3Guard moderation evidence. A tenant's moderation history (what their
+  // callers said, what their agent drafted) is tenant data; the operator
+  // analytics read goes through the operator guard, not an unscoped client.
+  "ModerationRequest",
+  // Versioned per-tenant safety policies. Cross-tenant policy reads would let
+  // one tenant's strictness profile decide another tenant's refusals.
+  "ModerationPolicyVersion",
 ] as const;
 
 export type TenantedModel = (typeof TENANTED_MODELS)[number];

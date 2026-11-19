@@ -774,6 +774,8 @@ describe("the documented surface is addressable", () => {
       CONFORMANCE_PATH,
       "/openapi",
       "/asyncapi",
+      "/v1/moderation/check",
+      "/v1/moderation/results/{id}",
     ]);
     for (const path of Object.keys(openapi.paths)) {
       expect(path.startsWith("/"), `"${path}" is not a rooted path`).toBe(true);

@@ -367,10 +367,43 @@
       "notes": [
         "same seed ⇒ same sequence; different seed ⇒ different sequence"
       ]
+    },
+    {
+      "port": "KnowledgeSource",
+      "declaredAdapters": [
+        "pinecone-documents",
+        "pgvector-transcripts"
+      ],
+      "boundAdapters": [
+        "pinecone-documents",
+        "pgvector-transcripts"
+      ],
+      "realAdapter": "pinecone-documents",
+      "fakeAdapter": "in-memory org-scoped index",
+      "notBound": [],
+      "modeInRealRun": "real",
+      "realAdapterId": "Pinecone document index via @/lib/knowledge/documents; org_id_required refusal carried through, hits keep document provenance",
+      "modeInOfflineRun": "fake",
+      "fakeAdapterId": "in-memory org-scoped index; the same org_id_required refusal the real adapters emit, term-coverage scoring, no embedding model",
+      "verification": "contract-offline-surface",
+      "compared": [
+        "empty-orgId refusal returns org_id_required from the fake AND from both real adapters (documents + transcript-embeddings)",
+        "org scoping both directions on the fake: own docs resolve, the foreign tenant's identical-topic doc never surfaces",
+        "every hit carries source + score provenance",
+        "real registry binds the Pinecone adapter (mode real); offline registry binds the in-memory index (mode fake)"
+      ],
+      "notCompared": [
+        "live Pinecone ranking / score parity — backend unconfigured offline, so no real search can run here",
+        "pgvector transcript embedding search — needs a real index and embeddings",
+        "adapter-to-adapter ranking equality — the fake scores by term coverage, the real adapters by embeddings; parity is on the scoping contract, not the order"
+      ],
+      "notes": [
+        "the refusal path (empty orgId) runs BEFORE any network call in all three adapters, so it is genuinely exercised offline — the rest of the real surface is not claimed"
+      ]
     }
   ],
   "summary": {
-    "ports": 9,
+    "ports": 10,
     "contractTested": [
       "ConversationProvider",
       "TelephonyProvider",
@@ -379,7 +412,8 @@
       "SecretStore",
       "AuditSink",
       "Clock",
-      "IdGenerator"
+      "IdGenerator",
+      "KnowledgeSource"
     ],
     "realParity": [
       "NotificationSink",
@@ -393,17 +427,18 @@
       "ConversationProvider"
     ],
     "offlineSurfaceOnly": [
-      "TelephonyProvider"
+      "TelephonyProvider",
+      "KnowledgeSource"
     ],
     "boundOnly": [
       "RiskSignalSource"
     ],
-    "declaredAdaptersTotal": 23,
-    "boundAdaptersTotal": 9,
+    "declaredAdaptersTotal": 25,
+    "boundAdaptersTotal": 11,
     "notBoundAdaptersTotal": 14,
     "checks": {
-      "total": 113,
-      "passed": 113,
+      "total": 120,
+      "passed": 120,
       "failed": 0
     },
     "result": "pass"
@@ -412,17 +447,17 @@
     {
       "name": "brief-table-is-encoded",
       "ok": true,
-      "detail": "9 ports, each with a non-empty declared-adapter list"
+      "detail": "10 ports, each with a non-empty declared-adapter list"
     },
     {
       "name": "every-declared-adapter-is-bound-or-declared-unbound",
       "ok": true,
-      "detail": "all 9 ports account for every adapter the brief names"
+      "detail": "10 ports account for every adapter the brief names"
     },
     {
       "name": "real-registry-binds-every-port",
       "ok": true,
-      "detail": "real registry bound 9/9 ports"
+      "detail": "real registry bound 10/10 ports"
     },
     {
       "name": "descriptors-are-in-canonical-order",
@@ -432,22 +467,22 @@
     {
       "name": "real-registry-reports-mode-real-for-every-port",
       "ok": true,
-      "detail": "9/9 real"
+      "detail": "10/10 real"
     },
     {
       "name": "every-port-carries-a-detail-string",
       "ok": true,
-      "detail": "9/9 described"
+      "detail": "10/10 described"
     },
     {
       "name": "descriptor-mode-equals-adapter-declared-mode",
       "ok": true,
-      "detail": "9/9 agree"
+      "detail": "10/10 agree"
     },
     {
       "name": "offline-registry-reports-mode-fake-for-every-port",
       "ok": true,
-      "detail": "9/9 fake — nothing in an offline run is real"
+      "detail": "10/10 fake — nothing in an offline run is real"
     },
     {
       "name": "registry-mode-is-declared",
@@ -905,9 +940,44 @@
       "detail": "state=CLOSED"
     },
     {
+      "name": "knowledge-empty-org-refused-with-shared-vocabulary",
+      "ok": true,
+      "detail": "fake=org_id_required pinecone=org_id_required pgvector=org_id_required"
+    },
+    {
+      "name": "knowledge-own-doc-resolves",
+      "ok": true,
+      "detail": "hits=1 first=doc-freeze-policy"
+    },
+    {
+      "name": "knowledge-foreign-org-resolves-its-own-never-ours",
+      "ok": true,
+      "detail": "foreign saw doc-foreign"
+    },
+    {
+      "name": "knowledge-hits-carry-provenance",
+      "ok": true,
+      "detail": "every hit names its document and its score"
+    },
+    {
+      "name": "knowledge-real-unconfigured-is-named",
+      "ok": true,
+      "detail": "named refusal: pinecone_not_configured"
+    },
+    {
+      "name": "knowledge-port-bound-both-modes",
+      "ok": true,
+      "detail": "offline=fake real=real"
+    },
+    {
+      "name": "knowledge-offline-search-through-registry",
+      "ok": true,
+      "detail": "first=doc-takaful"
+    },
+    {
       "name": "artifact-lists-every-port",
       "ok": true,
-      "detail": "9 ports in the artifact"
+      "detail": "10 ports in the artifact"
     },
     {
       "name": "every-port-has-a-verification-level",
@@ -917,12 +987,12 @@
     {
       "name": "the-mode-in-the-run-is-read-from-the-registry",
       "ok": true,
-      "detail": "the real run resolved 9 real adapters and the offline run resolved 9 fakes"
+      "detail": "10 real adapters and 10 fakes resolved from the registry"
     },
     {
       "name": "bound-adapters-and-declared-adapters-are-both-listed",
       "ok": true,
-      "detail": "23 declared adapters across the brief's table"
+      "detail": "25 declared adapters across the brief's table"
     },
     {
       "name": "every-declared-adapter-is-either-bound-or-explained",
@@ -932,7 +1002,7 @@
     {
       "name": "the-contract-tested-list-is-explicit-and-disjoint-from-bound-only",
       "ok": true,
-      "detail": "contract-tested=[ConversationProvider, TelephonyProvider, NotificationSink, PaymentProvider, SecretStore, AuditSink, Clock, IdGenerator] bound-only=[RiskSignalSource]"
+      "detail": "contract-tested=[ConversationProvider, TelephonyProvider, NotificationSink, PaymentProvider, SecretStore, AuditSink, Clock, IdGenerator, KnowledgeSource] bound-only=[RiskSignalSource]"
     },
     {
       "name": "no-port-is-left-unreported",
@@ -961,13 +1031,13 @@
     }
   ],
   "unreportedPorts": [],
-  "digest": "8249ae9930372b03874f635d86c2152439c9bb6743cdd7327102fea4b442e9c8",
-  "generatedAt": "2026-10-20T20:10:21.109Z",
+  "digest": "613e4956cf1a646e8341053578accd47e3cbfe9b30466aa4e601b6ba4b4dd453",
+  "generatedAt": "2026-11-18T17:23:21.139Z",
   "run": {
-    "id": "mvh4b0zk",
-    "org": "org-seams-mvh4b0zk",
-    "caseRef": "SV-F-SEAMSMVH4B0ZK",
-    "chainRef": "SEAMCHAIN-mvh4b0zk"
+    "id": "mwme3yje",
+    "org": "org-seams-mwme3yje",
+    "caseRef": "SV-F-SEAMSMWME3YJE",
+    "chainRef": "SEAMCHAIN-mwme3yje"
   },
   "commands": {
     "test": "bun test tests/seams",

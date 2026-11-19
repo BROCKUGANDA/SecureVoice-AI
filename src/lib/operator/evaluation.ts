@@ -77,7 +77,12 @@ const ARMS: ReadonlyArray<{ code: string; file: string }> = [
 
 function readRaw(rel: string): RawEval | null {
   try {
-    return JSON.parse(readFileSync(join(process.cwd(), rel), "utf8")) as RawEval;
+    // turbopackIgnore: the arm files are runtime evidence, not build inputs.
+    // Without the opt-out the tracer pulls the whole project tree into the
+    // server bundle for two optional JSON files, and the build fails.
+    return JSON.parse(
+      readFileSync(join(/*turbopackIgnore: true*/ process.cwd(), rel), "utf8"),
+    ) as RawEval;
   } catch {
     return null; // that arm has not been run on this checkout — omit, do not fabricate
   }

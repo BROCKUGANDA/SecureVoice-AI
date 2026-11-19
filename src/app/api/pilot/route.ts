@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import { logError } from "@/lib/validation/safe-log";
 import { resolveClientIp } from "@/lib/client-ip";
 import { enqueueEmail } from "@/lib/email/outbox";
-import { SUPPORT_EMAIL as PUBLIC_SUPPORT_EMAIL } from "@/lib/public-config";
+import { FOUNDER_EMAIL } from "@/lib/public-config";
 
 export const dynamic = "force-dynamic";
 
@@ -154,10 +154,18 @@ export async function POST(req: NextRequest) {
       // PILOT_NOTIFY_EMAIL absent from the box's .env — every pilot lead since was
       // a row and a lie. A lead is the one thing on this site with no other
       // channel, so "nobody configured it" has to mean support@, not nobody.
+      // The recipient is the FOUNDER's direct line — a pilot lead is the one
+      // thing on this site with no other channel, so it lands in the mailbox
+      // the founder actually reads (founder@aiazimara.com via FOUNDER_EMAIL).
+      // PILOT_NOTIFY_EMAIL still overrides for a deployment that wants the
+      // leads somewhere else; a NEXT_PUBLIC_SUPPORT_EMAIL value is deliberately
+      // NO LONGER in the chain: the shared support mailbox is a product/billing
+      // surface, not the revenue inbox, and a wrong-but-plausible fallback here
+      // is how a lead ends up in a mailbox nobody looks at.
       const notifyTo = (
         process.env.PILOT_NOTIFY_EMAIL?.trim() ||
-        process.env.NEXT_PUBLIC_SUPPORT_EMAIL?.trim() ||
-        PUBLIC_SUPPORT_EMAIL
+        process.env.NEXT_PUBLIC_FOUNDER_EMAIL?.trim() ||
+        FOUNDER_EMAIL
       ).toLowerCase();
       if (notifyTo) {
         try {

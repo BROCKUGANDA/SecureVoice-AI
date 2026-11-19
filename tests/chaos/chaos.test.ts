@@ -2009,6 +2009,12 @@ describe("WP-21 / dependency breakers", () => {
     );
     expect(FALLBACKS.redis.channel).toBe("in_process_limits");
     expect(FALLBACKS.redis.degraded).toBe(true);
+    expect(FALLBACKS.moderation.declared).toBe(
+      "moderation model down → deterministic guard layer answers; never recorded as Safe",
+    );
+    expect(FALLBACKS.moderation.channel).toBe("deterministic_guards");
+    expect(FALLBACKS.moderation.degraded).toBe(true);
+    expect(FALLBACKS.moderation.preservesIntervention).toBe(true);
 
     // Every dependency has a declaration — none can be added without one.
     for (const dependency of DEPENDENCIES satisfies readonly Dependency[]) {
@@ -2023,7 +2029,7 @@ describe("WP-21 / dependency breakers", () => {
         decl?.declared ?? "missing",
       );
     }
-    expect(DEPENDENCIES).toHaveLength(4);
+    expect(DEPENDENCIES).toHaveLength(5);
     record(
       "breaker",
       "declaration:every-dependency-covered",
@@ -2867,7 +2873,7 @@ describe("WP-21 / gate integrity", () => {
       digestAlgorithm: string;
     };
     expect(evidence.summary.matrixRows.total).toBe(9);
-    expect(evidence.breakers).toHaveLength(4);
+    expect(evidence.breakers).toHaveLength(5);
     expect(evidence.summary.checks.total).toBeGreaterThanOrEqual(150);
     expect(evidence.digestAlgorithm).toBe("sha256");
     expect(evidence.digest).toMatch(/^[0-9a-f]{64}$/);
@@ -2887,7 +2893,7 @@ describe("WP-21 / gate integrity", () => {
       timeLikeKeys.join(",") || "none",
     );
     record("gate", "evidence-covers-9-matrix-rows", evidence.summary.matrixRows.total === 9, "9");
-    record("gate", "evidence-covers-4-breakers", evidence.breakers.length === 4, "4");
+    record("gate", "evidence-covers-5-breakers", evidence.breakers.length === 5, "5");
     record(
       "gate",
       "evidence-digest-is-sha256",

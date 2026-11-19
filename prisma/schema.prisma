@@ -1402,3 +1402,93 @@ model TtsSynthesis {
   @@index([orgId, createdAt])
   @@index([source, createdAt])
 }
+
+/// One Qwen3Guard moderation decision, as evidence rather than a log line.
+///
+/// Written by `src/lib/qwen3guard/moderate.ts` for every classification the
+/// platform performs — input transcripts, assistant drafts, speech-bound
+/// text, tool arguments, post-call ingest. The row is the durable half of the
+/// safety lifecycle: the audit chain records THAT a check happened, this table
+/// records WHAT the classifier said, with the model identity and template
+/// version pinned so a verdict can be re-interpreted years later.
+///
+/// `sample` stores a redacted, truncated prefix of the content — enough to
+/// triage a false positive, never the whole conversation. `inputHash` is the
+/// full-content identity (sha256) and is what the cache and dedupe use.
+///
+/// `source` distinguishes the outcomes policy needs apart:
+///   model          — a real classifier verdict
+///   invalid        — the gateway answered but the output was unreadable
+///   degraded       — the model was unavailable; deterministic guards answered
+///   kill_switch    — the operator brake disengaged the model layer
+///   flag_off       — the deployment has not enabled model moderation
+/// `degraded`, `kill_switch` and `flag_off` rows are NEVER verdict=Safe.
+model ModerationRequest {
+  id              String   @id @default(cuid())
+  orgId           String?
+  caseRef         String?
+  conversationId  String?
+  traceId         String?
+  /// Which boundary: `input` | `output` | `speech` | `tool` | `ingest`.
+  stage           String
+  /// `safe` | `unsafe` | `controversial` | `invalid`.
+  verdict         String
+  /// Category names from the official Qwen3Guard list; "None" when safe.
+  categories      String[]
+  /// The pinned model id and prompt-mapping version that produced the verdict.
+  model           String
+  templateVersion String
+  /// `model` | `invalid` | `degraded` | `kill_switch` | `flag_off`.
+  source          String
+  /// True only when the deterministic layer, not the model, refused the content.
+  refused         Boolean  @default(false)
+  /// sha256 of the exact classified content.
+  inputHash       String
+  /// Redacted, truncated content prefix for operator triage.
+  sample          String?
+  latencyMs       Int?
+  promptTokens    Int?
+  completionTokens Int?
+  createdAt       DateTime @default(now())
+
+  @@index([orgId, createdAt])
+  @@index([stage, verdict, createdAt])
+  @@index([traceId])
+  @@index([caseRef])
+  @@index([createdAt])
+}
+
+/// One versioned tenant safety policy, as applied to moderation decisions.
+///
+/// Rows are append-only: a policy change is a NEW row with a higher `version`,
+/// never an UPDATE, because the register's requirement is that the exact rules
+/// applied to a historical decision can be reproduced. `ModerationRequest`
+/// does not carry the version yet — the active row at decision time is the
+/// one whose `effectiveFrom` precedes the request's `createdAt` for that org.
+model ModerationPolicyVersion {
+  id           String   @id @default(cuid())
+  orgId        String?
+  version      Int
+  /// Coarse profile key: `general` | `enterprise` | `financial` | `support` |
+  /// `security_ops` | `internal`. Profiles differ in strictness defaults.
+  profile      String
+  /// Minimum verdict level that escalates to a human: `unsafe` (default) or
+  /// `controversial`.
+  escalateOn   String   @default("unsafe")
+  /// Languages the tenant declared for classification hints.
+  languages    String[]
+  /// Whether classifier output may gate tool arguments (fail-closed on model
+  /// failure for high-risk tools when true).
+  gateTools    Boolean  @default(true)
+  /// Retention days for this org's ModerationRequest rows.
+  retentionDays Int     @default(90)
+  /// Who wrote the version and why — the administrator audit trail.
+  createdBy    String?
+  note         String?
+  active       Boolean  @default(true)
+  effectiveFrom DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  @@unique([orgId, version])
+  @@index([orgId, active, effectiveFrom])
+}

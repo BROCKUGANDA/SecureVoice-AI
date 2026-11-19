@@ -19,11 +19,7 @@ export function pineconeKnowledgeSource(): KnowledgeSource {
   return {
     adapterId: PINECONE_KNOWLEDGE_SOURCE_ID,
     mode: "real",
-    async search(
-      orgId: string,
-      query: string,
-      topK = 5,
-    ): Promise<KnowledgeSearchResult> {
+    async search(orgId: string, query: string, topK = 5): Promise<KnowledgeSearchResult> {
       const res = await searchDocuments(orgId, query, topK);
       if (!res.ok) {
         return { ok: false, hits: [], error: res.error ?? "knowledge_unavailable" };

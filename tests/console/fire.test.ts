@@ -71,7 +71,8 @@ process.env.ELEVENLABS_DRY_RUN = "true";
 // same reason WEBHOOK_SECRET and CONSOLE_INGEST_SECRET are set: a developer's
 // `.env` commonly does not carry it, and this file must pass identically
 // standalone and in the full suite.
-process.env.AUTH_SECRET = process.env.AUTH_SECRET || "console-fire-gate-secret-not-a-production-key";
+process.env.AUTH_SECRET =
+  process.env.AUTH_SECRET || "console-fire-gate-secret-not-a-production-key";
 // `||=`, not `??=`: developer `.env` files commonly carry an EMPTY placeholder,
 // and the route treats an empty secret as unconfigured (`if (!secret)` → 503),
 // which would turn this whole file red for an environment reason rather than a

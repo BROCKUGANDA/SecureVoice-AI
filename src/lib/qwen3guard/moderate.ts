@@ -164,7 +164,8 @@ export function clearModerationCacheForTests(): void {
  * `safe` verdict; every other source exists so callers can distinguish "the
  * classifier said Safe" from "the classifier was not consulted".
  */
-export type ModerationSource = "model" | "invalid" | "degraded" | "kill_switch" | "flag_off" | "quota";
+export type ModerationSource =
+  "model" | "invalid" | "degraded" | "kill_switch" | "flag_off" | "quota";
 
 export type ModerationOutcome = {
   /** `safe` ONLY when `source === "model"` and the model said Safe. */

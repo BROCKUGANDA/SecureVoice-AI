@@ -1819,9 +1819,21 @@ test("WP-18 · KnowledgeSource: the in-memory index is org-scoped exactly like t
   const { searchTranscripts } = await import("@/lib/knowledge/transcript-embeddings");
 
   const docs = [
-    { orgId: ORG, source: "doc-freeze-policy", text: "card freeze policy: temporary hold, human commits the freeze" },
-    { orgId: ORG, source: "doc-takaful", text: "takaful terminology substitution applies to islamic institutions" },
-    { orgId: "org-somebody-else", source: "doc-foreign", text: "card freeze policy of the OTHER tenant must never surface" },
+    {
+      orgId: ORG,
+      source: "doc-freeze-policy",
+      text: "card freeze policy: temporary hold, human commits the freeze",
+    },
+    {
+      orgId: ORG,
+      source: "doc-takaful",
+      text: "takaful terminology substitution applies to islamic institutions",
+    },
+    {
+      orgId: "org-somebody-else",
+      source: "doc-foreign",
+      text: "card freeze policy of the OTHER tenant must never surface",
+    },
   ];
   const fake = createInMemoryKnowledgeSource(docs);
 
@@ -1849,7 +1861,8 @@ test("WP-18 · KnowledgeSource: the in-memory index is org-scoped exactly like t
   const foreign = await fake.search("org-somebody-else", "card freeze policy");
   check(
     "knowledge-foreign-org-resolves-its-own-never-ours",
-    foreign.ok && foreign.hits.every((h) => h.source !== "doc-freeze-policy" && h.source !== "doc-takaful"),
+    foreign.ok &&
+      foreign.hits.every((h) => h.source !== "doc-freeze-policy" && h.source !== "doc-takaful"),
     `foreign saw ${foreign.hits.map((h) => h.source).join(",") || "nothing"}`,
   );
 
@@ -1857,7 +1870,9 @@ test("WP-18 · KnowledgeSource: the in-memory index is org-scoped exactly like t
   //    attribution for retrieved content).
   check(
     "knowledge-hits-carry-provenance",
-    own.hits.every((h) => typeof h.source === "string" && h.source.length > 0 && typeof h.score === "number"),
+    own.hits.every(
+      (h) => typeof h.source === "string" && h.source.length > 0 && typeof h.score === "number",
+    ),
     "every hit names its document and its score",
   );
 
@@ -1868,7 +1883,9 @@ test("WP-18 · KnowledgeSource: the in-memory index is org-scoped exactly like t
     "knowledge-real-unconfigured-is-named",
     (pinecone.ok === true || typeof pinecone.error === "string") &&
       (pinecone.ok ? pinecone.matches.every((m) => typeof m.documentId === "string") : true),
-    pinecone.ok ? `configured: ${pinecone.matches.length} hits with documentId provenance` : `named refusal: ${pinecone.error}`,
+    pinecone.ok
+      ? `configured: ${pinecone.matches.length} hits with documentId provenance`
+      : `named refusal: ${pinecone.error}`,
   );
 
   // 5. The registry binds the port in BOTH modes.

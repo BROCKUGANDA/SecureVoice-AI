@@ -24,8 +24,7 @@
  */
 export const SUPPORT_EMAIL = process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? "support@securevoiceai.me";
 export const LEGAL_EMAIL = process.env.NEXT_PUBLIC_LEGAL_EMAIL ?? "legal@securevoiceai.me";
-export const FOUNDER_EMAIL =
-  process.env.NEXT_PUBLIC_FOUNDER_EMAIL ?? "founder@aiazimara.com";
+export const FOUNDER_EMAIL = process.env.NEXT_PUBLIC_FOUNDER_EMAIL ?? "founder@aiazimara.com";
 
 /**
  * Fallback origin for server-rendered API examples.

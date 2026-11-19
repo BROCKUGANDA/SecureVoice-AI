@@ -231,9 +231,7 @@ export type RegistryOptions = {
   /** Secrets for the in-memory store. Ignored unless `offline`. */
   secrets?: Record<string, string>;
   /** Knowledge documents for the in-memory source. Ignored unless `offline`. */
-  knowledgeDocs?: Readonly<
-    { orgId: string; source: string; text: string; chunkIndex?: number }[]
-  >;
+  knowledgeDocs?: Readonly<{ orgId: string; source: string; text: string; chunkIndex?: number }[]>;
 };
 
 export const DEFAULT_OFFLINE_SEED = "wp18-offline-seed";

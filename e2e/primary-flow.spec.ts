@@ -62,10 +62,9 @@ test.describe("SecureVoice AI - browser tier (Playwright)", () => {
     // cluster is display:none, so this spec now opens the hamburger menu and
     // drives the panel copy instead — one test, every device width.
     const desktop = page.locator('[role="group"][aria-label="Language"]');
-    const langGroup =
-      (await desktop.isVisible().catch(() => false))
-        ? desktop
-        : page.locator("#mobile-menu [role='group'][aria-label='Language']");
+    const langGroup = (await desktop.isVisible().catch(() => false))
+      ? desktop
+      : page.locator("#mobile-menu [role='group'][aria-label='Language']");
     if (!(await desktop.isVisible().catch(() => false))) {
       await page.getByRole("button", { name: "Open menu" }).click();
       await expect(langGroup).toBeVisible();

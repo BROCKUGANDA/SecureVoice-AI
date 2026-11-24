@@ -25,6 +25,7 @@ import {
   allowAnonTurn,
 } from "@/lib/tts-quota";
 import { SUPPORTED_LANGS, env, maxTtsChars } from "@/lib/config";
+import { moderateContent, outcomeIsClean } from "@/lib/qwen3guard/moderate";
 import { makeFailure, type FailureCode, type FailureInit } from "@/lib/failures/envelope";
 import { logError, parseJson } from "@/lib/validation/safe-log";
 import { db } from "@/lib/db";
@@ -352,6 +353,26 @@ export async function POST(req: NextRequest) {
     lang,
     callRef = `SV-T-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
   } = parsed.data;
+
+  // 1a. Model moderation BEFORE any quota spend or vendor call — this route is
+  //     a customer-facing send path (its audio is played to a caller), so it
+  //     is a mandatory moderation boundary. Same policy as /api/tts/stream:
+  //     unsafe is refused outright; a model-layer failure refuses only in
+  //     fail_closed mode, with the deterministic gate inside `elevenTts` as
+  //     the degraded-mode backstop.
+  const sendModeration = await moderateContent({
+    stage: "speech",
+    text,
+    caseRef: callRef,
+  });
+  if (
+    sendModeration.verdict === "unsafe" ||
+    (env.qwen3guardFailureMode === "fail_closed" && !outcomeIsClean(sendModeration))
+  ) {
+    return failure("policy_precondition", {
+      detail: "Text was not approved for speech by the safety layer",
+    });
+  }
 
   // 2. Resolve + validate the voice against the current backend's registry.
   //    An omitted `voice` is the normal path for the demo and every quick

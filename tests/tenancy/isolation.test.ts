@@ -729,7 +729,7 @@ test("WP-12 · isolation: every read path × both orgs", async () => {
   expect([...openGapFailures, ...staleGapFailures]).toEqual([]);
 
   // Direction count: every path is probed both ways, always.
-  expect(paths.length).toBe(CANONICAL_READ_PATHS.length);
+  expect(paths.length).toBe(CANONICAL_READ_PATHS.length); // 28 with the moderation paths
   for (const p of paths)
     expect(p.directions.map((d) => d.direction)).toEqual(["A-reads-B", "B-reads-A"]);
 

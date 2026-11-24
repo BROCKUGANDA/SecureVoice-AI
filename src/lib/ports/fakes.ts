@@ -34,6 +34,7 @@ import type {
   ConversationRequest,
   ConversationVerdict,
   IdGenerator,
+  KnowledgeSource,
   NotificationAck,
   NotificationEnvelope,
   NotificationReceipt,
@@ -200,12 +201,63 @@ export const SCRIPTED_TRANSCRIPTS: Readonly<Record<string, readonly TranscriptTu
     { speaker: "customer", text: "मैंने यह लेनदेन नहीं किया।", atSeconds: 8 },
     { speaker: "system", text: "verdict:confirmed_fraud", atSeconds: 13 },
   ],
+  ur: [
+    { speaker: "agent", text: "یہ کال آپ کی حفاظت کے لیے ریکارڈ ہو رہی ہے۔", atSeconds: 0 },
+    {
+      speaker: "agent",
+      text: "ہم نے SUNRISE ELECTRONICS پر 2,450.00 درہم کا لین دین دیکھا ہے۔",
+      atSeconds: 4,
+    },
+    { speaker: "customer", text: "میں نے یہ لین دین نہیں کیا۔", atSeconds: 9 },
+    {
+      speaker: "agent",
+      text: "کیا یہ لین دین آپ کا ہے؟ براہ کرم ہاں یا نہیں کہیں۔",
+      atSeconds: 11,
+    },
+    { speaker: "customer", text: "نہیں، یہ میرا نہیں ہے۔", atSeconds: 15 },
+    { speaker: "system", text: "verdict:confirmed_fraud", atSeconds: 17 },
+  ],
+  fr: [
+    { speaker: "agent", text: "Cet appel est enregistré pour vous protéger.", atSeconds: 0 },
+    {
+      speaker: "agent",
+      text: "Nous avons détecté une transaction de 2 450,00 AED chez SUNRISE ELECTRONICS.",
+      atSeconds: 4,
+    },
+    { speaker: "customer", text: "Je n'ai jamais effectué cet achat.", atSeconds: 9 },
+    {
+      speaker: "agent",
+      text: "Cette transaction est-elle la vôtre ? Répondez oui ou non.",
+      atSeconds: 11,
+    },
+    { speaker: "customer", text: "Non, ce n'est pas la mienne.", atSeconds: 15 },
+    { speaker: "system", text: "verdict:confirmed_fraud", atSeconds: 17 },
+  ],
+  sw: [
+    { speaker: "agent", text: "Simu hii inarekodiwa kwa usalama wako.", atSeconds: 0 },
+    {
+      speaker: "agent",
+      text: "Tumegundua muamala wa AED 2450.00 katika SUNRISE ELECTRONICS.",
+      atSeconds: 4,
+    },
+    { speaker: "customer", text: "Sijafanya manunuzi hayo.", atSeconds: 9 },
+    {
+      speaker: "agent",
+      text: "Je, muamala huu ni wako? Tafadhali sema ndiyo au hapana.",
+      atSeconds: 11,
+    },
+    { speaker: "customer", text: "Hapana, si yangu.", atSeconds: 15 },
+    { speaker: "system", text: "verdict:confirmed_fraud", atSeconds: 17 },
+  ],
 };
 
 const SCRIPTED_VERDICTS: Readonly<Record<string, ConversationVerdict>> = {
   en: "confirmed_fraud",
   ar: "uncertain",
   hi: "confirmed_fraud",
+  ur: "confirmed_fraud",
+  fr: "confirmed_fraud",
+  sw: "confirmed_fraud",
 };
 
 export type ScriptedConversationProvider = ConversationProvider & {
@@ -805,3 +857,66 @@ export type {
   RefundResult,
   WebhookVerification,
 };
+
+// ── KnowledgeSource ──────────────────────────────────────────────────────────
+
+export type InMemoryKnowledgeDoc = {
+  /** Owning tenant — the partition the search is scoped by. */
+  orgId: string;
+  /** Document or case reference surfaced as the hit's provenance. */
+  source: string;
+  text: string;
+  chunkIndex?: number;
+};
+
+/**
+ * In-memory knowledge source. The offline stand-in for the Pinecone document
+ * index and the pgvector transcript index, bound to the same port and held to
+ * the same contract: an EMPTY orgId is refused with the SAME error string the
+ * real adapters emit (`org_id_required`), and a search can never return
+ * another org's documents — the scoping is a filter the fake applies, exactly
+ * like the real adapters' tenant predicate, not caller discipline.
+ *
+ * Matching is substring scoring against the query's terms, longest term
+ * first, so a test can reason about which document wins without an embedding
+ * model in the loop.
+ */
+export function createInMemoryKnowledgeSource(
+  docs: readonly InMemoryKnowledgeDoc[],
+): KnowledgeSource {
+  return {
+    adapterId: "in-memory-knowledge",
+    mode: "fake",
+    async search(orgId, query, topK = 5) {
+      if (!orgId || !orgId.trim()) {
+        return { ok: false, hits: [], error: "org_id_required" };
+      }
+      const trimmed = query.trim();
+      if (!trimmed) return { ok: true, hits: [] };
+      const terms = trimmed
+        .toLowerCase()
+        .split(/\s+/)
+        .filter((t) => t.length >= 3)
+        .sort((a, b) => b.length - a.length);
+      const hits = docs
+        .filter((d) => d.orgId === orgId)
+        .map((d) => {
+          const haystack = d.text.toLowerCase();
+          const matched = terms.filter((t) => haystack.includes(t)).length;
+          // Term-coverage ratio, normalised so a hit that matches nothing
+          // scores 0 and can be skipped entirely.
+          return { doc: d, score: terms.length === 0 ? 0 : matched / terms.length };
+        })
+        .filter((h) => h.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, Math.max(1, topK))
+        .map((h) => ({
+          source: h.doc.source,
+          score: h.score,
+          text: h.doc.text,
+          chunkIndex: h.doc.chunkIndex,
+        }));
+      return { ok: true, hits };
+    },
+  };
+}

@@ -174,16 +174,17 @@ test("the POOLED listen URL asks for it too, and an adopted pool socket keeps th
 });
 
 test("a language that has to go as `multi` still asks, and a reconnect still asks", () => {
-  // Urdu has no nova-2 model and is pinned to `language=multi`; a URL rebuilt per
-  // language could lose the parameter on the way.
-  const ur = open("ur");
-  expect(ur.url).toContain("language=multi");
-  expect(ur.url).toContain(`utterance_end_ms=${CONFIGURED_WAIT_MS}`);
+  // Swahili has no Deepgram streaming model and is pinned to `language=multi`
+  // on nova-2; a URL rebuilt per language could lose the parameter on the way.
+  const sw = open("sw");
+  expect(sw.url).toContain("language=multi");
+  expect(sw.url).toContain("model=nova-2");
+  expect(sw.url).toContain(`utterance_end_ms=${CONFIGURED_WAIT_MS}`);
 
-  ur.handShake();
-  ur.drop();
+  sw.handShake();
+  sw.drop();
   const reopened = latest();
-  expect(reopened).not.toBe(ur);
+  expect(reopened).not.toBe(sw);
   expect(reopened.url).toContain(`utterance_end_ms=${CONFIGURED_WAIT_MS}`);
 });
 

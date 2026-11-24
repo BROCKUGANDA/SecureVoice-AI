@@ -362,7 +362,7 @@ test("WP-18 · every port in the brief is bound and reports its own mode", () =>
     "every-declared-adapter-is-bound-or-declared-unbound",
     unaccounted.length === 0,
     unaccounted.length === 0
-      ? "all 9 ports account for every adapter the brief names"
+      ? `${PORT_NAMES.length} ports account for every adapter the brief names`
       : `unaccounted: ${unaccounted.join(", ")}`,
   );
 
@@ -400,6 +400,7 @@ test("WP-18 · every port in the brief is bound and reports its own mode", () =>
         AuditSink: "auditSink",
         Clock: "clock",
         IdGenerator: "idGenerator",
+        KnowledgeSource: "knowledgeSource",
       }[d.port]
     ]?.();
     if (adapter?.mode !== d.mode)
@@ -408,17 +409,17 @@ test("WP-18 · every port in the brief is bound and reports its own mode", () =>
   check(
     "real-registry-reports-mode-real-for-every-port",
     modes.length === 0,
-    modes.join("; ") || "9/9 real",
+    modes.join("; ") || `${descriptors.length}/${PORT_NAMES.length} real`,
   );
   check(
     "every-port-carries-a-detail-string",
     missingDetail.length === 0,
-    missingDetail.join(", ") || "9/9 described",
+    missingDetail.join(", ") || `${descriptors.length}/${PORT_NAMES.length} described`,
   );
   check(
     "descriptor-mode-equals-adapter-declared-mode",
     modeLie.length === 0,
-    modeLie.join("; ") || "9/9 agree",
+    modeLie.join("; ") || `${descriptors.length}/${PORT_NAMES.length} agree`,
   );
 
   const offlineDescriptors = offline.descriptors();
@@ -428,7 +429,8 @@ test("WP-18 · every port in the brief is bound and reports its own mode", () =>
   check(
     "offline-registry-reports-mode-fake-for-every-port",
     offlineModes.length === 0,
-    offlineModes.join("; ") || "9/9 fake — nothing in an offline run is real",
+    offlineModes.join("; ") ||
+      `${offlineDescriptors.length}/${PORT_NAMES.length} fake — nothing in an offline run is real`,
   );
   check(
     "registry-mode-is-declared",
@@ -1802,7 +1804,130 @@ test("WP-18 · offline mode completes a full intervention with no network and no
 }, 120_000);
 
 // ══════════════════════════════════════════════════════════════════════════════
-// 10. The artifact.
+// 11. The artifact.
+// ── WP-18 · KnowledgeSource: the internal/external knowledge seam ───────────
+
+// NOTE: this test must run BEFORE the artifact test below — the artifact
+// enumerates PARITY as of its own run, so a port tested afterwards is
+// unreported by construction. It was appended after the cleanup block, which
+// put it behind the artifact and left the port out of the report entirely.
+
+test("WP-18 · KnowledgeSource: the in-memory index is org-scoped exactly like the real adapters", async () => {
+  const from = mark();
+  const { createInMemoryKnowledgeSource } = await import("@/lib/ports/fakes");
+  const { searchDocuments } = await import("@/lib/knowledge/documents");
+  const { searchTranscripts } = await import("@/lib/knowledge/transcript-embeddings");
+
+  const docs = [
+    {
+      orgId: ORG,
+      source: "doc-freeze-policy",
+      text: "card freeze policy: temporary hold, human commits the freeze",
+    },
+    {
+      orgId: ORG,
+      source: "doc-takaful",
+      text: "takaful terminology substitution applies to islamic institutions",
+    },
+    {
+      orgId: "org-somebody-else",
+      source: "doc-foreign",
+      text: "card freeze policy of the OTHER tenant must never surface",
+    },
+  ];
+  const fake = createInMemoryKnowledgeSource(docs);
+
+  // 1. The empty-orgId refusal is the SAME error string the real adapters emit.
+  const emptyFake = await fake.search("", "card freeze");
+  const emptyPinecone = await searchDocuments("", "card freeze");
+  const emptyVector = await searchTranscripts("", "card freeze");
+  check(
+    "knowledge-empty-org-refused-with-shared-vocabulary",
+    emptyFake.error === "org_id_required" &&
+      emptyPinecone.error === "org_id_required" &&
+      emptyVector.error === "org_id_required",
+    `fake=${emptyFake.error} pinecone=${emptyPinecone.error} pgvector=${emptyVector.error}`,
+  );
+
+  // 2. Org scoping, both directions: this org's docs resolve, the other org's
+  //    identical-topic doc never does — through the FAKE and through the
+  //    shape the real adapters promise.
+  const own = await fake.search(ORG, "card freeze policy");
+  check(
+    "knowledge-own-doc-resolves",
+    own.ok && own.hits.length > 0 && own.hits[0]!.source === "doc-freeze-policy",
+    `hits=${own.hits.length} first=${own.hits[0]?.source ?? "none"}`,
+  );
+  const foreign = await fake.search("org-somebody-else", "card freeze policy");
+  check(
+    "knowledge-foreign-org-resolves-its-own-never-ours",
+    foreign.ok &&
+      foreign.hits.every((h) => h.source !== "doc-freeze-policy" && h.source !== "doc-takaful"),
+    `foreign saw ${foreign.hits.map((h) => h.source).join(",") || "nothing"}`,
+  );
+
+  // 3. Provenance: every hit carries a source reference (register: source
+  //    attribution for retrieved content).
+  check(
+    "knowledge-hits-carry-provenance",
+    own.hits.every(
+      (h) => typeof h.source === "string" && h.source.length > 0 && typeof h.score === "number",
+    ),
+    "every hit names its document and its score",
+  );
+
+  // 4. The REAL adapters, probed for the same contract offline: an
+  //    unconfigured backend is a NAMED failure, never a fake empty success.
+  const pinecone = await searchDocuments(ORG, "card freeze policy");
+  check(
+    "knowledge-real-unconfigured-is-named",
+    (pinecone.ok === true || typeof pinecone.error === "string") &&
+      (pinecone.ok ? pinecone.matches.every((m) => typeof m.documentId === "string") : true),
+    pinecone.ok
+      ? `configured: ${pinecone.matches.length} hits with documentId provenance`
+      : `named refusal: ${pinecone.error}`,
+  );
+
+  // 5. The registry binds the port in BOTH modes.
+  const { createRegistry } = await import("@/lib/ports/registry");
+  const offline = createRegistry({ offline: true, knowledgeDocs: docs });
+  const real = createRegistry();
+  const offDesc = offline.describe("KnowledgeSource");
+  const realDesc = real.describe("KnowledgeSource");
+  check(
+    "knowledge-port-bound-both-modes",
+    offDesc.mode === "fake" && realDesc.mode === "real",
+    `offline=${offDesc.mode} real=${realDesc.mode}`,
+  );
+  const offlineSearch = await offline.knowledgeSource().search(ORG, "takaful");
+  check(
+    "knowledge-offline-search-through-registry",
+    offlineSearch.ok && offlineSearch.hits[0]?.source === "doc-takaful",
+    `first=${offlineSearch.hits[0]?.source ?? "none"}`,
+  );
+
+  parity({
+    port: "KnowledgeSource",
+    level: "contract-offline-surface",
+    compared: [
+      "empty-orgId refusal returns org_id_required from the fake AND from both real adapters (documents + transcript-embeddings)",
+      "org scoping both directions on the fake: own docs resolve, the foreign tenant's identical-topic doc never surfaces",
+      "every hit carries source + score provenance",
+      "real registry binds the Pinecone adapter (mode real); offline registry binds the in-memory index (mode fake)",
+    ],
+    notCompared: [
+      "live Pinecone ranking / score parity — backend unconfigured offline, so no real search can run here",
+      "pgvector transcript embedding search — needs a real index and embeddings",
+      "adapter-to-adapter ranking equality — the fake scores by term coverage, the real adapters by embeddings; parity is on the scoping contract, not the order",
+    ],
+    notes: [
+      "the refusal path (empty orgId) runs BEFORE any network call in all three adapters, so it is genuinely exercised offline — the rest of the real surface is not claimed",
+    ],
+  });
+
+  expectClean(from);
+});
+
 // ══════════════════════════════════════════════════════════════════════════════
 
 let artifactWritten = false;
@@ -1868,7 +1993,7 @@ test("WP-18 · the evidence artifact lists every port, its mode, and what was ac
   check(
     "the-mode-in-the-run-is-read-from-the-registry",
     portRows.every((r) => r.modeInRealRun === "real" && r.modeInOfflineRun === "fake"),
-    "the real run resolved 9 real adapters and the offline run resolved 9 fakes",
+    `${portRows.length} real adapters and ${portRows.length} fakes resolved from the registry`,
   );
   check(
     "bound-adapters-and-declared-adapters-are-both-listed",

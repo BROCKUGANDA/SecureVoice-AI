@@ -17,7 +17,12 @@
  */
 // NOTE: deliberately NO `import "server-only"` here — see src/worker/dial.ts.
 
-import { runRetention, registerAudioStore, type RetentionRunReport } from "@/lib/privacy/retention";
+import {
+  runRetention,
+  registerAudioStore,
+  sweepModerationEvidence,
+  type RetentionRunReport,
+} from "@/lib/privacy/retention";
 import { retentionAudioStore } from "@/lib/storage/retention-audio-store";
 import { storageConfigured } from "@/lib/storage/s3";
 import { logError, logInfo } from "@/lib/validation/safe-log";
@@ -43,10 +48,19 @@ function summarise(report: RetentionRunReport): string {
 async function sweep(): Promise<RetentionRunReport> {
   const report = await runRetention(new Date(), { dryRun: DRY_RUN });
   const line = summarise(report);
-  if (report.chain.intact && report.errors.length === 0) {
-    logInfo("[retention-worker] sweep complete", { summary: line });
+
+  // The moderation-evidence tier is swept alongside the case tiers: same
+  // worker, same schedule, same dry-run discipline. Its result rides the same
+  // log line so an operator reading one sweep sees one picture.
+  const moderation = await sweepModerationEvidence(new Date(), DRY_RUN);
+  const moderationLine =
+    `moderationEvidence due=${moderation.due} acted=${moderation.acted}` +
+    (moderation.errors.length ? ` errors=${moderation.errors.join("; ")}` : "");
+
+  if (report.chain.intact && report.errors.length === 0 && moderation.errors.length === 0) {
+    logInfo("[retention-worker] sweep complete", { summary: line, moderationLine });
   } else {
-    logError("[retention-worker] sweep complete with errors", { summary: line });
+    logError("[retention-worker] sweep complete with errors", { summary: line, moderationLine });
   }
   return report;
 }

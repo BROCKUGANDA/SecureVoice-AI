@@ -935,3 +935,73 @@ async function applyTierAction(
     }
   }
 }
+
+/* ── Moderation evidence tier ────────────────────────────────────────────── */
+
+/**
+ * Default retention for `ModerationRequest` rows. The register's rule: do not
+ * keep classification samples (even redacted, truncated ones) without a
+ * defined operational need. An org's active `ModerationPolicyVersion`
+ * overrides this per tenant.
+ */
+export const MODERATION_EVIDENCE_DEFAULT_DAYS = Number(process.env.MODERATION_RETENTION_DAYS ?? 90);
+
+export type ModerationEvidenceReport = {
+  due: number;
+  acted: number;
+  perOrg: { orgId: string | null; days: number }[];
+  errors: string[];
+};
+
+/**
+ * Delete moderation evidence past its retention window, per tenant.
+ *
+ * The moderation sample is deliberately MINIMAL (redacted, 240-char prefix)
+ * but it is still per-tenant content, so it obeys the same lifecycle
+ * discipline as every other retained payload: each org's active policy sets
+ * the window, unscoped rows use the platform default, and the sweep reports
+ * what it did rather than trusting a fire-and-forget delete. Evidence rows
+ * are NOT hash-chained (the audit chain carries the decisions that matter),
+ * so deleting them breaks nothing downstream.
+ */
+export async function sweepModerationEvidence(
+  now: Date,
+  dryRun = false,
+): Promise<ModerationEvidenceReport> {
+  const report: ModerationEvidenceReport = { due: 0, acted: 0, perOrg: [], errors: [] };
+
+  try {
+    const orgGroups = await db.moderationRequest.groupBy({ by: ["orgId"] });
+    for (const group of orgGroups) {
+      const orgId = group.orgId;
+      try {
+        const policyRow = orgId
+          ? await db.moderationPolicyVersion.findFirst({
+              where: { orgId, active: true },
+              orderBy: { version: "desc" },
+              select: { retentionDays: true },
+            })
+          : null;
+        const days = Math.max(1, policyRow?.retentionDays ?? MODERATION_EVIDENCE_DEFAULT_DAYS);
+        const cutoff = new Date(now.getTime() - days * DAY_MS);
+        const where = { orgId, createdAt: { lt: cutoff } };
+        const due = await db.moderationRequest.count({ where });
+        report.perOrg.push({ orgId, days });
+        if (due === 0) continue;
+        report.due += due;
+        if (dryRun) continue;
+        const acted = await db.moderationRequest.deleteMany({ where });
+        report.acted += acted.count;
+      } catch (err) {
+        report.errors.push(
+          `moderation evidence org=${orgId ?? "null"}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+  } catch (err) {
+    report.errors.push(
+      `moderation evidence sweep: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  return report;
+}

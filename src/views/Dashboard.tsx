@@ -575,8 +575,12 @@ function Monitor() {
               : t("loading", "جارٍ التحميل", lang)}
           </Chip>
         </div>
-        <div className="sv-scroll max-h-[430px] overflow-y-auto">
-          <table className="w-full text-left text-[12.5px]">
+        {/* overflow-x: the six columns need ~600px; on a phone the table is
+            a scrollable strip instead of a wrapped, unreadable crush — the
+            wrapper keeps the sticky header working and adds no width on
+            desktop. */}
+        <div className="sv-scroll max-h-[430px] overflow-auto">
+          <table className="w-full min-w-[560px] text-left text-[12.5px]">
             <thead className="sticky top-0 bg-paper">
               <tr className="micro !text-[9px] text-ink-3">
                 <th className="px-5 py-2.5 font-medium">{t("ID", "المعرّف", lang)}</th>
@@ -1760,7 +1764,9 @@ function Compliance() {
         </div>
       </div>
 
-      <div className="min-h-[300px] px-5 py-4">
+      {/* Same mobile guard as the recent-calls table: five columns with a
+          truncated hash cell scroll horizontally instead of crushing. */}
+      <div className="sv-scroll min-h-[300px] overflow-auto px-5 py-4">
         {loading ? (
           <div className="space-y-3">
             {[0, 1, 2, 3, 4].map((i) => (
@@ -1773,7 +1779,7 @@ function Compliance() {
             ))}
           </div>
         ) : (
-          <table className="w-full text-left text-[12.5px]">
+          <table className="w-full min-w-[540px] text-left text-[12.5px]">
             <thead>
               <tr className="micro !text-[9px] text-ink-3">
                 <th className="py-2.5 pr-3 font-medium">{t("Time", "الوقت", lang)}</th>

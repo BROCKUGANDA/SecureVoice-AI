@@ -32,7 +32,8 @@
 import { expect, test } from "bun:test";
 import { SUPPORTED_LANGS } from "@/lib/languages";
 import { resolveTtsModel, TTS_LANGUAGE_SUPPORT, type TtsLang } from "@/lib/elevenlabs/client";
-import { DeepgramLiveClient } from "@/lib/voice/deepgram-client";
+import { DeepgramLiveClient, resolveDeepgramTarget } from "@/lib/voice/deepgram-client";
+import { asrProviderFor } from "@/lib/voice/live-asr";
 
 test("every supported language is a supported call language", () => {
   // The pipeline types `lang` as TtsLang and falls back to "en" for anything
@@ -123,30 +124,52 @@ test("the shipped default is a model both planes accept", () => {
   }
 });
 
-test("Deepgram never pins a language nova-2 cannot serve", () => {
-  // nova-2 returns a 4xx for an unsupported language code and that kills the
-  // whole request — not a degraded transcript, a closed socket. So Urdu and
-  // Swahili must route to `multi`, which does code-switching detection.
+test("Deepgram never pins a language its model cannot serve", () => {
+  // Pinning an unsupported code fails the WHOLE request with a 4xx — a closed
+  // socket. So the language and the model must stay in step: nova-2 pins only
+  // its own languages, Urdu pins to nova-3 (which serves it), and Swahili —
+  // which no Deepgram streaming model serves — goes to `multi`.
   for (const l of SUPPORTED_LANGS) {
-    if (DeepgramLiveClient.PINNABLE_LANGS.has(l)) {
-      expect(l).toBeTruthy();
-    } else {
+    const { model, dgLang } = resolveDeepgramTarget(l);
+    if (dgLang === "multi") {
       expect(
-        ["ur", "sw"],
-        `${l} unexpectedly unpinnable — update the table deliberately if nova-2 added it`,
+        ["sw"],
+        `${l} unexpectedly unpinnable — update the table deliberately if a model adds it`,
       ).toContain(l);
+    } else {
+      // A pinned language must pin to the language it names — never fall
+      // back to a different language's model card.
+      expect(dgLang).toBe(l);
+    }
+    if (model !== "nova-2") {
+      // Only Urdu leaves nova-2, and only for a model that serves it.
+      expect(l).toBe("ur");
     }
   }
 });
 
-test("Urdu and Swahili are the languages routed to Deepgram multi", () => {
-  // Stated as its own test because this is a real, deliberate quality
-  // reduction: the primary ASR for these languages is ElevenLabs Scribe
-  // (src/app/api/asr/route.ts), which does cover them.
-  expect(DeepgramLiveClient.PINNABLE_LANGS.has("ur")).toBe(false);
+test("Urdu pins to nova-3; Swahili leaves Deepgram to ElevenLabs", () => {
+  // Stated as its own test because both were deliberate quality reductions,
+  // and the story changed twice: (a) `multi` on nova-2 is Spanish+English
+  // only, so Urdu could not transcribe at all — nova-3 fixed that. (b) No
+  // Deepgram streaming model serves Swahili, so the live client for swahili
+  // is Scribe-backed (see live-asr.ts); the Deepgram client's own fallback
+  // stays `multi` for any caller who constructs it directly.
+  expect(resolveDeepgramTarget("ur")).toEqual({ model: "nova-3", dgLang: "ur" });
+  // Deepgram client: swahili still falls back to its multi bucket.
+  expect(resolveDeepgramTarget("sw")).toEqual({ model: "nova-2", dgLang: "multi" });
+  // Live ASR factory: swahili is served by ElevenLabs when the key exists.
+  const prev = process.env.ELEVENLABS_API_KEY;
+  try {
+    process.env.ELEVENLABS_API_KEY = "test-key";
+    expect(asrProviderFor("sw")).toBe("elevenlabs");
+  } finally {
+    if (prev === undefined) delete process.env.ELEVENLABS_API_KEY;
+    else process.env.ELEVENLABS_API_KEY = prev;
+  }
   expect(DeepgramLiveClient.PINNABLE_LANGS.has("sw")).toBe(false);
-  // ...while the languages the router now recognises in Urdu still reach a
-  // transcript, so a denial is actionable.
+  // ...while the languages the router recognises still reach a transcript,
+  // so a denial is actionable.
   expect(DeepgramLiveClient.PINNABLE_LANGS.has("en")).toBe(true);
   expect(DeepgramLiveClient.PINNABLE_LANGS.has("ar")).toBe(true);
   expect(DeepgramLiveClient.PINNABLE_LANGS.has("hi")).toBe(true);

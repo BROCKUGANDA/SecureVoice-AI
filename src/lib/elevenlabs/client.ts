@@ -125,7 +125,16 @@ export const ELEVEN_VOICE_ENV: Record<TtsLang, string> = {
  */
 export type VoiceRole = "agent" | "customer";
 
-/** Dev (dry-run) library voices. Never a production id. */
+/**
+ * Dev (dry-run) library voices. Never a production id.
+ *
+ * French and Swahili reuse the English persona (`jam`): the dev library has
+ * no French or Swahili persona, and the z-ai backend syllabifies the input
+ * text, so the spoken language is the text's language — the slug is only
+ * timbre. One persona across languages is honest; borrowing another
+ * language's *production* slot (`ELEVENLABS_VOICE_FR` being an English
+ * voice's id, the defect `deliveryVoice` exists to end) is not.
+ */
 const DEV_AGENT_VOICE: Record<TtsLang, string> = {
   en: "jam",
   ar: "tongtong",
@@ -134,13 +143,22 @@ const DEV_AGENT_VOICE: Record<TtsLang, string> = {
   fr: "jam",
   sw: "jam",
 };
+/**
+ * Dev customer-line voices. The library has a second persona only for ar/hi/ur.
+ *
+ * en/fr/sw reuse the agent's own persona (`jam`) rather than borrowing the
+ * Hindi slug (`kazi`) — the old table sent an English demo customer out in
+ * the Hindi dev voice, the exact cross-language borrow the resolver was
+ * written to end. As with the agent table, the slug is timbre only: the text
+ * language decides what is spoken.
+ */
 const DEV_CUSTOMER_VOICE: Record<TtsLang, string> = {
-  en: "kazi",
+  en: "jam",
   ar: "chuichui",
   hi: "douji",
   ur: "xiaochen",
-  fr: "kazi",
-  sw: "kazi",
+  fr: "jam",
+  sw: "jam",
 };
 
 /**

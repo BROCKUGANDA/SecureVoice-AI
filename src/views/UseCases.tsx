@@ -518,7 +518,7 @@ export function UseCases() {
             onClick={() => setAudience(f.id)}
             aria-pressed={audience === f.id}
             className={cn(
-              "rounded-full border px-4 py-2 text-[12.5px] font-semibold transition",
+              "rounded-full border min-h-10 px-4 py-2 text-[12.5px] font-semibold transition",
               audience === f.id
                 ? "border-primary bg-green-tint text-primary"
                 : "border-line bg-paper text-ink-2 hover:border-primary/40",
@@ -614,7 +614,7 @@ export function UseCases() {
                       <div className="mt-1.5 flex flex-wrap items-center gap-2">
                         <span
                           className={cn(
-                            "rounded-full px-2.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-wide",
+                            "rounded-full px-2.5 py-0.5 font-mono text-[11px] font-bold uppercase tracking-wide",
                             u.status.live ? "bg-primary text-white" : "bg-green-tint text-primary",
                           )}
                         >
@@ -650,7 +650,7 @@ export function UseCases() {
                     <p className="text-[13.5px] leading-relaxed text-ink-2">
                       {t(u.pitch, ar.pitch, lang)}
                     </p>
-                    <div className="micro mt-5 text-[9px] text-ink-3">
+                    <div className="micro mt-5 text-[11px] text-ink-3">
                       {t("WHAT THE AGENT DOES", "ما يفعله الوكيل", lang)}
                     </div>
                     <ul className="mt-2.5 space-y-2">
@@ -670,7 +670,7 @@ export function UseCases() {
                     {/* scope */}
                     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
                       <div className="rounded-2xl border border-line bg-paper p-4">
-                        <div className="micro text-[9px] text-primary">
+                        <div className="micro text-[11px] text-primary">
                           {t("IN SCOPE", "داخل النطاق", lang)}
                         </div>
                         <ul className="mt-2 space-y-1.5">
@@ -686,7 +686,7 @@ export function UseCases() {
                         </ul>
                       </div>
                       <div className="rounded-2xl border border-dashed border-line bg-white p-4">
-                        <div className="micro flex items-center gap-1 text-[9px] text-ink-3">
+                        <div className="micro flex items-center gap-1 text-[11px] text-ink-3">
                           <X className="h-3 w-3 text-red-500" />
                           {t("OUT OF SCOPE", "خارج النطاق", lang)}
                         </div>
@@ -706,7 +706,7 @@ export function UseCases() {
 
                     {/* personas */}
                     <div className="rounded-2xl border border-line bg-paper p-4">
-                      <div className="micro flex items-center gap-1.5 text-[9px] text-ink-3">
+                      <div className="micro flex items-center gap-1.5 text-[11px] text-ink-3">
                         <UserRound className="h-3 w-3" />
                         {t("BUILT FOR", "معدّة لـ", lang)}
                       </div>

@@ -64,7 +64,10 @@ export async function GET() {
   let body: string | null = null;
   for (const path of CANDIDATES) {
     try {
-      body = await readFile(path, "utf8");
+      // turbopackIgnore: the candidate paths are runtime lookup, not build
+      // inputs — without the opt-out the tracer pulls the whole project tree
+      // in for one static domain-association file and the build fails.
+      body = await readFile(/*turbopackIgnore: true*/ path, "utf8");
       break;
     } catch {
       continue;

@@ -25,9 +25,37 @@ export type TranscriptListener = (text: string, isFinal: boolean) => void;
  * (`env.deepgramUtteranceEndMs`), because zero is Deepgram's "do not send it".
  * `interim_results=true` is required alongside it and both paths already sent it.
  */
-function listenUrl(dgLang: string): string {
+/**
+ * Per-language STT model. `nova-2` is the default (and the language set in
+ * `PINNABLE_LANGS`), but its 36 languages do NOT include Urdu or Swahili
+ * (vendor docs, checked 2026-11-07) — so pinning `language=ur` against nova-2
+ * would fail the whole request, and `multi` on nova-2 is Spanish+English only,
+ * which cannot transcribe an Urdu utterance either. The old behaviour routed
+ * Urdu to `multi` on nova-2, i.e. to nothing: a live Urdu caller got silence.
+ * Urdu now pins to `nova-3`, which serves it. Overridable per deployment
+ * (`DEEPGRAM_MODEL_UR`) the same way the TTS side pins models per language.
+ * Swahili still has no Deepgram streaming model (only Whisper, a different
+ * latency class) — it keeps `multi` and is tracked as PLANNED.
+ */
+const MODEL_FOR_LANG: Partial<Record<string, string>> = {
+  ur: process.env.DEEPGRAM_MODEL_UR ?? "nova-3",
+};
+
+/** The (model, language) pair a platform language transcribes with. */
+export function resolveDeepgramTarget(lang: string): { model: string; dgLang: string } {
+  const model = MODEL_FOR_LANG[lang] ?? "nova-2";
+  // nova-3 serves `ur` (see above); every other platform language pins only
+  // when its model supports it. Anything else falls back to `multi` — for
+  // Swahili that is a stated quality reduction (PLANNED), never a hard failure.
+  if (lang === "ur" && model.startsWith("nova-3")) return { model, dgLang: "ur" };
+  const dgLang = DeepgramLiveClient.PINNABLE_LANGS.has(lang) ? lang : "multi";
+  return { model, dgLang };
+}
+
+function listenUrl(lang: string): string {
+  const { model, dgLang } = resolveDeepgramTarget(lang);
   return (
-    `wss://api.deepgram.com/v1/listen?model=nova-2&encoding=mulaw&sample_rate=8000` +
+    `wss://api.deepgram.com/v1/listen?model=${model}&encoding=mulaw&sample_rate=8000` +
     `&language=${dgLang}&smart_format=true&interim_results=true` +
     `&utterance_end_ms=${env.deepgramUtteranceEndMs}`
   );
@@ -109,7 +137,7 @@ const MAX_ASR_RECONNECTS = 1;
  * only window in which ASR setup can happen for free. `preconnectDeepgram`
  * parks one socket per language there; `start()` adopts it if it is still
  * open (see the adoption note there). Keyed by the RESOLVED Deepgram language
- * (`multi` for Urdu/Swahili) because that is what goes in the URL.
+ * (`multi` for Swahili — Urdu pins to nova-3) because that is what goes in the URL.
  */
 const pooledSockets = new Map<string, WebSocket>();
 
@@ -122,7 +150,7 @@ const pooledSockets = new Map<string, WebSocket>();
  * `start()` can never adopt a corpse.
  */
 export function preconnectDeepgram(lang: string, apiKey: string): WebSocket | null {
-  const dgLang = DeepgramLiveClient.PINNABLE_LANGS.has(lang) ? lang : "multi";
+  const { dgLang } = resolveDeepgramTarget(lang);
   // One pooled socket per language: adopting is first-come, and a queue of
   // parked sockets is a queue of idle billable streams.
   const existing = pooledSockets.get(dgLang);
@@ -273,16 +301,20 @@ export class DeepgramLiveClient {
   }
 
   /**
-   * Languages Deepgram nova-2 can pin. Anything else must be sent as `multi`.
+   * Languages Deepgram nova-2 can pin (the default model). Anything else must
+   * be sent as `multi` — pinning an unsupported code fails the ENTIRE request
+   * with a 4xx, not a degraded transcript: a closed socket.
    *
-   * nova-2 has no Urdu or Swahili model, and pinning an unsupported code fails
-   * the ENTIRE request with a 4xx — not a degraded transcript, a closed
-   * socket. So those two go to `multi`, which does code-switching detection.
-   * That is a real quality reduction and is stated rather than hidden: the
-   * platform's primary ASR for those languages is ElevenLabs Scribe
-   * (see src/app/api/asr/route.ts), which does cover them, and the router
-   * accepts Urdu so a `multi` transcript that does come back is still
-   * actionable.
+   * Urdu is handled OUTSIDE this set: nova-2 has no Urdu model, but nova-3
+   * does, so `resolveDeepgramTarget` pins Urdu to nova-3 instead of sending a
+   * language its model cannot serve — or `multi` (Spanish+English only on
+   * nova-2), which cannot transcribe Urdu at all.
+   *
+   * Swahili still has no Deepgram streaming model (only Whisper, a different
+   * latency class), so it keeps `multi`, and that is a stated quality
+   * reduction, not a hidden one. The platform's batch ASR for those languages
+   * is ElevenLabs Scribe (see src/app/api/asr/route.ts), which does cover
+   * both.
    */
   static readonly PINNABLE_LANGS: ReadonlySet<string> = new Set([
     "en",
@@ -309,8 +341,8 @@ export class DeepgramLiveClient {
    * call's lifetime.
    */
   private open(): WebSocket {
-    const dgLang = DeepgramLiveClient.PINNABLE_LANGS.has(this.lang) ? this.lang : "multi";
-    const url = listenUrl(dgLang);
+    const { dgLang } = resolveDeepgramTarget(this.lang);
+    const url = listenUrl(this.lang);
     // A new stream's audio offsets start again at zero, so the anchor Deepgram's
     // `last_word_end` is mapped onto must be re-taken here rather than inherited from
     // the socket that just died. Left inherited, the first UtteranceEnd after a

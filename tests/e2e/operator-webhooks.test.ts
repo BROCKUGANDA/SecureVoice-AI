@@ -29,6 +29,20 @@ const NAMED_SECRETS = [
 test("operator webhook catalogue lists endpoints and leaks no secret values", async () => {
   const { GET } = await import("@/app/api/operator/webhooks/route");
 
+  // This test exercises the FORWARDED-HOST fallback — the path an
+  // unconfigured deployment takes. A configured origin wins over the header
+  // by design (see `publicOrigin`), so the prod vars a developer's .env
+  // carries must be cleared to simulate the deployment this test is about,
+  // and restored after (the same save/clear/restore the next test uses).
+  const saved = {
+    a: process.env.NEXT_PUBLIC_APP_URL,
+    b: process.env.APP_BASE_URL,
+    c: process.env.TWILIO_WEBHOOK_BASE_URL,
+  };
+  delete process.env.NEXT_PUBLIC_APP_URL;
+  delete process.env.APP_BASE_URL;
+  delete process.env.TWILIO_WEBHOOK_BASE_URL;
+
   const req = new NextRequest("http://localhost/api/operator/webhooks", {
     headers: { "x-forwarded-proto": "https", "x-forwarded-host": "app.example.com" },
   });
@@ -78,6 +92,10 @@ test("operator webhook catalogue lists endpoints and leaks no secret values", as
     expect(entry!.auth.length).toBeGreaterThan(0);
     expect(["inbound", "outbound"]).toContain(entry!.direction);
   }
+
+  if (saved.a !== undefined) process.env.NEXT_PUBLIC_APP_URL = saved.a;
+  if (saved.b !== undefined) process.env.APP_BASE_URL = saved.b;
+  if (saved.c !== undefined) process.env.TWILIO_WEBHOOK_BASE_URL = saved.c;
 
   // THE assertion: no secret VALUE anywhere in the serialised response. Seeded
   // from the environment when present so this fails loudly if a real credential

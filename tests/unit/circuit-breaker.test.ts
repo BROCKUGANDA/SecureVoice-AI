@@ -84,6 +84,7 @@ describe("declared fallbacks", () => {
       "alert",
       "scripted_reply",
       "in_process_limits",
+      "deterministic_guards",
     ];
     for (const dep of DEPENDENCIES) {
       expect(channels).toContain(FALLBACKS[dep].channel);

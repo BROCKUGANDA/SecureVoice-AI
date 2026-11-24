@@ -24,6 +24,7 @@ import * as redact from "@/lib/redact";
 import { settleAttempt } from "@/lib/billing/ledger";
 import { markVoiceFailed } from "@/lib/elevenlabs/sms-fallback";
 import { neutraliseStrings, screenForMemory } from "@/lib/memory-guard";
+import { moderateContent, outcomeIsClean } from "@/lib/qwen3guard/moderate";
 import { recordStrike } from "@/lib/abuse/bad-actor";
 import { masterKeyConfigured, sealCasePayload } from "@/lib/privacy/crypto-shred";
 import { indexTranscript, pineconeConfigured } from "@/lib/pinecone/transcript-index";
@@ -222,6 +223,44 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
     .join("\n");
   const redactedTranscript = redact.transcript(joined);
 
+  // INGEST-STAGE MODERATION (Qwen3Guard). The post-call transcript is
+  // classified before it can enter any SECONDARY use. A flagged transcript is
+  // still sealed as evidence (evidence retention is not endorsement), but the
+  // semantic indexes below are WITHHELD: a transcript the classifier named as
+  // a violation must not be retrievable later as helpful context. A
+  // model-layer outage degrades — indexing proceeds under the deterministic
+  // redaction that already ran — and the outcome row records that honestly.
+  let ingestFlagged = false;
+  if (redactedTranscript.trim()) {
+    const ingestModeration = await moderateContent({
+      stage: "ingest",
+      text: redactedTranscript,
+      orgId: caseRow?.orgId ?? inboundOrgId ?? null,
+      caseRef: caseRow?.caseRef ?? null,
+      conversationId: conversationId ?? null,
+      traceId: row.id,
+    });
+    ingestFlagged = ingestModeration.source === "model" && !outcomeIsClean(ingestModeration);
+    if (ingestFlagged) {
+      await auditAppend(
+        {
+          callRef: caseRow?.caseRef ?? conversationId ?? `el-${row.id}`,
+          action: "consent",
+          intent: "moderation_unsafe_ingest",
+          callerId: "elevenlabs-webhook",
+          redactedText: "post-call transcript flagged by the moderation model; indexing withheld",
+          meta: {
+            verdict: ingestModeration.verdict,
+            categories: ingestModeration.categories,
+            orgId: caseRow?.orgId ?? inboundOrgId ?? null,
+          },
+          orgId: caseRow?.orgId ?? undefined,
+        },
+        { fast: true },
+      ).catch(() => {});
+    }
+  }
+
   if (!caseRow) {
     // Never drop: quarantine with a redacted excerpt, mark the delivery as
     // handled (the event itself was fine — our case is gone) so exact
@@ -354,7 +393,8 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
     // bank has already been told this case's outcome, so a vector-store outage
     // must not roll the case back or block the webhook. indexTranscript
     // swallows its own failures into an audit row.
-    if (pineconeConfigured() && redactedTranscript.trim()) {
+    // WITHHELD entirely when ingest moderation flagged the transcript.
+    if (pineconeConfigured() && redactedTranscript.trim() && !ingestFlagged) {
       // `caseRow.orgId` is the tenant. A case with no owning org is NOT indexed
       // unowned: indexTranscript refuses an empty orgId, so a cross-tenant
       // vector cannot enter the index by accident. That refusal is recorded as
@@ -365,8 +405,13 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
     // Native pgvector copy. Same redaction, same tenant, same fire-and-forget
     // posture: the bank has already been told the outcome, so pgvector being
     // unavailable must not roll the case back. embedTranscript swallows its own
-    // failures into an audit row.
-    if (transcriptEmbeddingsConfigured() && redactedTranscript.trim() && caseRow.orgId?.trim()) {
+    // failures into an audit row. Withheld on an ingest flag, same as above.
+    if (
+      transcriptEmbeddingsConfigured() &&
+      redactedTranscript.trim() &&
+      caseRow.orgId?.trim() &&
+      !ingestFlagged
+    ) {
       void embedTranscript(caseRow.caseRef, redactedTranscript, caseRow.orgId);
     }
   } else {

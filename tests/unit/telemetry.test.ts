@@ -328,7 +328,7 @@ describe("window selection — the lower bound is inclusive", () => {
     expect(rowOf(summariseWindow([], { nowMs: now }), TERMINAL_SPAN).ageMs).toBeNull();
   });
 
-  test("asking for one span returns one row; asking for all returns all eight", () => {
+  test("asking for one span returns one row; asking for all returns one per span", () => {
     const records = [span("tool_request_to_response", BASE, 10, "SV-F-ONE")];
     const one = summariseWindow(records, { span: "tool_request_to_response", nowMs: BASE });
     expect(one).toHaveLength(1);
@@ -444,9 +444,9 @@ describe("the trust floor — a p95 is reported before it is believed", () => {
 /* ═══════════════════ zero traffic, 100% failure, division guards ════════════ */
 
 describe("boundary and division guards", () => {
-  test("zero requests in the window yields eight no_data rows and a null claim", () => {
+  test("zero requests in the window yields one no_data row per span and a null claim", () => {
     const rows = summariseWindow([], { nowMs: BASE });
-    expect(rows).toHaveLength(8);
+    expect(rows).toHaveLength(9);
     for (const row of rows) {
       expect(row.samples).toBe(0);
       expect(row.p95Ms).toBeNull();
@@ -455,7 +455,7 @@ describe("boundary and division guards", () => {
       expect(row.meanMs).toBeNull();
       expect(row.outlierSamples).toBe(0);
     }
-    // "All targets met" is UNKNOWN, not true: eight spans, none measured.
+    // "All targets met" is UNKNOWN, not true: nine spans, none measured.
     expect(allTargetsMet(rows)).toBeNull();
     expect(worstSpan(rows)).toBeNull();
     expect(allTargetsMet([])).toBeNull();
@@ -557,9 +557,9 @@ describe("an intervention counts only when it reached a freeze", () => {
     expect(completeInterventionIds(records).sort()).toEqual(["SV-F-C1", "SV-F-C2"]);
   });
 
-  test("duplicates across an intervention's eight spans collapse to one id", () => {
+  test("duplicates across an intervention's spans collapse to one id", () => {
     const records = interventions(3, 0.1, "SV-F-DUP");
-    expect(records).toHaveLength(24);
+    expect(records).toHaveLength(27);
     expect(countInterventions(records)).toBe(3);
     expect(completeInterventionIds(records)).toHaveLength(3);
   });
@@ -579,7 +579,7 @@ describe("buildSloReport", () => {
     expect(reasons).toEqual([]);
     expect(exitCode).toBe(0);
     expect(ok).toBe(true);
-    expect(report.spans).toHaveLength(8);
+    expect(report.spans).toHaveLength(9);
     expect(report.spans_not_measured).toEqual([]);
     expect(report.all_targets_met).toBe(true);
     expect(report.gate.all_measured_targets_met).toBe(true);
@@ -611,7 +611,7 @@ describe("buildSloReport", () => {
     expect(unreadable.report.source.read_error).toBe("EACCES: permission denied");
     expect(unreadable.reasons.join(" ")).toContain("unreadable");
     // Both still publish the honest empty rows rather than omitting them.
-    expect(unreadable.report.spans).toHaveLength(8);
+    expect(unreadable.report.spans).toHaveLength(9);
     expect(unreadable.report.spans.every((r) => r.value_kind === "not_measured")).toBe(true);
   });
 
@@ -685,7 +685,7 @@ describe("buildSloReport", () => {
     expect(report.interventions_measured).toBe(0);
     expect(report.all_targets_met).toBeNull();
     expect(report.gate.all_measured_targets_met).toBe(true);
-    expect(report.spans_not_measured).toHaveLength(7);
+    expect(report.spans_not_measured).toHaveLength(8);
     expect(exitCode).toBe(1); // only because no intervention completed
   });
 

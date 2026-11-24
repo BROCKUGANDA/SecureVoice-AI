@@ -188,6 +188,12 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
   compress: true,
+  images: {
+    // Next 16 defaults to [75]; pin it so a future `quality` prop cannot widen
+    // the optimisation surface. Tenant/team logo URLs are user- or data-driven
+    // and cannot be allowlisted in remotePatterns, so those render `unoptimized`.
+    qualities: [75],
+  },
   // Inlined into the client bundle at build time. `env` (rather than only
   // process.env) is what makes it readable in a client component — only
   // NEXT_PUBLIC_* and this map survive the compiler's dead-code elimination.
@@ -221,6 +227,8 @@ const nextConfig: NextConfig = {
   async rewrites() {
     return [
       { source: "/v1/interventions", destination: "/api/v1/interventions" },
+      { source: "/v1/moderation/check", destination: "/api/v1/moderation/check" },
+      { source: "/v1/moderation/results/:id", destination: "/api/v1/moderation/results/:id" },
       { source: "/v1/enroll", destination: "/api/enroll" },
       { source: "/v1/status", destination: "/api/status" },
     ];

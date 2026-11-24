@@ -450,8 +450,8 @@ export function Home() {
                 </div>
 
                 {/* action bar */}
-                <div className="flex items-center justify-between gap-3 border-t border-line bg-paper px-5 py-3.5">
-                  <Chip className="!bg-white">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line bg-paper px-5 py-3.5">
+                  <Chip className="!bg-white whitespace-normal break-words">
                     <Lock className="h-3 w-3 text-primary" />
                     POST /tools/card-freeze →{" "}
                     <span className="font-semibold text-green-deep">200 · staged</span>
@@ -464,7 +464,7 @@ export function Home() {
                     Replaced with the thing this card is actually demonstrating:
                     the protective action is STAGED, and a human confirms it.
                   */}
-                  <Chip className="!bg-white">
+                  <Chip className="!bg-white whitespace-normal break-words">
                     <Webhook className="h-3 w-3 text-amber-soft" />
                     <span className="font-semibold">
                       {t("Human confirms the freeze", "يؤكد الإنسان التجميد", lang)}
@@ -571,7 +571,7 @@ export function Home() {
                 key={l}
                 onClick={() => setLiveLang(l)}
                 className={cn(
-                  "rounded-full border px-3 py-1.5 text-[11.5px] font-semibold transition",
+                  "rounded-full border min-h-10 px-3 py-1.5 text-[11.5px] font-semibold transition",
                   liveLang === l
                     ? "border-primary bg-green-tint text-green-deep"
                     : "border-line bg-white text-ink-2 hover:border-primary/40 hover:text-primary",
@@ -1081,7 +1081,7 @@ export function Home() {
             `tests/billing/catalog-parity.test.ts` is the backstop. */}
         <Reveal delay={0.1}>
           <div className="mt-16">
-            <p className="micro text-center text-[9px] text-slate-400">
+            <p className="micro text-center text-[11px] text-slate-400">
               {t("PRICING · MONTHLY OR ANNUAL", "الأسعار · شهري أو سنوي", lang)}
             </p>
             <div className="mx-auto mt-6 grid max-w-4xl gap-4 sm:grid-cols-3">
@@ -1096,7 +1096,7 @@ export function Home() {
                   )}
                 >
                   {plan.featured && (
-                    <span className="micro mb-3 inline-block rounded-full bg-emerald-100 px-2 py-0.5 text-[8.5px] text-emerald-700">
+                    <span className="micro mb-3 inline-block rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] text-emerald-700">
                       {t("MOST POPULAR", "الأكثر اختياراً", lang)}
                     </span>
                   )}
@@ -1230,7 +1230,7 @@ function PilotDialog({
 
   return (
     <Dialog open={open} onOpenChange={close}>
-      <DialogContent className="max-w-md rounded-3xl border-line bg-white p-7 sm:p-8">
+      <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-md rounded-3xl border-line bg-white p-7 sm:p-8">
         {sent ? (
           <div className="py-6 text-center">
             <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-green-tint">
@@ -1296,7 +1296,7 @@ function PilotDialog({
                 onChange={(e) => setCompanyUrl(e.target.value)}
                 className="pointer-events-none absolute -left-[9999px] h-0 w-0 opacity-0"
               />
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label htmlFor="pilot-name" className="text-[12px] font-semibold">
                     {t("Full name", "الاسم الكامل", lang)}
@@ -1360,7 +1360,7 @@ function PilotDialog({
                   className="h-10 rounded-xl border-line bg-paper"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label htmlFor="pilot-volume" className="text-[12px] font-semibold">
                     {t("Monthly card volume", "حجم البطاقات الشهري", lang)}

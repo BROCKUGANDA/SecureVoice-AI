@@ -676,6 +676,11 @@ export function buildOpenApiDocument(): Record<string, unknown> {
         description: "Self-serve grading of YOUR receiver against this contract.",
       },
       { name: "meta", description: "Machine-readable descriptions of this contract." },
+      {
+        name: "moderation",
+        description:
+          "Model-based content classification (Qwen3Guard) at a declared lifecycle boundary. A safe verdict authorises nothing by itself.",
+      },
     ],
     paths: {
       [PUBLIC_INGEST_PATH]: {
@@ -789,6 +794,110 @@ export function buildOpenApiDocument(): Record<string, unknown> {
               type: "object",
               additionalProperties: true,
             }),
+          },
+        },
+      },
+      "/v1/moderation/check": {
+        post: {
+          operationId: "checkModeration",
+          summary: "Classify content at a lifecycle boundary (Qwen3Guard)",
+          description:
+            "Runs the platform's model-based safety classifier on submitted text and persists the decision as evidence. A `safe` verdict authorises nothing by itself — it is a classifier opinion at one stage; tool authorization, consent and the deterministic compliance gates are separate mechanisms. `source` distinguishes a real model verdict (`model`) from degraded outcomes (`degraded`, `kill_switch`, `flag_off`, `invalid`), which are NEVER reported as safe.",
+          tags: ["moderation"],
+          security: [{ ProducerKey: [] }, { SvSignature: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["text", "stage"],
+                  properties: {
+                    text: { type: "string", minLength: 1, maxLength: 6000 },
+                    stage: {
+                      type: "string",
+                      enum: ["input", "output", "speech", "tool", "ingest"],
+                    },
+                    case_ref: { type: "string", maxLength: 64 },
+                    conversation_id: { type: "string", maxLength: 128 },
+                    language: { type: "string", maxLength: 7 },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            "200": jsonResponse("Classification outcome and evidence id.", {
+              type: "object",
+              required: ["ok", "verdict", "source", "stage", "model", "template_version"],
+              properties: {
+                ok: { type: "boolean" },
+                id: { type: "string", nullable: true },
+                verdict: {
+                  type: "string",
+                  enum: ["safe", "unsafe", "controversial", "invalid"],
+                },
+                categories: { type: "array", items: { type: "string" } },
+                refusal: { type: "boolean" },
+                source: {
+                  type: "string",
+                  enum: ["model", "invalid", "degraded", "kill_switch", "flag_off"],
+                },
+                stage: { type: "string" },
+                model: { type: "string" },
+                template_version: { type: "string" },
+                latency_ms: { type: "integer" },
+                reason: { type: "string", nullable: true },
+              },
+            }),
+            "400": coded("malformed_request", 400),
+            "401": coded("unauthenticated", 401),
+            "422": coded("semantically_invalid", 422),
+            "429": coded("rate_limited", 429),
+          },
+        },
+      },
+      "/v1/moderation/results/{id}": {
+        get: {
+          operationId: "getModerationResult",
+          summary: "Poll a stored moderation decision",
+          description:
+            "Returns the evidence row a check created. A row from another tenant and a row that does not exist return the SAME 404. `sample` is the redacted, truncated content prefix stored at decision time — never the full classified text.",
+          tags: ["moderation"],
+          security: [{ ProducerKey: [] }],
+          parameters: [
+            {
+              name: "id",
+              in: "path",
+              required: true,
+              schema: { type: "string", minLength: 20, maxLength: 40 },
+            },
+          ],
+          responses: {
+            "200": jsonResponse("The stored moderation decision.", {
+              type: "object",
+              required: ["id", "stage", "verdict", "source", "model"],
+              properties: {
+                id: { type: "string" },
+                stage: { type: "string" },
+                verdict: { type: "string" },
+                categories: { type: "array", items: { type: "string" } },
+                source: { type: "string" },
+                refused: { type: "boolean" },
+                model: { type: "string" },
+                template_version: { type: "string" },
+                case_ref: { type: "string", nullable: true },
+                latency_ms: { type: "integer", nullable: true },
+                created_at: { type: "string" },
+              },
+            }),
+            "401": coded("unauthenticated", 401),
+            "404": jsonResponse(
+              "Not found. A row from another tenant and a row that does not exist are indistinguishable.",
+              failureSchema("The id is unknown or belongs to another tenant."),
+            ),
+            "429": coded("rate_limited", 429),
           },
         },
       },

@@ -655,7 +655,7 @@ export async function elevenLabsStt(
   audio: Buffer,
   mime: string,
   model: string,
-  opts: { callerId?: string; maxRetries?: number } = {},
+  opts: { callerId?: string; maxRetries?: number; languageCode?: string } = {},
 ): Promise<BinaryUpstreamResult> {
   const outerMax = opts.maxRetries ?? DEFAULT_MAX_RETRIES;
   let last: BinaryUpstreamResult | null = null;
@@ -663,6 +663,11 @@ export async function elevenLabsStt(
     const form = new FormData();
     form.append("file", new Blob([new Uint8Array(audio)], { type: mime }), "recording");
     form.append("model_id", model);
+    // Pinning the detector beats auto-detect on a short utterance in a known
+    // language (a 1-second Swahili fragment is easy for the detector to call
+    // something else). Callers that know the call language pass it; the batch
+    // demo path leaves it out and lets Scribe detect.
+    if (opts.languageCode) form.append("language_code", opts.languageCode);
     last = await fetchUpstreamBinary("POST", "/v1/speech-to-text", {
       body: form,
       accept: "application/json",

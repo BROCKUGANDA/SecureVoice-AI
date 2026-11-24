@@ -83,6 +83,19 @@ prompt
 # Scoped to the repo root so real test suites stay tracked.
 /test
 
+# Local Redis dump — runtime output of whatever redis instance pointed here.
+/dump.rdb
+
+# Internal engineering inventory — REPO: public. These documents name the VPS,
+# the ports, the risk register and the security inventory of the production
+# stack. They exist for the group's internal audit standard and must live
+# OUTSIDE the shipped artifact, never in a commit.
+/engineering/
+
+# Agent session plans written by the editor harness (not source, not docs for
+# anyone else).
+/.zcode/
+
 # --- submission hygiene: local scratch, never for judges ---
 .mimosa/
 docs/canvas-verify/

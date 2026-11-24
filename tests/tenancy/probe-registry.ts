@@ -1675,3 +1675,132 @@ export const DRIVERS: Record<string, Driver> = {
     ],
   }),
 };
+
+/* ── Qwen3Guard moderation evidence + tenant policy (WP-12) ──────────────── */
+
+/**
+ * Moderation rows are seeded by the driver itself (explicit orgId, then
+ * deleted) rather than added to the shared fixture seeder: the evidence
+ * table is new, and a probe that owns its own rows cannot be broken by
+ * reordering the shared seed.
+ */
+async function seedModerationProbe(orgId: string, inputHash: string): Promise<void> {
+  await db.moderationRequest.deleteMany({ where: { inputHash } });
+  await db.moderationRequest.create({
+    data: {
+      orgId,
+      stage: "input",
+      verdict: "safe",
+      categories: ["None"],
+      model: "probe",
+      templateVersion: "probe",
+      source: "model",
+      inputHash,
+    },
+    select: { id: true },
+  });
+}
+
+DRIVERS["lib.moderation.evidence-by-id"] = async (dir) => {
+  const own = ORG[me(dir)];
+  const foreignHash = createHash("sha256").update(`mod-foreign-${RUN}-${dir}`).digest("hex");
+  const ownHash = createHash("sha256").update(`mod-own-${RUN}-${dir}`).digest("hex");
+  await seedModerationProbe(ORG[them(dir)], foreignHash);
+  await seedModerationProbe(own, ownHash);
+
+  const sdb = scopedDb({ orgId: own });
+  const leaked = await sdb.moderationRequest.findFirst({ where: { inputHash: foreignHash } });
+  const control = await sdb.moderationRequest.findFirst({ where: { inputHash: ownHash } });
+  const all = await sdb.moderationRequest.findMany({ select: { orgId: true } });
+
+  return {
+    probed: true,
+    control: {
+      described: "the same scoped client resolves the caller's own evidence row",
+      status: null,
+      ownVisible: control?.orgId === own,
+    },
+    foreignVisible: leaked !== null,
+    guardEquivalent: {
+      applied: true,
+      empty: leaked === null,
+      detail:
+        "scopedDb({ orgId }).moderationRequest.findFirst({ where: { inputHash } }) returns nothing for the other org",
+    },
+    checks: [
+      check(
+        "cross-org-moderation-evidence-not-resolvable",
+        leaked === null,
+        "scopedDb({ orgId }).moderationRequest must not resolve the probe org's evidence row",
+      ),
+      check(
+        "control-own-moderation-evidence-resolved",
+        control?.orgId === own,
+        "the caller's own evidence row must resolve, or the assertion above is vacuous",
+      ),
+      check(
+        "moderation-listing-org-bounded",
+        all.every((r) => r.orgId === own),
+        "a listing through the scoped client must contain only the caller's org",
+      ),
+    ],
+  };
+};
+
+DRIVERS["lib.moderation.policy-active"] = async (dir) => {
+  const own = ORG[me(dir)];
+  const marker = `mod-policy-${RUN}-${dir}`;
+  // Both orgs get an ACTIVE policy at the same version number; only the
+  // scoped client's injected orgId may decide which one resolves.
+  for (const orgId of [ORG[them(dir)], own]) {
+    // (orgId, version) is UNIQUE — a previous direction's run left its own
+    // version-1 row, so the delete is keyed on the constraint, not the marker.
+    await db.moderationPolicyVersion.deleteMany({ where: { orgId, version: 1 } });
+    await db.moderationPolicyVersion.create({
+      data: {
+        orgId,
+        version: 1,
+        profile: "general",
+        note: marker,
+      },
+      select: { id: true },
+    });
+  }
+
+  const sdb = scopedDb({ orgId: own });
+  const resolved = await sdb.moderationPolicyVersion.findFirst({
+    where: { version: 1, note: marker },
+  });
+  const all = await sdb.moderationPolicyVersion.findMany({
+    where: { note: marker },
+    select: { orgId: true },
+  });
+
+  return {
+    probed: true,
+    control: {
+      described: "the scoped client resolves this org's active policy",
+      status: null,
+      ownVisible: resolved?.orgId === own,
+    },
+    foreignVisible: all.some((r) => r.orgId !== own),
+    guardEquivalent: {
+      applied: true,
+      empty: !all.some((r) => r.orgId !== own),
+      detail:
+        "scopedDb({ orgId }).moderationPolicyVersion.findMany({ where: { note } }) sees only this org's versions",
+    },
+    checks: [
+      check(
+        "cross-org-moderation-policy-not-resolvable",
+        resolved?.orgId === own,
+        "an org-scoped policy read must resolve the caller's own policy, never the other org's",
+      ),
+      check(
+        "moderation-policy-listing-org-bounded",
+        all.every((r) => r.orgId === own),
+        "a policy listing through the scoped client must contain only the caller's org",
+      ),
+    ],
+  };
+};

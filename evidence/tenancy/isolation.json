@@ -2,35 +2,35 @@
   "schemaVersion": 1,
   "gate": "WP-12 multi-tenancy isolation",
   "digestAlgorithm": "sha256",
-  "digest": "b988205cd785bbfd2141c415609daf2e98b6aff77d48306ab76ef96f18260c9a",
-  "generatedAt": "2026-10-20T20:10:26.273Z",
+  "digest": "ee4af44eba823d6583279b81f46bf34ed2e01e000973c96424e0d0a1729924e4",
+  "generatedAt": "2026-11-18T17:23:52.364Z",
   "run": {
-    "id": "mvh4b4qv",
+    "id": "mwme4jlu",
     "orgs": {
-      "A": "0a0a0a0a-0000-4000-8000-1b83048a1c7e",
-      "B": "0b0b0b0b-0000-4000-8000-1b83048a1c7e"
+      "A": "0a0a0a0a-0000-4000-8000-fb211eb68fc4",
+      "B": "0b0b0b0b-0000-4000-8000-fb211eb68fc4"
     },
     "database": "DATABASE_URL",
     "note": "identifiers above are per-run; the digest covers the deterministic core only"
   },
   "summary": {
     "result": "pass",
-    "pathsDeclared": 24,
-    "pathsProbed": 22,
-    "directionsProbed": 44,
+    "pathsDeclared": 26,
+    "pathsProbed": 24,
+    "directionsProbed": 48,
     "coverage": {
-      "asserted": 22,
+      "asserted": 24,
       "declaredGap": 0,
       "declaredGlobal": 2
     },
     "checks": {
-      "total": 218,
-      "passed": 218,
+      "total": 232,
+      "passed": 232,
       "failed": 0
     },
     "http404Asserted": 5,
     "never403Asserted": 10,
-    "tenantModelsDeclared": 11,
+    "tenantModelsDeclared": 13,
     "unscopedReadPaths": []
   },
   "canonicalReadPaths": [
@@ -143,6 +143,16 @@
       "id": "lib.payments.record-by-reference",
       "model": "PaymentRecord",
       "obligation": "An org-scoped read of a payment record cannot resolve another org's settlement."
+    },
+    {
+      "id": "lib.moderation.evidence-by-id",
+      "model": "ModerationRequest",
+      "obligation": "An org-scoped read of moderation evidence cannot resolve another org's classification history."
+    },
+    {
+      "id": "lib.moderation.policy-active",
+      "model": "ModerationPolicyVersion",
+      "obligation": "An org's active moderation policy resolves under its own scope; another org's policy never decides its refusals."
     },
     {
       "id": "lib.payments.paddle-customer-by-id",
@@ -429,6 +439,28 @@
       "module": "src/lib/tenancy/guard.ts",
       "read": "scopedDb(orgScopeFor(org)).usageLedger.findMany",
       "probeField": "idemKey",
+      "http": null
+    },
+    {
+      "id": "lib.moderation.evidence-by-id",
+      "model": "ModerationRequest",
+      "verdict": "foreign-probe-empty",
+      "coverage": "asserted",
+      "kind": "library",
+      "module": "src/lib/tenancy/guard.ts",
+      "read": "scopedDb(orgScopeFor(org)).moderationRequest.findFirst",
+      "probeField": "inputHash",
+      "http": null
+    },
+    {
+      "id": "lib.moderation.policy-active",
+      "model": "ModerationPolicyVersion",
+      "verdict": "foreign-probe-empty",
+      "coverage": "asserted",
+      "kind": "library",
+      "module": "src/lib/tenancy/guard.ts",
+      "read": "scopedDb(orgScopeFor(org)).moderationPolicyVersion.findFirst",
+      "probeField": "version",
       "http": null
     },
     {
@@ -2561,6 +2593,204 @@
               "name": "guard-closes-the-gap",
               "ok": true,
               "detail": "the scoped equivalent must return nothing for the foreign caseRef"
+            },
+            {
+              "name": "recorded-foreign-probe-is-empty",
+              "ok": true,
+              "detail": "foreignVisible=false contradicts verdict foreign-probe-empty"
+            }
+          ],
+          "ok": true,
+          "error": null
+        }
+      ],
+      "ok": true
+    },
+    {
+      "path": "lib.moderation.evidence-by-id",
+      "title": "Org-scoped moderation evidence read",
+      "model": "ModerationRequest",
+      "verdict": "foreign-probe-empty",
+      "coverage": "asserted",
+      "module": "src/lib/tenancy/guard.ts",
+      "read": "scopedDb(orgScopeFor(org)).moderationRequest.findFirst",
+      "probeField": "inputHash",
+      "probeInvoke": "Read the other org's evidence row by its inputHash through this org's scoped client — must resolve to nothing.",
+      "http": null,
+      "notes": "`ModerationRequest` is tenant evidence (what a tenant's callers said, what their agent drafted). The operator analytics surface filters by the session org; the probe proves the scoped client itself cannot resolve a foreign row. Drivers seed their own rows so the probe is independent of fixture ordering.",
+      "directions": [
+        {
+          "direction": "A-reads-B",
+          "sessionOrg": "A",
+          "probeOwner": "B",
+          "probed": true,
+          "axisApplicable": true,
+          "http": null,
+          "control": {
+            "described": "the same scoped client resolves the caller's own evidence row",
+            "status": null,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "scopedDb({ orgId }).moderationRequest.findFirst({ where: { inputHash } }) returns nothing for the other org"
+          },
+          "checks": [
+            {
+              "name": "cross-org-moderation-evidence-not-resolvable",
+              "ok": true,
+              "detail": "scopedDb({ orgId }).moderationRequest must not resolve the probe org's evidence row"
+            },
+            {
+              "name": "control-own-moderation-evidence-resolved",
+              "ok": true,
+              "detail": "the caller's own evidence row must resolve, or the assertion above is vacuous"
+            },
+            {
+              "name": "moderation-listing-org-bounded",
+              "ok": true,
+              "detail": "a listing through the scoped client must contain only the caller's org"
+            },
+            {
+              "name": "recorded-foreign-probe-is-empty",
+              "ok": true,
+              "detail": "foreignVisible=false contradicts verdict foreign-probe-empty"
+            }
+          ],
+          "ok": true,
+          "error": null
+        },
+        {
+          "direction": "B-reads-A",
+          "sessionOrg": "B",
+          "probeOwner": "A",
+          "probed": true,
+          "axisApplicable": true,
+          "http": null,
+          "control": {
+            "described": "the same scoped client resolves the caller's own evidence row",
+            "status": null,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "scopedDb({ orgId }).moderationRequest.findFirst({ where: { inputHash } }) returns nothing for the other org"
+          },
+          "checks": [
+            {
+              "name": "cross-org-moderation-evidence-not-resolvable",
+              "ok": true,
+              "detail": "scopedDb({ orgId }).moderationRequest must not resolve the probe org's evidence row"
+            },
+            {
+              "name": "control-own-moderation-evidence-resolved",
+              "ok": true,
+              "detail": "the caller's own evidence row must resolve, or the assertion above is vacuous"
+            },
+            {
+              "name": "moderation-listing-org-bounded",
+              "ok": true,
+              "detail": "a listing through the scoped client must contain only the caller's org"
+            },
+            {
+              "name": "recorded-foreign-probe-is-empty",
+              "ok": true,
+              "detail": "foreignVisible=false contradicts verdict foreign-probe-empty"
+            }
+          ],
+          "ok": true,
+          "error": null
+        }
+      ],
+      "ok": true
+    },
+    {
+      "path": "lib.moderation.policy-active",
+      "title": "Org-scoped moderation policy read",
+      "model": "ModerationPolicyVersion",
+      "verdict": "foreign-probe-empty",
+      "coverage": "asserted",
+      "module": "src/lib/tenancy/guard.ts",
+      "read": "scopedDb(orgScopeFor(org)).moderationPolicyVersion.findFirst",
+      "probeField": "version",
+      "probeInvoke": "Both orgs hold an ACTIVE policy at the same version number; the scoped read must resolve the caller's own, never the other org's.",
+      "http": null,
+      "notes": "Cross-tenant policy resolution would let one tenant's strictness profile decide another tenant's refusals. The probe seeds identical version numbers in both orgs so only the injected orgId can tell them apart.",
+      "directions": [
+        {
+          "direction": "A-reads-B",
+          "sessionOrg": "A",
+          "probeOwner": "B",
+          "probed": true,
+          "axisApplicable": true,
+          "http": null,
+          "control": {
+            "described": "the scoped client resolves this org's active policy",
+            "status": null,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "scopedDb({ orgId }).moderationPolicyVersion.findMany({ where: { note } }) sees only this org's versions"
+          },
+          "checks": [
+            {
+              "name": "cross-org-moderation-policy-not-resolvable",
+              "ok": true,
+              "detail": "an org-scoped policy read must resolve the caller's own policy, never the other org's"
+            },
+            {
+              "name": "moderation-policy-listing-org-bounded",
+              "ok": true,
+              "detail": "a policy listing through the scoped client must contain only the caller's org"
+            },
+            {
+              "name": "recorded-foreign-probe-is-empty",
+              "ok": true,
+              "detail": "foreignVisible=false contradicts verdict foreign-probe-empty"
+            }
+          ],
+          "ok": true,
+          "error": null
+        },
+        {
+          "direction": "B-reads-A",
+          "sessionOrg": "B",
+          "probeOwner": "A",
+          "probed": true,
+          "axisApplicable": true,
+          "http": null,
+          "control": {
+            "described": "the scoped client resolves this org's active policy",
+            "status": null,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "scopedDb({ orgId }).moderationPolicyVersion.findMany({ where: { note } }) sees only this org's versions"
+          },
+          "checks": [
+            {
+              "name": "cross-org-moderation-policy-not-resolvable",
+              "ok": true,
+              "detail": "an org-scoped policy read must resolve the caller's own policy, never the other org's"
+            },
+            {
+              "name": "moderation-policy-listing-org-bounded",
+              "ok": true,
+              "detail": "a policy listing through the scoped client must contain only the caller's org"
             },
             {
               "name": "recorded-foreign-probe-is-empty",

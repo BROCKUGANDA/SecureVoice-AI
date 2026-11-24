@@ -211,7 +211,7 @@ function Flow() {
               </div>
               <div className="flex-1 rounded-2xl border border-line bg-white p-5 transition hover:border-primary/30 sm:p-6">
                 <div className="flex flex-wrap items-center gap-3">
-                  <span className="num flex h-7 w-7 items-center justify-center rounded-lg bg-green-tint text-[11px] font-bold text-text-primary sm:hidden">
+                  <span className="num flex h-7 w-7 items-center justify-center rounded-lg bg-green-tint text-[11px] font-bold text-green-deep sm:hidden">
                     {f.n}
                   </span>
                   <h3 className="font-display text-[16.5px] font-semibold tracking-tight">
@@ -231,7 +231,7 @@ function Flow() {
                 </p>
                 <div className="mt-4 grid gap-3 lg:grid-cols-[1.2fr_0.8fr]">
                   <div className="rounded-xl border border-line bg-secondary px-4 py-3">
-                    <p className="micro !text-[8.5px] text-primary">
+                    <p className="micro text-[11px] text-primary">
                       {t("Script", "نص المكالمة", lang)}
                     </p>
                     <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-2">

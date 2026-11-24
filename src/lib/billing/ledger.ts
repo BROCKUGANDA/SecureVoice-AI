@@ -51,7 +51,14 @@ import "server-only";
 import type { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 
-export const LEDGER_KINDS = ["topup", "reserve", "consume", "release", "refund"] as const;
+export const LEDGER_KINDS = [
+  "topup",
+  "reserve",
+  "consume",
+  "release",
+  "refund",
+  "moderation",
+] as const;
 export type LedgerKind = (typeof LEDGER_KINDS)[number];
 
 export type LedgerEntry = {
@@ -82,15 +89,21 @@ const STORE_SIGN: Record<LedgerKind, 1 | -1> = {
   consume: 1,
   release: -1,
   refund: -1,
+  // Metering rows are stored as recorded magnitudes, so the signed journal
+  // total is auditable per-tenant without them pretending to be money moved.
+  moderation: 1,
 };
 
-/** Weight of each kind's stored value in `wallet` (prepaid, money-backed value). */
+/** Weight of each kind's stored value in `wallet` (prepaid, money-backed value).
+ * `moderation` is 0 by design: metering rows record usage, they never draw
+ * down a wallet (they are not `consume` — nothing is charged for a check). */
 const WALLET_WEIGHT: Record<LedgerKind, 1 | -1 | 0> = {
   topup: 1,
   reserve: 0,
   consume: -1,
   release: 0,
   refund: 1,
+  moderation: 0,
 };
 
 /** Weight of each kind's stored value in `held` (outstanding holds). */
@@ -100,6 +113,7 @@ const HELD_WEIGHT: Record<LedgerKind, 1 | -1 | 0> = {
   consume: -1,
   release: 1,
   refund: 0,
+  moderation: 0,
 };
 
 /**
@@ -113,6 +127,8 @@ const AVAILABLE_WEIGHT: Record<LedgerKind, 1 | -1 | 0> = {
   consume: 0,
   release: -1,
   refund: 1,
+  // Metering moves no money in any pool, so availability is untouched.
+  moderation: 0,
 };
 
 export type LedgerSnapshot = {
@@ -343,6 +359,11 @@ function guardFor(input: {
       return { pool: "wallet", units: n };
     case "topup":
       return null;
+    // Metering is never refused: a tenant with no funds still gets their
+    // moderation usage accounted for. With 0 weights everywhere it cannot
+    // move money even if a guard were declared.
+    case "moderation":
+      return null;
   }
 }
 
@@ -527,6 +548,55 @@ export async function consume(input: {
     reason: input.reason ?? null,
     idemKey: ledgerIdemKey(input.caseRef, attemptNo, "consume"),
     force: input.force,
+  });
+}
+
+/**
+ * Per-call moderation usage metering. Records a `moderation` row in the same
+ * journal — the billing-grade, idempotent surface the register's PLANNED #1
+ * asked for — that records usage WITHOUT charging it:
+ *
+ *   - `moderation` has 0 weight in wallet, held and available, so the row can
+ *     never draw down a wallet or move availability. It is deliberately not
+ *     `consume` (which bills by design).
+ *   - It has no guard, so a tenant with no funds still gets their usage
+ *     accounted for — metering is not a spend decision.
+ *   - Idempotency is on the call, not the money: the same (stage + trace)
+ *     re-recorded returns the original row instead of a second one, and the
+ *     memo (`moderation:{stage}:{verdict}`) keeps the reason greppable.
+ *
+ * Units are the metered content size. The vendor response carries no usable
+ * token count for the journal (`promptTokens` stays null upstream), so the
+ * caller's content length is the portable proxy — the same chars the
+ * evidence row's sample is derived from. Callers must not let this throw:
+ * metering never breaks moderation.
+ */
+export async function recordModerationUsage(input: {
+  orgId: string;
+  /** The moderation call's trace id. Distinct calls must carry distinct ids. */
+  traceId: string;
+  stage: string;
+  verdict: string;
+  units: number;
+  caseRef?: string | null;
+}): Promise<LedgerWrite> {
+  const orgId = assertOrgId(input.orgId);
+  const traceId = input.traceId?.trim() ?? "";
+  if (traceId === "") throw new TypeError("traceId is required for moderation metering");
+  const stage = input.stage?.trim() ?? "";
+  if (stage === "") throw new TypeError("stage is required for moderation metering");
+  const verdict = input.verdict?.trim() ?? "";
+  if (verdict === "") throw new TypeError("verdict is required for moderation metering");
+  const units = assertInt(input.units, "moderation.units");
+  if (units < 0) throw new RangeError("moderation.units may not be negative");
+  return append({
+    orgId,
+    caseRef: input.caseRef ?? null,
+    attemptNo: 1,
+    kind: "moderation",
+    units,
+    reason: `moderation:${stage}:${verdict}`,
+    idemKey: `moderation:${stage}:${traceId}`,
   });
 }
 

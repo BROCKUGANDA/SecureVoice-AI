@@ -6,6 +6,7 @@ import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { analyzeSentiment } from "@/lib/sentiment";
 import { draftAgentReply } from "@/lib/llm";
 import { auditAgentReply, auditUserInput } from "@/lib/compliance/policy";
+import { moderateContent, outcomeIsClean } from "@/lib/qwen3guard/moderate";
 import { verifyTwilioSignature } from "@/lib/twilio";
 import { db } from "@/lib/db";
 import { executeSoftFreeze } from "@/lib/ai/ai-authz";
@@ -666,10 +667,67 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  // STT CONFIDENCE GATE — never act on an uncertain transcription.
+  //
+  // Twilio supplies `Confidence` (0..1) with every speech turn; this route used
+  // to read it into the audit row and then ignore it, so a garbled "it's mine"
+  // on a noisy line could classify as `deny_fraud` and STAGE A CARD HOLD from
+  // nothing. A press (`Digits`) is unambiguous and skips this gate entirely.
+  // Below the threshold the consequential branch is skipped and the caller is
+  // asked the question again — the same reprompt the not-caught path uses —
+  // which is the register's "request clarification" answer for insufficient
+  // confidence.
+  const lowConfidence = !digits && speechResult.length > 0 && confidence > 0 && confidence < 0.45;
+  if (lowConfidence) {
+    logWarn("[twilio-turn] STT confidence below the consequential-action threshold", {
+      callSid: callSid || "unknown",
+      confidence,
+      threshold: 0.45,
+    });
+    try {
+      await auditAppend({
+        callRef: callSid || `tw-${Date.now()}`,
+        action: "consent",
+        intent: "stt_low_confidence",
+        callerId: callSid || "twilio",
+        redactedText: redactText(speechResult).slice(0, 240),
+        meta: { lang, confidence, threshold: 0.45, reprompted: true },
+      });
+    } catch {
+      // Audit failure must not turn a clarification into a hangup.
+    }
+    return new NextResponse(
+      `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="${voice}" language="${language}">${escapeXml(PROMPTS.notCaught[lang] ?? PROMPTS.notCaught.en)}</Say>${gather(voice, language, escapeXml(describeDtmfForSpeech("none", lang)), callSid, lang)}<Say voice="${voice}" language="${language}">${escapeXml(PROMPTS.goodbye[lang] ?? PROMPTS.goodbye.en)}</Say><Hangup/></Response>`,
+      { headers: { "Content-Type": "text/xml" } },
+    );
+  }
+
   // Classify intent
   const intent = classify(speechResult);
   const userInputAudit = auditUserInput(speechResult);
   const sentiment = analyzeSentiment(speechResult);
+
+  // MODEL-BASED INPUT MODERATION (Qwen3Guard). Layered after the deterministic
+  // screens: an UNSAFE transcript is recorded and keeps the reply on the
+  // deterministic scripted line (no draft, no LLM budget on refused content).
+  // A model-layer outage is the documented degraded mode — the deterministic
+  // classifier above and the compliance audit below remain the enforcement,
+  // and the outcome row carries its own `source`, never a fabricated Safe.
+  const orgForModeration = callSid
+    ? await db.case
+        .findFirst({ where: { callSid }, select: { orgId: true } })
+        .then((row) => row?.orgId ?? null)
+        .catch(() => null)
+    : null;
+  const inputModeration = await moderateContent({
+    stage: "input",
+    text: speechResult,
+    orgId: orgForModeration,
+    caseRef: callSid || null,
+    conversationId: callSid || null,
+  });
+  const inputUnsafe = inputModeration.source === "model" && !outcomeIsClean(inputModeration);
+
   // Determine if the call should end
   const endCall = intent === "deny_fraud" || intent === "confirm_authorized" || sentiment.escalate;
 
@@ -707,16 +765,34 @@ export async function POST(req: NextRequest) {
         .then((row) => row?.orgId ?? null)
         .catch(() => null)
     : null;
-  const drafted = await draftAgentReply({
-    text: speechResult,
-    lang: lang as "en" | "ar" | "hi" | "ur" | "fr" | "sw",
-    intent,
-    scriptedReply: scripted,
-    orgId: orgForKnowledge,
-  });
+  const drafted = inputUnsafe
+    ? null
+    : await draftAgentReply({
+        text: speechResult,
+        lang: lang as "en" | "ar" | "hi" | "ur" | "fr" | "sw",
+        intent,
+        scriptedReply: scripted,
+        orgId: orgForKnowledge,
+      });
+
+  // OUTPUT MODERATION — an unsafe draft never reaches the caller or the
+  // <Say> element; the scripted line is audited and spoken instead. Degraded
+  // mode keeps the draft under the deterministic compliance audit.
+  const outputModeration =
+    drafted != null
+      ? await moderateContent({
+          stage: "output",
+          text: drafted,
+          userText: speechResult,
+          orgId: orgForKnowledge,
+          caseRef: callSid || null,
+          conversationId: callSid || null,
+        })
+      : null;
+  const outputUnsafe = outputModeration != null && !outcomeIsClean(outputModeration);
 
   const audited = auditAgentReply({
-    reply: drafted ?? scripted,
+    reply: drafted != null && !outputUnsafe ? drafted : scripted,
     intent,
     isOpening: false, // opening was in the initial TwiML
     lang: lang as "en" | "ar" | "hi" | "ur" | "fr" | "sw",
@@ -764,6 +840,23 @@ export async function POST(req: NextRequest) {
         // inbound webhooks. So: audited, never refused, never punished here.
         injectionSuspicious: userInputAudit.suspicious,
         ...(userInputAudit.reason ? { injectionReason: userInputAudit.reason } : {}),
+        moderation: {
+          input: {
+            verdict: inputModeration.verdict,
+            source: inputModeration.source,
+            categories: inputModeration.categories,
+          },
+          ...(outputModeration
+            ? {
+                output: {
+                  verdict: outputModeration.verdict,
+                  source: outputModeration.source,
+                  categories: outputModeration.categories,
+                  discarded: outputUnsafe,
+                },
+              }
+            : {}),
+        },
         latencyMs: 0,
       },
     });

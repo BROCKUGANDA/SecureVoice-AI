@@ -132,7 +132,10 @@ describe("every declared flag is reachable from an env var", () => {
       // elevenLabsLive is the one deliberate exception: it also reads
       // ELEVENLABS_DRY_RUN, which is why the legacy override map exists.
       if (n === "elevenLabsLive") continue;
-      expect(describeFlag(n).envVar).toMatch(/^FEATURE_[A-Z_]+$/);
+      // Digits are allowed in the NAME segment: "qwen3guard" uppercases to
+      // FEATURE_QWEN3GUARD, and refusing a model version number in a flag name
+      // would push the version into prose instead.
+      expect(describeFlag(n).envVar).toMatch(/^FEATURE_[A-Z0-9_]+$/);
     }
   });
 
@@ -258,6 +261,7 @@ describe("the compliance invariants are not gated, and cannot be", () => {
         "consoleLiveFeed",
         "seedDemo",
         "twilioMediaStreams",
+        "qwen3guard",
       ]);
       const list = invariants();
       expect(list.map((i) => i.name).sort()).toEqual([

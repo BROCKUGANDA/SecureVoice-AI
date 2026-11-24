@@ -209,6 +209,18 @@ export const CANONICAL_READ_PATHS: readonly CanonicalReadPath[] = Object.freeze(
     obligation: "An org-scoped read of a payment record cannot resolve another org's settlement.",
   },
   {
+    id: "lib.moderation.evidence-by-id",
+    model: "ModerationRequest",
+    obligation:
+      "An org-scoped read of moderation evidence cannot resolve another org's classification history.",
+  },
+  {
+    id: "lib.moderation.policy-active",
+    model: "ModerationPolicyVersion",
+    obligation:
+      "An org's active moderation policy resolves under its own scope; another org's policy never decides its refusals.",
+  },
+  {
     id: "lib.payments.paddle-customer-by-id",
     model: "PaddleCustomer",
     obligation:
@@ -634,6 +646,40 @@ export const ISOLATION_MATRIX: readonly ReadPath[] = Object.freeze([
     coverage: "asserted",
     notes:
       "`UsageLedger` carries `orgId` and was missing from TENANTED_MODELS, so the guard refused it as `unregistered_model` and no caller could reach it through a scope at all — the org predicate was never injected because there was no predicate to inject. Registered, so `scopedDb(org).usageLedger.*` now works and the predicate is the guard's, not the caller's. The module-level functions in src/lib/billing/ledger.ts still read through the raw client with an explicit `orgId` filter; they are not the path under test here.",
+  },
+  {
+    id: "lib.moderation.evidence-by-id",
+    title: "Org-scoped moderation evidence read",
+    model: "ModerationRequest",
+    kind: "library",
+    module: "src/lib/tenancy/guard.ts",
+    read: "scopedDb(orgScopeFor(org)).moderationRequest.findFirst",
+    probe: {
+      field: "inputHash",
+      invoke:
+        "Read the other org's evidence row by its inputHash through this org's scoped client — must resolve to nothing.",
+    },
+    verdict: "foreign-probe-empty",
+    coverage: "asserted",
+    notes:
+      "`ModerationRequest` is tenant evidence (what a tenant's callers said, what their agent drafted). The operator analytics surface filters by the session org; the probe proves the scoped client itself cannot resolve a foreign row. Drivers seed their own rows so the probe is independent of fixture ordering.",
+  },
+  {
+    id: "lib.moderation.policy-active",
+    title: "Org-scoped moderation policy read",
+    model: "ModerationPolicyVersion",
+    kind: "library",
+    module: "src/lib/tenancy/guard.ts",
+    read: "scopedDb(orgScopeFor(org)).moderationPolicyVersion.findFirst",
+    probe: {
+      field: "version",
+      invoke:
+        "Both orgs hold an ACTIVE policy at the same version number; the scoped read must resolve the caller's own, never the other org's.",
+    },
+    verdict: "foreign-probe-empty",
+    coverage: "asserted",
+    notes:
+      "Cross-tenant policy resolution would let one tenant's strictness profile decide another tenant's refusals. The probe seeds identical version numbers in both orgs so only the injected orgId can tell them apart.",
   },
   {
     id: "lib.payments.record-by-reference",

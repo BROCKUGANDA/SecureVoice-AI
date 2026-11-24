@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import { motion } from "framer-motion";
 import { useSession } from "@/lib/auth-client";
 import {
@@ -293,7 +294,7 @@ function Runbook({ res }: { res: FireResponse }) {
   return (
     <div className="grid gap-5 lg:grid-cols-2">
       <div>
-        <p className="micro text-[9px] text-ink-3">
+        <p className="micro text-[11px] text-ink-3">
           {t("WHAT THE PLATFORM DID", "ما قامت المنصة به", lang)}
         </p>
         <ol className="mt-3 space-y-2.5">
@@ -316,7 +317,7 @@ function Runbook({ res }: { res: FireResponse }) {
         </ol>
       </div>
       <div>
-        <p className="micro text-[9px] text-ink-3">
+        <p className="micro text-[11px] text-ink-3">
           {t("YOUR ACTIONS NOW", "إجراءاتك الآن", lang)}
         </p>
         <ol className="mt-3 space-y-2.5">
@@ -916,13 +917,16 @@ export function Console() {
         <div>
           <div className="flex items-center gap-2.5">
             {branding?.orgLogoUrl ? (
-              <img
+              <Image
                 src={branding.orgLogoUrl}
                 alt={
                   branding.orgName
                     ? `${branding.orgName} ${t("logo", "الشعار", lang)}`
                     : t("Organization logo", "شعار المؤسسة", lang)
                 }
+                width={24}
+                height={24}
+                unoptimized
                 className="h-6 w-6 rounded-lg object-contain"
               />
             ) : (
@@ -962,16 +966,16 @@ export function Console() {
               🟡 {t("Demo Mode", "وضع العرض التجريبي", lang)}
             </span>
           )}
-          <CreditWidget initialCredits={credits ?? undefined} className="!text-[10.5px]" />
-          <Chip className="!text-[10.5px]">
+          <CreditWidget initialCredits={credits ?? undefined} className="text-[11px]" />
+          <Chip className="text-[11px]">
             <PhoneCall className="h-3 w-3 text-primary" /> {t("telephony", "الهاتف", lang)}:{" "}
             {status?.telephony ?? "…"}
           </Chip>
-          <Chip className="!text-[10.5px]">
+          <Chip className="text-[11px]">
             <Radio className="h-3 w-3 text-primary" /> {t("voice", "الصوت", lang)}:{" "}
             {status?.voiceProvider?.split(" ")[0] ?? "…"}
           </Chip>
-          <Chip className="!text-[10.5px]">
+          <Chip className="text-[11px]">
             <Siren className="h-3 w-3 text-primary" /> {t("ingest", "الاستلام", lang)}:{" "}
             {status?.ingest?.split(" ")[0] ?? "…"}
           </Chip>
@@ -1013,7 +1017,7 @@ export function Console() {
         )}
         {liveFeed.length > 0 && (
           <div className="mt-4 flex flex-wrap items-center gap-2">
-            <span className="micro flex items-center gap-1.5 text-[9px] text-primary">
+            <span className="micro flex items-center gap-1.5 text-[11px] text-primary">
               <LiveDot /> {t("LIVE PIPELINE", "المسار المباشر", lang)}
             </span>
             {liveFeed.map((line, i) => (
@@ -1035,7 +1039,7 @@ export function Console() {
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <span
             className={cn(
-              "micro rounded-full border px-2 py-1 text-[9px]",
+              "micro rounded-full border px-2 py-1 text-[11px]",
               feedConn.status === "live"
                 ? "border-green-tint text-primary"
                 : feedConn.status === "reconnecting"
@@ -1094,7 +1098,7 @@ export function Console() {
                   inputMode="tel"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label className="text-[11.5px] font-semibold">
                     {t("Language", "اللغة", lang)}
@@ -1123,7 +1127,7 @@ export function Console() {
                         onClick={() => setEnrollChannel(c)}
                         aria-pressed={enrollChannel === c}
                         className={cn(
-                          "flex-1 rounded-lg px-3 py-1.5 text-[12px] font-semibold transition",
+                          "flex-1 rounded-lg min-h-10 px-3 py-1.5 text-[12px] font-semibold transition",
                           enrollChannel === c ? "bg-primary text-white" : "text-ink-3",
                         )}
                       >
@@ -1203,7 +1207,7 @@ export function Console() {
                   aria-label={t("Risk score", "درجة الخطورة", lang)}
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label className="text-[11.5px] font-semibold">
                     {t("Channel", "القناة", lang)}
@@ -1240,7 +1244,7 @@ export function Console() {
                   </select>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label className="text-[11.5px] font-semibold">
                     {t(labels.amountLabel, labelsAr.amountLabel, lang)}
@@ -1321,7 +1325,7 @@ export function Console() {
               <div className="mt-5 space-y-5">
                 <div className="flex flex-wrap items-center justify-between gap-4">
                   <div>
-                    <p className="micro text-[9px] text-ink-3">
+                    <p className="micro text-[11px] text-ink-3">
                       {t("CASE REFERENCE", "مرجع الحالة", lang)}
                     </p>
                     <p className="num mt-1 text-xl font-semibold tracking-wider">{res.caseRef}</p>

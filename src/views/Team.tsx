@@ -22,6 +22,7 @@
  * gains a row one day.
  */
 
+import Image from "next/image";
 import { Instagram, Linkedin, Music2, ArrowUpRight } from "lucide-react";
 import { useApp, t } from "@/lib/store";
 import { Reveal } from "@/components/fx/core";
@@ -156,7 +157,7 @@ export function Team() {
                 title={
                   <span>
                     {t("FOUNDER", "مؤسس", lang)}
-                    <span className="ml-2 font-normal text-white/60">{m.name}</span>
+                    <span className="ml-2 font-normal text-ink-3">{m.name}</span>
                   </span>
                 }
               />
@@ -171,9 +172,16 @@ export function Team() {
                   monogram. The dashed ring says "a photo goes here" so the gap
                   reads as intentional.
                 */}
-                <span className="relative grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-2xl bg-paper ring-1 ring-dashed ring-line">
+                <span className="relative grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-2xl bg-paper border border-dashed border-line">
                   {m.image ? (
-                    <img src={m.image} alt={m.name} className="h-full w-full object-cover" />
+                    <Image
+                      src={m.image}
+                      alt={m.name}
+                      fill
+                      sizes="64px"
+                      unoptimized
+                      className="object-cover"
+                    />
                   ) : (
                     <span className="font-display text-[20px] font-semibold text-ink-3">
                       {initialsOf(m.name)}

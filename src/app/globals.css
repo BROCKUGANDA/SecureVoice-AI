@@ -172,6 +172,8 @@ html {
   color-scheme: only light;
   scrollbar-width: thin;
   scrollbar-color: #cdd4cb transparent;
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
 
   /*
    * Keep anchored scrolls out from under the sticky header.

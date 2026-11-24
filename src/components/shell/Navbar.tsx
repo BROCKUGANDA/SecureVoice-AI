@@ -222,7 +222,7 @@ export function Navbar() {
             <span className="whitespace-nowrap font-display text-[15px] font-semibold tracking-tight">
               SecureVoice <span className="text-primary">AI</span>
             </span>
-            <span className="micro mt-1 whitespace-nowrap text-[9px] text-ink-3">
+            <span className="micro mt-1 whitespace-nowrap text-[11px] text-ink-3">
               Fraud Intervention
             </span>
           </span>
@@ -239,7 +239,7 @@ export function Navbar() {
                   onClick={() => setView(n.id)}
                   aria-current={active ? "page" : undefined}
                   className={cn(
-                    "relative flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-1.5 text-[13px] font-medium transition-colors",
+                    "relative flex min-h-10 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-1.5 text-[13px] font-medium transition-colors",
                     active ? "text-white" : "text-ink-2 hover:text-foreground",
                   )}
                 >
@@ -272,7 +272,7 @@ export function Navbar() {
                 onClick={() => setLang(l)}
                 aria-pressed={lang === l}
                 className={cn(
-                  "relative rounded-full px-2.5 py-1 text-[11.5px] font-semibold transition-colors",
+                  "relative rounded-full min-h-10 px-3 py-1 text-[11.5px] font-semibold transition-colors",
                   // `ar` needs the Arabic webfont, and so does Urdu — that set
                   // lives in ARABIC_SCRIPT_LANGS, which already contains `ar`.
                   // The separate `l === "ar"` test this replaced was subsumed by
@@ -395,7 +395,7 @@ export function Navbar() {
                 ? t("Close menu", "إغلاق القائمة", lang)
                 : t("Open menu", "فتح القائمة", lang)
             }
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line bg-white text-ink-2 transition hover:border-primary/40 hover:text-primary md:hidden"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-line bg-white text-ink-2 transition hover:border-primary/40 hover:text-primary md:hidden"
           >
             {menuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
           </button>
@@ -463,7 +463,7 @@ export function Navbar() {
                     onClick={() => setLang(l)}
                     aria-pressed={lang === l}
                     className={cn(
-                      "rounded-full px-3 py-1 text-[11.5px] font-semibold transition-colors",
+                      "rounded-full min-h-10 px-3 py-1 text-[11.5px] font-semibold transition-colors",
                       ARABIC_SCRIPT_LANGS.includes(l) && "font-arabic",
                       lang === l ? "bg-primary text-white" : "text-ink-3 hover:text-foreground",
                     )}
